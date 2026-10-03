@@ -164,8 +164,8 @@ def check_online(cfg: Config, ai: bool = True) -> list[Check]:
 
                 cfg.require("tiktok_client_key", "tiktok_client_secret")
                 info = TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret,
-                                    cfg.tiktok_token_path).creator_info()
-                return f"compte {info.get('creator_nickname') or info.get('creator_username')}"
+                                    cfg.tiktok_token_path).user_info()
+                return f"compte {info.get('display_name', '?')} (envoi en brouillon)"
 
             out.append(_online("TikTok", tiktok))
         elif platform == "youtube":

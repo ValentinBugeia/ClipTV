@@ -214,7 +214,7 @@ def cmd_tiktok_auth(args, cfg: Config) -> int:
     client = TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret, cfg.tiktok_token_path)
     client.exchange_code(args.code, cfg.tiktok_redirect_uri)
     print(f"Token enregistré dans {cfg.tiktok_token_path}")
-    print(client.creator_info())
+    print(f"Compte TikTok : {client.user_info().get('display_name', '?')}")
     return 0
 
 

@@ -23,16 +23,20 @@ import requests
 
 API = "https://open.tiktokapis.com/v2"
 AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
-SCOPES = "user.info.basic,video.upload,video.publish"
+# draft (boîte de réception) : video.upload suffit ; direct : video.publish en plus.
+# Ne demander que ce que l'app TikTok possède, sinon TikTok refuse la connexion.
+SCOPES = "user.info.basic,video.upload"
+SCOPES_DIRECT = SCOPES + ",video.publish"
 
 MAX_SINGLE_CHUNK = 64 * 1024 * 1024
 CHUNK_SIZE = 10 * 1024 * 1024
 
 
-def authorize_url(client_key: str, redirect_uri: str, state: str | None = None) -> str:
+def authorize_url(client_key: str, redirect_uri: str, state: str | None = None,
+                  direct: bool = False) -> str:
     params = {
         "client_key": client_key,
-        "scope": SCOPES,
+        "scope": SCOPES_DIRECT if direct else SCOPES,
         "response_type": "code",
         "redirect_uri": redirect_uri,
         "state": state or secrets.token_urlsafe(16),
@@ -131,7 +135,19 @@ class TikTokClient:
             raise RuntimeError(f"Erreur TikTok {path} : {err or payload}")
         return payload.get("data", {})
 
+    def user_info(self) -> dict:
+        """Nom du compte connecté (scope user.info.basic, valable en mode brouillon)."""
+        resp = self.session.get(
+            f"{API}/user/info/", params={"fields": "open_id,display_name"},
+            headers={"Authorization": f"Bearer {self.access_token()}"}, timeout=15)
+        payload = resp.json()
+        err = payload.get("error", {})
+        if resp.status_code >= 400 or err.get("code") not in (None, "ok"):
+            raise RuntimeError(f"Erreur TikTok /user/info : {err or payload}")
+        return payload.get("data", {}).get("user", {})
+
     def creator_info(self) -> dict:
+        """Infos de publication directe (nécessite le scope video.publish)."""
         return self._post("/post/publish/creator_info/query/", {})
 
     def _upload(self, upload_url: str, video: Path, chunk_size: int, total: int) -> None:

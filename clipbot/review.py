@@ -759,7 +759,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         self.send_response(302)
         self.send_header("Location", authorize_url(cfg.tiktok_client_key,
                                                    cfg.tiktok_redirect_uri,
-                                                   state=self.app.oauth_state))
+                                                   state=self.app.oauth_state,
+                                                   direct=self.opts.mode == "direct"))
         self.send_header("Content-Length", "0")
         self.end_headers()
 

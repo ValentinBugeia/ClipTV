@@ -32,3 +32,16 @@ def test_chunk_plan():
     size = 100 * 1024 * 1024 + 123
     chunk, total = chunk_plan(size)
     assert chunk == 10 * 1024 * 1024 and total == 10
+
+
+def test_tiktok_scopes_match_mode():
+    import urllib.parse
+
+    from clipbot.tiktok import authorize_url
+
+    def scope(**kw):
+        q = urllib.parse.urlparse(authorize_url("k", "https://ex.com/cb", **kw)).query
+        return urllib.parse.parse_qs(q)["scope"][0]
+
+    assert scope() == "user.info.basic,video.upload"
+    assert scope(direct=True).endswith(",video.publish")

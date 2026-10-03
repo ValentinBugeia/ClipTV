@@ -258,3 +258,10 @@ def test_manual_mode_setting(server):
                                    ("post_slots", "18:00")]).encode()
     _post(base + "/auto", data)
     assert state.get_settings()["then"] == "manual"
+
+
+def test_accounts_page_in_manual_mode(server):
+    base, state = server
+    state.save_settings({"then": "manual"})
+    body = urllib.request.urlopen(base + "/accounts").read().decode()
+    assert "Pas nécessaire en mode" in body and 'href="/connect/tiktok"' not in body

@@ -580,8 +580,11 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 
     # ---------- page Comptes ----------
     def _accounts_page(self):
+        from .autopilot import load_settings
+
         cfg = self.cfg
         rows = []
+        manual = load_settings(self.state, cfg).get("then") == "manual"
 
         others: list[str] = []  # plateformes désactivées, repliées en bas
 
@@ -634,6 +637,12 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                         'style="margin-top:8px"><input name="code" required '
                         'placeholder="https://…/callback?code=…" autocomplete="off">'
                         '<button class="small">Valider</button></form>')
+                if manual and not ok:  # aucune connexion nécessaire pour publier soi-même
+                    detail = ("Pas nécessaire en mode « je publie moi-même » : télécharge "
+                              "chaque clip depuis l'onglet Clips. (La publication "
+                              "automatique demande le produit Content Posting API avec le "
+                              "scope video.upload dans ton app TikTok.)")
+                    action = ""
                 row("TikTok", "✅" if ok else "—", detail, action, dest)
             elif platform == "youtube":
                 keys = bool(cfg.youtube_client_id and cfg.youtube_client_secret)

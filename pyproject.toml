@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clipbot"
-version = "0.2.0"
-description = "Clips Twitch viraux → format vertical sous-titré → TikTok"
+version = "0.3.0"
+description = "Clips Twitch viraux → vidéos verticales sous-titrées → TikTok, YouTube Shorts, Reels"
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.31",
     "yt-dlp>=2024.1.0",
     "faster-whisper>=1.0",
     "python-dotenv>=1.0",
+    "tzdata",  # fuseaux horaires (Windows, images Docker minimales)
 ]
 
 [project.optional-dependencies]

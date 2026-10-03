@@ -33,6 +33,32 @@ class Config:
 
     llm_model: str = field(default_factory=lambda: _env("CLIPBOT_LLM_MODEL", "claude-opus-5-5"))
 
+    youtube_client_id: str | None = field(default_factory=lambda: _env("YOUTUBE_CLIENT_ID"))
+    youtube_client_secret: str | None = field(
+        default_factory=lambda: _env("YOUTUBE_CLIENT_SECRET"))
+    youtube_privacy: str = field(default_factory=lambda: _env("YOUTUBE_PRIVACY", "private"))
+
+    instagram_user_id: str | None = field(default_factory=lambda: _env("INSTAGRAM_USER_ID"))
+    instagram_access_token: str | None = field(
+        default_factory=lambda: _env("INSTAGRAM_ACCESS_TOKEN"))
+    # graph.instagram.com (Instagram Login) ou graph.facebook.com (Facebook Login)
+    instagram_graph_host: str = field(
+        default_factory=lambda: _env("INSTAGRAM_GRAPH_HOST", "graph.instagram.com"))
+
+    # plateformes de publication, séparées par des virgules : tiktok,youtube,instagram
+    platforms: list[str] = field(default_factory=lambda: [
+        p.strip().lower() for p in _env("CLIPBOT_PLATFORMS", "tiktok").split(",") if p.strip()])
+    # créneaux de publication (heure locale) pour les clips programmés
+    post_slots: list[str] = field(default_factory=lambda: [
+        s.strip() for s in _env("CLIPBOT_POST_SLOTS", "12:30,18:00,21:00").split(",")
+        if s.strip()])
+    timezone: str = field(default_factory=lambda: _env("CLIPBOT_TIMEZONE", "Europe/Paris"))
+
+    # protège l'interface de revue (obligatoire si elle est exposée sur un serveur)
+    review_user: str = field(default_factory=lambda: _env("CLIPBOT_REVIEW_USER", "admin"))
+    review_password: str | None = field(
+        default_factory=lambda: _env("CLIPBOT_REVIEW_PASSWORD"))
+
     data_dir: Path = field(default_factory=lambda: Path(_env("CLIPBOT_DATA_DIR", "data")))
 
     @property
@@ -54,6 +80,14 @@ class Config:
     @property
     def tiktok_token_path(self) -> Path:
         return self.data_dir / "tiktok_token.json"
+
+    @property
+    def youtube_token_path(self) -> Path:
+        return self.data_dir / "youtube_token.json"
+
+    @property
+    def instagram_token_path(self) -> Path:
+        return self.data_dir / "instagram_token.json"
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.downloads_dir, self.output_dir):

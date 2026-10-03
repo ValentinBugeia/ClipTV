@@ -105,6 +105,7 @@ def read_chat(channel: str, *, timeout: float = 1.0) -> Iterator[tuple[float, st
     puisse vérifier le détecteur même sans nouveau message.
     """
     while True:
+        sock = None
         try:
             sock = socket.create_connection((IRC_HOST, IRC_PORT), timeout=30)
             sock.settimeout(timeout)
@@ -133,3 +134,6 @@ def read_chat(channel: str, *, timeout: float = 1.0) -> Iterator[tuple[float, st
         except (OSError, ConnectionError) as exc:
             log.warning("Chat déconnecté (%s), reconnexion dans 5 s", exc)
             time.sleep(5)
+        finally:  # aussi quand l'appelant arrête la lecture (generator.close())
+            if sock is not None:
+                sock.close()

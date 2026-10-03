@@ -1,4 +1,5 @@
 import threading
+import urllib.parse
 import urllib.error
 import urllib.request
 
@@ -46,3 +47,110 @@ def test_reject(server):
     urllib.request.urlopen(urllib.request.Request(base + "/reject/abc", data=data))
     row = state.get("abc")
     assert row["status"] == "rejected" and row["caption"] == "nouvelle légende"
+
+
+def _post(url, data=b"caption=ok"):
+    return urllib.request.urlopen(urllib.request.Request(url, data=data))
+
+
+def test_schedule_then_cancel(server):
+    base, state = server
+    body = _post(base + "/schedule/abc").read().decode()
+    assert "Programmé pour" in body
+    assert state.get("abc")["status"] == "scheduled" and state.get("abc")["scheduled_at"]
+    _post(base + "/unschedule/abc")
+    assert state.get("abc")["status"] == "rendered"
+
+
+def test_publish_now(server, monkeypatch):
+    from clipbot import pipeline
+
+    monkeypatch.setattr(pipeline, "publish_to", lambda p, *a: f"{p}-1")
+    base, state = server
+    body = _post(base + "/publish/abc").read().decode()
+    assert "Publié sur" in body
+    assert state.get("abc")["status"] == "published"
+    body = _post(base + "/publish/abc").read().decode()
+    assert "déjà publié" in body
+
+
+def test_password(tmp_path):
+    cfg = Config()
+    cfg.data_dir = tmp_path
+    cfg.review_user, cfg.review_password = "admin", "s3cret"
+    srv = make_server(cfg, Options(), port=0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}/"
+    try:
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(base)
+        assert exc.value.code == 401
+        import base64
+        auth = base64.b64encode(b"admin:s3cret").decode()
+        req = urllib.request.Request(base, headers={"Authorization": f"Basic {auth}"})
+        assert urllib.request.urlopen(req).status == 200
+    finally:
+        srv.shutdown()
+
+
+def test_search_from_browser(server, monkeypatch):
+    import time
+
+    from clipbot import review
+
+    seen = {}
+
+    def fake_search(job, cfg, state, opts, channels, hours, top):
+        seen.update(channels=channels, hours=hours, top=top, schedule=opts.schedule,
+                    ai=opts.ai_caption)
+        return "Recherche terminée : 2 clip(s) prêt(s)"
+
+    monkeypatch.setattr(review, "run_search", fake_search)
+    base, _ = server
+    body = _post(base + "/search",
+                 b"channels=Kamet0%2C+zerator&hours=72&top=2&then=schedule&ai=1").read().decode()
+    assert "Recherche lancée" in body
+    for _ in range(50):
+        status = urllib.request.urlopen(base + "/status").read().decode()
+        if '"running": false' in status:
+            break
+        time.sleep(0.05)
+    assert "Recherche terminée : 2 clip(s) prêt(s)" in status
+    assert seen == {"channels": ["kamet0", "zerator"], "hours": 72.0, "top": 2,
+                    "schedule": True, "ai": True}
+
+
+def test_search_rejects_bad_channel(server):
+    base, _ = server
+    body = _post(base + "/search", b"channels=%3Cscript%3E").read().decode()
+    assert "noms de chaînes Twitch valides" in body
+
+
+def test_auto_settings_saved_and_validated(server):
+    base, state = server
+    data = urllib.parse.urlencode([
+        ("channels", "Kamet0, zerator"), ("live_channels", "gotaga"), ("every", "30"),
+        ("hours", "72"), ("top", "3"), ("min_views", "100"), ("then", "schedule"),
+        ("ratio", "2.0"), ("post_slots", "12:00, 19:30"), ("max_queue", "0"),
+        ("platforms", "tiktok"), ("platforms", "youtube"), ("ai_caption", "1")]).encode()
+    body = _post(base + "/auto", data).read().decode()
+    assert "Réglages enregistrés" in body and "kamet0, zerator" in body
+    s = state.get_settings()
+    assert s["channels"] == ["kamet0", "zerator"] and s["live_channels"] == ["gotaga"]
+    assert s["platforms"] == ["tiktok", "youtube"] and s["post_slots"] == ["12:00", "19:30"]
+    assert s["every"] == 30 and s["ai_caption"] is True
+
+    bad = data.replace(b"19%3A30", b"19h30")
+    assert "Réglage invalide" in _post(base + "/auto", bad).read().decode()
+    assert state.get_settings()["post_slots"] == ["12:00", "19:30"]
+
+    body = _post(base + "/auto/toggle", b"enabled=1").read().decode()
+    assert "activé" in body and state.get_settings()["enabled"] is True
+
+
+def test_pages_render(server):
+    base, _ = server
+    for path in ("/auto", "/accounts", "/?s=scheduled", "/favicon.svg"):
+        assert urllib.request.urlopen(base + path).status == 200
+    body = urllib.request.urlopen(base + "/accounts").read().decode()
+    assert "Twitch (lecture des clips)" in body and "Tout vérifier" in body

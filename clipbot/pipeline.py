@@ -1,15 +1,21 @@
-"""Traitement complet d'un clip : téléchargement → cadrage → sous-titres → légende → rendu → TikTok."""
+"""Traitement complet d'un clip : téléchargement → cadrage → sous-titres → légende → rendu
+→ publication (TikTok, YouTube Shorts, Instagram Reels), immédiate ou programmée."""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
 from .state import State
 
 log = logging.getLogger("clipbot")
+
+# un seul rendu à la fois (Whisper + ffmpeg) : le pilote auto, les lives et les recherches
+# lancées depuis le navigateur peuvent tourner en même temps sur un petit serveur
+_render_lock = threading.Lock()
 
 
 @dataclass
@@ -23,9 +29,11 @@ class Options:
     max_duration: float = 60.0
     caption_template: str = "{title} 🎮 @{channel_tag} sur Twitch #twitch #clip #fyp"
     ai_caption: bool = False
-    publish: bool = False
-    mode: str = "draft"             # draft | direct
-    privacy: str = "SELF_ONLY"
+    publish: bool = False           # publie tout de suite après le rendu
+    schedule: bool = False          # programme sur le prochain créneau libre
+    platforms: list[str] = field(default_factory=list)  # vide = cfg.platforms
+    mode: str = "draft"             # TikTok : draft | direct
+    privacy: str = "SELF_ONLY"      # TikTok, publication directe
 
 
 def template_caption(template: str, clip) -> str:
@@ -87,17 +95,72 @@ def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
     return template_caption(opts.caption_template, clip)
 
 
-def publish(path: Path, caption: str, cfg: Config, opts: Options) -> str:
-    from .tiktok import TikTokClient
+PLATFORMS = ("tiktok", "youtube", "instagram")
 
-    cfg.require("tiktok_client_key", "tiktok_client_secret")
-    tiktok = TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret, cfg.tiktok_token_path)
-    publish_id = tiktok.publish(path, caption=caption, mode=opts.mode, privacy_level=opts.privacy)
-    result = tiktok.wait(publish_id)
-    log.info("TikTok : %s", result.get("status"))
-    if result.get("status") == "FAILED":
-        raise RuntimeError(result.get("fail_reason", "publication échouée"))
-    return publish_id
+
+def publish_to(platform: str, path: Path, caption: str, cfg: Config, opts: Options) -> str:
+    """Publie une vidéo sur une plateforme. Retourne l'identifiant du post."""
+    if platform == "tiktok":
+        from .tiktok import TikTokClient
+
+        cfg.require("tiktok_client_key", "tiktok_client_secret")
+        tiktok = TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret,
+                              cfg.tiktok_token_path)
+        publish_id = tiktok.publish(path, caption=caption, mode=opts.mode,
+                                    privacy_level=opts.privacy)
+        result = tiktok.wait(publish_id)
+        log.info("TikTok : %s", result.get("status"))
+        if result.get("status") == "FAILED":
+            raise RuntimeError(result.get("fail_reason", "publication échouée"))
+        return publish_id
+    if platform == "youtube":
+        from .youtube import YouTubeClient
+
+        cfg.require("youtube_client_id", "youtube_client_secret")
+        yt = YouTubeClient(cfg.youtube_client_id, cfg.youtube_client_secret,
+                           cfg.youtube_token_path)
+        video_id = yt.upload(path, caption=caption, privacy=cfg.youtube_privacy)
+        log.info("YouTube : https://youtube.com/shorts/%s (%s)", video_id, cfg.youtube_privacy)
+        return video_id
+    if platform == "instagram":
+        from .instagram import InstagramClient
+
+        ig = InstagramClient(cfg.instagram_token_path, user_id=cfg.instagram_user_id,
+                             access_token=cfg.instagram_access_token,
+                             host=cfg.instagram_graph_host)
+        media_id = ig.publish_reel(path, caption=caption)
+        log.info("Instagram : Reel publié (%s)", media_id)
+        return media_id
+    raise ValueError(f"Plateforme inconnue : {platform} (choix : {', '.join(PLATFORMS)})")
+
+
+def publish_clip(clip_id: str, cfg: Config, state: State, opts: Options) -> list[str]:
+    """Publie un clip déjà réservé (``state.claim``) sur toutes les plateformes.
+
+    Les plateformes déjà réussies lors d'une tentative précédente sont sautées.
+    Retourne la liste des erreurs (vide si tout est publié).
+    """
+    clip = state.get(clip_id)
+    path, caption = Path(clip["output_path"]), clip["caption"] or ""
+    done = state.posts(clip_id)
+    errors, tiktok_id = [], None
+    for platform in opts.platforms or cfg.platforms:
+        if done.get(platform, {}).get("status") == "ok":
+            continue
+        try:
+            post_id = publish_to(platform, path, caption, cfg, opts)
+        except (Exception, SystemExit) as exc:  # SystemExit : config/token manquant
+            log.exception("Publication %s échouée pour %s", platform, clip_id)
+            state.record_post(clip_id, platform, "failed", error=str(exc))
+            errors.append(f"{platform} : {exc}")
+            continue
+        state.record_post(clip_id, platform, "ok", post_id=post_id)
+        if platform == "tiktok":
+            tiktok_id = post_id
+    status = "failed" if errors else "published"
+    state.record(clip_id, clip["channel"], status, publish_id=tiktok_id,
+                 error=" | ".join(errors) or None)
+    return errors
 
 
 def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options) -> bool:
@@ -108,14 +171,46 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options) -
     try:
         src = download_clip(clip.url, cfg.downloads_dir, clip.id)
         dst = cfg.output_dir / f"{channel}_{clip.id}.mp4"
-        _, words = render_video(src, dst, cfg, opts)
+        with _render_lock:
+            _, words = render_video(src, dst, cfg, opts)
         caption = make_caption(clip, words, cfg, opts)
         state.record(clip.id, channel, "rendered", output_path=str(dst), caption=caption, **meta)
-        if opts.publish:
-            publish_id = publish(dst, caption, cfg, opts)
-            state.record(clip.id, channel, "published", publish_id=publish_id, **meta)
-        return True
     except Exception as exc:  # on continue avec les autres clips
         log.exception("Échec pour %s", clip.id)
         state.record(clip.id, channel, "failed", error=str(exc), **meta)
         return False
+    if opts.publish:
+        state.claim(clip.id)
+        return not publish_clip(clip.id, cfg, state, opts)
+    if opts.schedule:
+        from .schedule import format_when, schedule_clip
+
+        when = schedule_clip(state, cfg, clip.id)
+        log.info("Programmé pour %s", format_when(int(when.timestamp()), cfg.timezone))
+    return True
+
+
+def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, twitch, *,
+                 hours: float = 24, top: int = 3, min_views: int = 50) -> list[tuple[str, bool]]:
+    """Traite les clips les plus viraux de chaque chaîne. Retourne [(clip_id, succès)]."""
+    from .twitch import rank_clips
+
+    results = []
+    for channel in channels:
+        log.info("== %s ==", channel)
+        broadcaster_id = twitch.get_broadcaster_id(channel)
+        clips = twitch.get_clips(broadcaster_id, since_hours=hours)
+        ranked = [c for c in rank_clips(clips, min_views=min_views,
+                                        max_duration=opts.max_duration)
+                  if not state.is_done(c.id)]
+        log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
+        for clip in ranked[:top]:
+            log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
+                     clip.virality(), clip.url)
+            try:
+                ok = process_clip(clip, channel, cfg, state, opts)
+            except Exception:  # erreur réseau Twitch etc. : on passe à la suite
+                log.exception("Erreur sur %s", clip.id)
+                ok = False
+            results.append((clip.id, ok))
+    return results

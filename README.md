@@ -1,117 +1,143 @@
 # cliptv (`clipbot`)
 
-Récupère automatiquement les clips **les plus viraux** d'une ou plusieurs chaînes Twitch,
-les convertit au **format téléphone 9:16** avec des **sous-titres animés** (style TikTok,
-mot en cours surligné) et les **publie sur TikTok** via l'API officielle.
+Une app web qui tourne **toute seule, de A à Z** :
 
-Deux façons de trouver les clips :
-- **`run`** : prend les clips existants les plus vus (vues/heure) sur les dernières 24 h ;
-- **`watch`** : surveille le **chat d'un live** et crée automatiquement un clip quand le chat
-  explose (emotes, "KEKW", "mdr", MAJUSCULES…), puis le traite dans la foulée.
+1. trouve les clips **les plus viraux** des chaînes Twitch que tu suis, et clippe
+   automatiquement les **moments forts des lives** (quand le chat s'emballe) ;
+2. les monte au **format téléphone 9:16**, cadrés sur la facecam, avec des
+   **sous-titres animés** (style TikTok, mot en cours surligné) ;
+3. écrit l'**accroche et les hashtags** avec Claude ;
+4. les publie sur **TikTok, YouTube Shorts et Instagram Reels** aux **heures de forte
+   audience** que tu as choisies.
 
-Les vidéos rendues passent par une **interface web de revue** (`clipbot review`) où tu
-valides/modifies la légende avant d'envoyer sur TikTok — ou partent directement avec `--publish`.
+Tout se pilote **depuis le navigateur**, sur ordinateur comme sur téléphone : réglages,
+suivi en direct, connexion des comptes, et si tu veux, validation ou annulation d'un clip.
 
 ```
-Twitch Helix API ──► classement viralité ──► yt-dlp ──► faster-whisper ──► ffmpeg 9:16 + ASS ──► TikTok Content Posting API
-   (clips 24h)        (vues / heure)        (mp4)      (mots horodatés)    (blur / crop / split)    (brouillon ou direct)
+Twitch (clips + chat des lives) ─► yt-dlp ─► cadrage visage ─► Whisper ─► ffmpeg 9:16 + sous-titres
+        ─► légende Claude ─► programmation sur créneaux ─► TikTok · YouTube Shorts · Instagram Reels
 ```
 
-## Installation
+## Démarrage rapide (serveur, 24 h/24)
+
+Sur un petit serveur Linux (VPS à quelques €/mois, 2 Go de RAM minimum) avec Docker :
+
+```bash
+git clone https://github.com/ValentinBugeia/cliptv && cd cliptv
+cp .env.example .env      # remplis au moins CLIPBOT_REVIEW_PASSWORD et les clés Twitch
+docker compose up -d      # → http://<ip-du-serveur>:8000
+```
+
+Avec un nom de domaine (DNS pointé vers le serveur), ajoute `CLIPBOT_DOMAIN=clips.mondomaine.fr`
+et `CLIPBOT_BIND=127.0.0.1` dans `.env`, puis :
+
+```bash
+docker compose --profile https up -d   # → https://clips.mondomaine.fr (certificat automatique)
+```
+
+Ensuite, **tout se passe dans le navigateur** :
+
+- **Comptes** : connecte Twitch, TikTok, YouTube et Instagram en un clic (ou en entrant un
+  code), puis « Tout vérifier » teste chaque connexion pour de vrai ;
+- **Pilote auto** : choisis les chaînes, les lives à surveiller, les plateformes et les
+  heures de publication. Il est **activé par défaut** ;
+- **Clips** : suis ce qui est prêt, programmé ou publié, modifie une légende, annule un
+  clip, ou lance une recherche ponctuelle.
+
+> 🔒 L'interface est protégée par le mot de passe `CLIPBOT_REVIEW_PASSWORD` (utilisateur
+> `admin`). Ne l'expose jamais sur Internet sans mot de passe, et utilise le HTTPS.
+
+Mise à jour : `git pull && docker compose up -d --build`. L'image est aussi publiée sur
+`ghcr.io/valentinbugeia/cliptv` à chaque push sur `main` (`docker compose pull` suffit
+alors ; rends le paquet public dans GitHub, ou fais `docker login ghcr.io`).
+
+## Clés API (à mettre dans `.env`)
+
+| Service | Où | Variables |
+|---|---|---|
+| **Twitch** (obligatoire) | https://dev.twitch.tv/console/apps → app « Confidential » | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` |
+| **TikTok** | https://developers.tiktok.com → Login Kit + Content Posting API, scopes `video.upload` (+ `video.publish`) | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI=https://<domaine>/tiktok/callback` |
+| **YouTube** | console Google Cloud → API YouTube Data v3 → identifiants OAuth de type « TV et appareils à entrée limitée » | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_PRIVACY` |
+| **Instagram** | compte **professionnel** + app Meta (produit Instagram, `instagram_business_content_publish`) → token longue durée à coller dans la page Comptes | — |
+| **Claude** (légendes) | https://console.anthropic.com | `ANTHROPIC_API_KEY` |
+
+> ⚠️ **TikTok** : tant que l'app n'a pas passé l'**audit**, la publication directe est forcée
+> en privé. Le mode par défaut (`draft`) envoie la vidéo dans ta boîte de réception TikTok :
+> tu la publies d'un tap, ce qui marche sans audit. **YouTube** publie en `private` par défaut
+> (`YOUTUBE_PRIVACY=public` une fois que tu es satisfait).
+
+## Comment marche le pilote automatique
+
+- Toutes les N minutes (réglable), il prend les clips des dernières 24 h classés par
+  **vues/heure**, ignore ceux déjà traités et ceux sous le seuil de vues.
+- Pour les lives surveillés, il lit le chat et crée un clip dès que l'activité dépasse
+  x3 la normale (emotes, « KEKW », « mdr », MAJUSCULES…), puis le traite aussitôt.
+- Chaque clip est placé sur le **prochain créneau libre** (par défaut 12:30, 18:00 et
+  21:00, heure de Paris). Il ne remplit pas la file au-delà de 2 jours de créneaux, pour
+  ne publier que des clips frais.
+- Si une plateforme échoue, le clip passe dans « Erreurs » : « Réessayer » ne republie
+  **que** sur les plateformes manquantes.
+
+## En local / ligne de commande
 
 Prérequis : Python ≥ 3.10 et **ffmpeg** (avec libass, inclus dans les builds standard).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[all,dev]"   # all = opencv (cadrage visage) + anthropic (légendes IA)
-cp .env.example .env   # puis remplis les clés
+pip install -e ".[all,dev]"
+cp .env.example .env
+clipbot doctor            # vérifie ffmpeg, la police, les clés et chaque connexion
+clipbot app               # interface + pilote auto → http://localhost:8000
 ```
 
-Police des sous-titres : dépose `Montserrat-Black.ttf` dans `fonts/` (sinon police de repli).
+Police des sous-titres : dépose `Montserrat-Black.ttf` dans `fonts/` (incluse dans l'image Docker).
 
-## Clés API
-
-**Twitch** — https://dev.twitch.tv/console/apps → nouvelle app → `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`.
-Le token "app" (client credentials) suffit pour lire les clips publics.
-
-Pour `watch` (création de clips), connecte aussi ton compte Twitch (scope `clips:edit`) :
-`clipbot twitch-auth` puis valide le code affiché sur twitch.tv/activate.
-
-**Claude** (optionnel, `--ai-caption`) — `ANTHROPIC_API_KEY` ou `ant auth login`. Génère une
-accroche + hashtags à partir de la transcription (modèle : `CLIPBOT_LLM_MODEL`).
-
-**TikTok** — https://developers.tiktok.com → crée une app, ajoute **Login Kit** et
-**Content Posting API**, scopes `video.upload` (+ `video.publish` pour la publication directe),
-et déclare ton `TIKTOK_REDIRECT_URI`. Puis :
+Toutes les étapes existent aussi en commandes, pour les scripts et le cron :
 
 ```bash
-clipbot tiktok-auth              # affiche l'URL d'autorisation
-clipbot tiktok-auth --code XXXX  # échange le code -> data/tiktok_token.json (refresh auto)
+clipbot run -c kamet0 -c zerator --top 3 --ai-caption --schedule   # clips viraux → programmés
+clipbot run --every 60 --schedule                                  # en boucle (CLIPBOT_CHANNELS)
+clipbot watch kamet0 gotaga --forever --schedule                   # plusieurs lives en parallèle
+clipbot publisher                                                  # publie aux créneaux
+clipbot render mon_clip.mp4 --layout auto                          # test du rendu sur un fichier
+clipbot twitch-auth | tiktok-auth | youtube-auth | instagram-auth --token …
 ```
-
-> ⚠️ Tant que l'app TikTok n'a pas passé l'**audit**, la publication directe est forcée en
-> privé (`SELF_ONLY`). Le mode `--mode draft` (par défaut) envoie la vidéo dans ta boîte de
-> réception TikTok : tu la publies d'un tap depuis l'app, ce qui marche sans audit.
-
-## Utilisation
-
-```bash
-# Tester le rendu sur un fichier local
-clipbot render mon_clip.mp4 --layout blur --language fr
-
-# Les 3 clips les plus viraux des dernières 24h, rendus dans data/output/ (sans publier)
-clipbot run -c kamet0 -c zerator --hours 24 --top 3 --language fr
-
-# Valider les clips rendus dans le navigateur, puis publier d'un clic
-clipbot review            # http://localhost:8000
-
-# Ou envoi direct en brouillon TikTok, avec légende générée par Claude
-clipbot run -c kamet0 --top 2 --ai-caption --publish --mode draft
-
-# Pendant un live : clippe automatiquement les pics de chat
-clipbot watch kamet0 --ratio 3 --cooldown 120 --ai-caption
-```
-
-Options utiles :
 
 | Option | Effet |
 |---|---|
-| `--layout auto` | (défaut) détecte le visage : facecam → `split`, caméra plein écran → `crop` centré sur le visage, sinon `blur` |
-| `--layout blur` | vidéo 16:9 centrée sur fond flouté |
-| `--layout crop` | recadrage plein écran sur le centre |
-| `--layout split` | facecam en haut (coin haut-droit si non détectée), jeu en bas |
+| `--layout auto` | (défaut) facecam détectée → `split`, caméra plein écran → `crop` centré sur le visage, sinon `blur` |
+| `--platform/-p` | `tiktok`, `youtube`, `instagram` (répétable ; défaut `CLIPBOT_PLATFORMS`) |
+| `--publish` / `--schedule` | publie tout de suite / programme sur le prochain créneau |
 | `--ai-caption` | légende (accroche + hashtags) générée par Claude |
-| `watch --ratio 3` | déclenche quand le chat est 3x plus actif que la normale |
-| `--min-views N` | ignore les clips avec moins de N vues |
-| `--caption "…"` | légende TikTok, variables `{title}` `{channel}` `{channel_tag}` `{clipper}` |
-| `--highlight "#FFE600"` | couleur du mot surligné |
-| `--no-subs` | pas de sous-titres |
+| `--mode draft\|direct` | TikTok : boîte de réception ou publication directe |
+| `--caption "…"` | légende modèle : `{title}` `{channel}` `{channel_tag}` `{clipper}` |
+| `--no-subs`, `--highlight "#FFE600"`, `--language fr` | sous-titres |
 
-Un historique SQLite (`data/state.sqlite3`) évite de retraiter/republier deux fois le même clip.
-
-### Automatisation
-
-- **Cron local** : `0 */6 * * * cd /chemin && .venv/bin/clipbot run -c kamet0 --publish`
-- **GitHub Actions** : `.github/workflows/clipbot.yml` (déclenchement manuel, schedule à
-  décommenter). Secrets : `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TIKTOK_CLIENT_KEY`,
-  `TIKTOK_CLIENT_SECRET`, `TIKTOK_REFRESH_TOKEN` (le `refresh_token` de `data/tiktok_token.json`).
+Un historique SQLite (`data/state.sqlite3`) évite de retraiter ou republier un clip, et
+garde les réglages faits dans l'interface.
 
 ## Structure
 
 ```
 clipbot/
+  review.py     interface web (Clips, Pilote auto, Comptes) — stdlib uniquement
+  autopilot.py  pilote automatique (recherche périodique + surveillance des lives)
+  schedule.py   créneaux de publication + planificateur
+  pipeline.py   traitement d'un clip et publication multi-plateformes
+  watcher.py    surveillance d'un live (attente, chat, création de clips)
   twitch.py     API Helix, viralité, token utilisateur (device flow), création de clips
   live.py       lecture du chat IRC + détecteur de pics
   facecam.py    détection du visage (OpenCV) et choix du cadrage
-  captions.py   légendes IA (Claude, sortie JSON structurée)
-  pipeline.py   traitement complet d'un clip
-  review.py     interface web de validation (stdlib)
-  download.py   téléchargement des clips (yt-dlp)
-  subtitles.py  transcription faster-whisper + génération ASS karaoké
+  subtitles.py  transcription faster-whisper + sous-titres ASS karaoké
   render.py     filtergraph ffmpeg 9:16 (blur / crop / split) + incrustation
-  tiktok.py     OAuth + upload chunké + publication / brouillon + suivi du statut
-  state.py      historique SQLite
-  cli.py        commandes `run`, `watch`, `render`, `review`, `twitch-auth`, `tiktok-auth`
+  captions.py   légendes IA (Claude, sortie JSON structurée)
+  tiktok.py     TikTok : OAuth, upload chunké, brouillon / publication
+  youtube.py    YouTube Shorts : device flow Google, upload resumable
+  instagram.py  Instagram Reels : upload resumable, publication
+  doctor.py     diagnostic de l'installation et des connexions
+  state.py      historique SQLite + réglages
+  cli.py        commandes
+Dockerfile, docker-compose.yml   déploiement serveur (+ HTTPS Caddy)
 tests/          pytest (dont rendu ffmpeg réel)
 ```
 
@@ -133,8 +159,7 @@ Utiles comme référence ou pour piocher des idées :
 
 - Suivi du visage image par image (le cadrage actuel est fixe sur tout le clip).
 - Combiner le chat avec le volume audio (cris) pour mieux détecter les moments forts.
-- Surveiller plusieurs lives en parallèle.
-- Statistiques TikTok (vues par clip) pour ajuster les seuils.
+- Statistiques de vues par plateforme dans l'interface pour ajuster les seuils.
 
 ## ⚖️ Droits
 

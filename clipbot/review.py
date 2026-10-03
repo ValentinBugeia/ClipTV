@@ -186,6 +186,19 @@ SEARCH = """<details class="panel">
 </details>"""
 
 
+def _tiktok_error(exc: BaseException) -> str:
+    """Message compréhensible pour les échecs de connexion TikTok les plus fréquents."""
+    text = str(exc)
+    if "invalid_grant" in text or "expired" in text.lower():
+        return ("Connexion TikTok : le code a expiré ou a déjà servi (il n'est valable que "
+                "quelques instants et une seule fois). Reclique sur « Connecter », accepte, "
+                "puis colle tout de suite la nouvelle adresse et valide une seule fois.")
+    if "redirect_uri" in text:
+        return ("Connexion TikTok : la Redirect URI ne correspond pas. Elle doit être "
+                "identique, au caractère près, sur developers.tiktok.com et dans « Clés API ».")
+    return f"Connexion TikTok échouée : {text}"
+
+
 def _options(items, selected) -> str:
     return "".join(f'<option value="{e(v)}"{" selected" if v == selected else ""}>{e(t)}</option>'
                    for v, t in items)
@@ -721,7 +734,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                                   cfg.tiktok_token_path)
             client.exchange_code(q["code"][0], cfg.tiktok_redirect_uri)
         except Exception as exc:
-            return self._redirect(f"Connexion TikTok échouée : {exc}", err=True, to="/accounts")
+            return self._redirect(_tiktok_error(exc), err=True, to="/accounts")
         return self._redirect("TikTok connecté ✔", to="/accounts")
 
     def _send_video(self, clip_id: str):
@@ -936,7 +949,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret,
                          cfg.tiktok_token_path).exchange_code(code, cfg.tiktok_redirect_uri)
         except (Exception, SystemExit) as exc:
-            return self._redirect(f"Connexion TikTok échouée : {exc}", err=True, to="/accounts")
+            return self._redirect(_tiktok_error(exc), err=True, to="/accounts")
         return self._redirect("TikTok connecté ✔", to="/accounts")
 
     def _save_keys(self, form: dict[str, str]):

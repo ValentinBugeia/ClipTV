@@ -212,3 +212,18 @@ def test_tunnel_is_not_treated_as_local(server, header):
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(req)
     assert exc.value.code == 403
+
+
+def test_tiktok_expired_code_message(server, monkeypatch):
+    from clipbot import tiktok
+
+    def refuse(self, code, uri):
+        raise RuntimeError("Échange OAuth TikTok refusé : {'error': 'invalid_grant', "
+                           "'error_description': 'Authorization code is expired.'}")
+
+    monkeypatch.setattr(tiktok.TikTokClient, "exchange_code", refuse)
+    base, _ = server
+    _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s"
+                          b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
+    body = _post(base + "/connect/tiktok-code", b"code=abc").read().decode()
+    assert "a expiré ou a déjà servi" in body and "Reclique sur" in body

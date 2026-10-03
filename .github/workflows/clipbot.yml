@@ -1,0 +1,39 @@
+# Exécution planifiée (optionnelle). Renseigne les secrets du repo puis décommente le schedule.
+# Note : Whisper sur CPU GitHub Actions est lent mais fonctionne pour des clips < 60 s.
+name: clipbot
+on:
+  workflow_dispatch:
+    inputs:
+      channels:
+        description: "Chaînes Twitch (séparées par des espaces)"
+        required: true
+  # schedule:
+  #   - cron: "17 */6 * * *"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install .
+      - name: Restaurer l'historique / token
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: clipbot-data-${{ github.run_id }}
+          restore-keys: clipbot-data-
+      - name: Run
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          WHISPER_MODEL: base
+        run: |
+          args=""
+          for c in ${{ github.event.inputs.channels }}; do args="$args -c $c"; done
+          clipbot run $args --top 2 --publish --mode draft

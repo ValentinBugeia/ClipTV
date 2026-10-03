@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clipbot"
+version = "0.1.0"
+description = "Clips Twitch viraux → format vertical sous-titré → TikTok"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "yt-dlp>=2024.1.0",
+    "faster-whisper>=1.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+clipbot = "clipbot.cli:main"
+
+[tool.setuptools]
+packages = ["clipbot"]

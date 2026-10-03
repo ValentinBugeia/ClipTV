@@ -150,7 +150,7 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/accounts", "Comptes")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("published", "Publiés"),
         ("rejected", "Rejetés"), ("failed", "Erreurs")]
-CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done")
+CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo")
 HOURS = [(6, "6 dernières heures"), (24, "24 dernières heures"), (72, "3 derniers jours"),
          (168, "7 derniers jours")]
 EVERY = [(15, "toutes les 15 min"), (30, "toutes les 30 min"), (60, "toutes les heures"),
@@ -159,6 +159,8 @@ LANGUAGES = [("fr", "Français"), ("en", "Anglais"), ("es", "Espagnol"), ("de", 
              ("it", "Italien"), ("pt", "Portugais"), ("", "Toutes les langues")]
 SOURCES = [("discover", "Auto : streams les plus regardés"),
            ("channels", "Seulement mes chaînes")]
+LAYOUTS_REDO = [("auto", "Cadrage auto"), ("crop", "Zoom plein écran"),
+                ("split", "Facecam en haut / jeu en bas"), ("blur", "Fond flouté")]
 LAYOUTS = [("auto", "Auto : facecam en haut si détectée, sinon zoom"),
            ("crop", "Zoom plein écran"), ("blur", "Vidéo entière sur fond flouté")]
 RATIOS = [(2.0, "Très sensible (x2)"), (3.0, "Normale (x3)"), (5.0, "Peu sensible (x5)")]
@@ -167,7 +169,7 @@ PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube Shorts", "instagram": 
 CHANNEL_RE = re.compile(r"\w{2,25}")
 
 CARD = """<div class="card">
-  <video src="{video}" controls preload="metadata" playsinline></video>
+  {player}
   <div><strong>{title}</strong></div>
   <div class="meta">{channel} · {views} vues · <a href="{url}" target="_blank" rel="noopener">clip Twitch</a>{error}</div>
   {badges}
@@ -184,11 +186,19 @@ ACTIONS = """<form method="post" action="/schedule/{id}">
 </form>"""
 
 MANUAL = """<div class="row manual">
-  <a class="btn small rej" href="{video}?dl=1" download>⬇ Télécharger</a>
+  <a class="btn small rej" href="{download}" download>⬇ Télécharger</a>
   <button type="button" class="small rej" onclick="copyCaption(this)">📋 Copier la légende</button>
   <form method="post" action="/done/{id}" style="display:contents">
     <button class="small rej" title="Tu l'as publié toi-même depuis TikTok">✔ Publié à la main</button></form>
-</div>"""
+</div>
+<details><summary class="meta" style="cursor:pointer">🎬 Refaire le montage</summary>
+<form method="post" action="/redo/{id}" class="row" style="margin-top:8px">
+  <select name="layout" style="flex:1 1 60%">{layouts}</select>
+  <label class="check" style="font-size:14px"><input type="checkbox" name="subtitles" value="1"{subs_checked}> Sous-titres</label>
+  <button class="small">Refaire</button>
+</form>
+<p class="meta">Décoche « Sous-titres » si la vidéo d'origine en contient déjà.</p>
+</details>"""
 
 SCHEDULED = """<div class="when">⏰ {when}</div>
 <form method="post" action="/publish/{id}">
@@ -337,6 +347,23 @@ def start_device_flow(pendings: dict, name: str, client, url_key: str) -> None:
     threading.Thread(target=poll, daemon=True).start()
 
 
+def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
+    from .pipeline import _render_lock, render_video
+
+    try:
+        with _render_lock:
+            render_video(src, Path(clip["output_path"]), app.cfg, opts)
+        error = None
+    except Exception as exc:
+        log.exception("Remontage échoué pour %s", clip["clip_id"])
+        error = f"remontage échoué : {exc}"
+    finally:
+        app.redoing.discard(clip["clip_id"])
+    # même statut (et même créneau) ; met à jour la date -> la page se rafraîchit
+    app.state.record(clip["clip_id"], clip["channel"], clip["status"], error=error,
+                     scheduled_at=clip.get("scheduled_at"))
+
+
 @dataclass
 class App:
     cfg: Config
@@ -350,6 +377,8 @@ class App:
     checks_at: float = 0
     oauth_state: str = field(default_factory=lambda: secrets.token_urlsafe(16))
     auth_ok: set = field(default_factory=set)  # en-têtes déjà vérifiés (hash lent)
+    redoing: set = field(default_factory=set)  # clips en cours de remontage
+    audio_cache: dict = field(default_factory=dict)  # (chemin, date) -> a du son ?
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +525,22 @@ class Handler(BaseHTTPRequestHandler):
         return SEARCH.format(channels=e(channels), hours=_options(HOURS, 24),
                              disabled=" disabled" if self.app.job.running else "")
 
+    def _settings(self) -> dict:
+        from .autopilot import load_settings
+
+        return load_settings(self.state, self.cfg)
+
+    def _has_audio(self, path: str) -> bool:
+        from .download import has_audio
+
+        p = Path(path)
+        if not p.exists():
+            return True  # rien à signaler : la vidéo manque, pas le son
+        key = (path, p.stat().st_mtime)
+        if key not in self.app.audio_cache:
+            self.app.audio_cache[key] = has_audio(p)
+        return self.app.audio_cache[key]
+
     def _card(self, c: dict) -> str:
         cid, status = e(c["clip_id"]), c["status"]
         if status == "rendered" or (status == "failed" and c.get("output_path")):
@@ -506,9 +551,21 @@ class Handler(BaseHTTPRequestHandler):
                                        when=e(format_when(c["scheduled_at"], self.cfg.timezone)))
         else:
             actions = f'<div class="meta">{e(c["caption"])}</div>'
-        video = e(f'/video/{urllib.parse.quote(c["clip_id"], safe="")}')
+        base = f'/video/{urllib.parse.quote(c["clip_id"], safe="")}'
+        video = e(f"{base}?v={c['updated_at']}")  # nouvelle URL après un remontage (cache)
         if status in ("rendered", "scheduled") or (status == "failed" and c.get("output_path")):
-            actions += MANUAL.format(video=video, id=cid)  # publication à la main
+            settings = self._settings()
+            actions += MANUAL.format(  # publication à la main + remontage
+                download=e(f"{base}?dl=1"), id=cid,
+                layouts=_options(LAYOUTS_REDO, settings.get("layout", "auto")),
+                subs_checked=" checked" if settings.get("subtitles", True) else "")
+        if c["clip_id"] in self.app.redoing:
+            player = ('<div class="when" style="padding:40px 0;text-align:center">'
+                      '⏳ Remontage en cours…</div>')
+        else:
+            player = f'<video src="{video}" controls preload="metadata" playsinline></video>'
+            if c.get("output_path") and not self._has_audio(c["output_path"]):
+                player += '<div class="badges"><span class="badge failed">🔇 vidéo sans son</span></div>'
         posts = self.state.posts(c["clip_id"])
         badges = "".join(
             f'<span class="badge {e(p["status"])}" title="{e(p.get("error") or p.get("post_id"))}">'
@@ -516,7 +573,7 @@ class Handler(BaseHTTPRequestHandler):
             for name, p in posts.items())
         badges = f'<div class="badges">{badges}</div>' if badges else ""
         error = f" · ⚠️ {e(c['error'])}" if c.get("error") else ""
-        return CARD.format(video=video,
+        return CARD.format(player=player,
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
@@ -589,6 +646,8 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
     <input name="post_slots" value="{e(', '.join(s['post_slots']))}" placeholder="12:30, 18:00, 21:00"></label>
   <label>Clips programmés max (0 = auto) <input name="max_queue" type="number" min="0" value="{e(s['max_queue'])}"></label>
   <div class="full"><div class="info">Publier sur</div><div class="row">{checks}</div></div>
+  <label class="check full"><input type="checkbox" name="subtitles" value="1"{" checked" if s.get("subtitles", True) else ""}>
+    Ajouter des sous-titres animés (décoche si tes streamers ont déjà les leurs)</label>
   <label class="check full"><input type="checkbox" name="ai_caption" value="1"{" checked" if s["ai_caption"] else ""}>
     Légendes et hashtags écrits par Claude</label>
 </div>
@@ -884,6 +943,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             return self._redirect("Clip introuvable.", err=True)
         caption = form.get("caption", clip["caption"] or "").strip()
 
+        if action == "redo":
+            return self._redo(clip, form)
         if action == "done":
             if clip["status"] not in ("rendered", "scheduled", "failed"):
                 return self._redirect("Clip déjà traité.", err=True)
@@ -915,6 +976,23 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         names = ", ".join(PLATFORM_NAMES.get(p, p) for p in self.platforms)
         return self._redirect(f"Publié sur {names} ✔", tab="published")
 
+    def _redo(self, clip: dict, form: dict[str, str]):
+        """Remonte la vidéo (cadrage / sous-titres) à partir du clip déjà téléchargé."""
+        src = self.cfg.downloads_dir / f"{clip['clip_id']}.mp4"
+        if not src.exists() or not clip.get("output_path"):
+            return self._redirect("Vidéo d'origine introuvable : relance une recherche.",
+                                  err=True)
+        if clip["clip_id"] in self.app.redoing:
+            return self._redirect("Remontage déjà en cours.", err=True)
+        layout = form.get("layout") if form.get("layout") in dict(LAYOUTS_REDO) else "auto"
+        opts = Options(**{**self.opts.__dict__, "layout": layout,
+                          "subtitles": form.get("subtitles") == "1"})
+        self.app.redoing.add(clip["clip_id"])
+        threading.Thread(target=redo_clip, args=(self.app, clip, src, opts),
+                         daemon=True).start()
+        return self._redirect("Remontage lancé : la vidéo se mettra à jour toute seule "
+                              "dans une minute environ.")
+
     def _search(self, form: dict[str, str]):
         channels = _split_channels(form.get("channels", ""))
         if not all(CHANNEL_RE.fullmatch(c) for c in channels):
@@ -930,6 +1008,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         layout = load_settings(self.state, self.cfg).get("layout", "auto")
         opts = Options(**{**self.opts.__dict__, "ai_caption": form.get("ai") == "1",
                           "layout": layout,
+                          "subtitles": load_settings(self.state, self.cfg).get("subtitles", True),
                           "publish": then == "publish", "schedule": then == "schedule"})
         job = self.app.job
         first = channels[0] if channels else "temps forts du moment"
@@ -969,6 +1048,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 "max_queue": max(int(one.get("max_queue", 0)), 0),
                 "platforms": [p for p in form.get("platforms", []) if p in PLATFORMS],
                 "ai_caption": one.get("ai_caption") == "1",
+                "subtitles": one.get("subtitles") == "1",
             }
         except (ValueError, SystemExit) as exc:
             return self._redirect(f"Réglage invalide : {exc}", err=True, to="/auto")

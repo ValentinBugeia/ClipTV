@@ -1,4 +1,5 @@
 import threading
+from pathlib import Path
 import urllib.parse
 import urllib.error
 import urllib.request
@@ -307,3 +308,40 @@ def test_layout_setting_and_status_version(server):
     state.record("new", "c", "rendered", title="t")
     v2 = json.loads(urllib.request.urlopen(base + "/status").read())["version"]
     assert v1 != v2
+
+
+def test_redo_without_subtitles(server, monkeypatch, tmp_path):
+    import time
+
+    from clipbot import pipeline
+
+    base, state = server
+    cfg_downloads = Path(state.get("abc")["output_path"]).parent / "downloads"
+    cfg_downloads.mkdir(exist_ok=True)
+    (cfg_downloads / "abc.mp4").write_bytes(b"src")
+    seen = {}
+
+    def fake_render(src, dst, cfg, opts):
+        seen.update(src=src.name, layout=opts.layout, subtitles=opts.subtitles)
+        time.sleep(0.2)
+        return dst, []
+
+    monkeypatch.setattr(pipeline, "render_video", fake_render)
+    before = state.get("abc")["updated_at"]
+    time.sleep(1.1)
+    body = _post(base + "/redo/abc", b"layout=crop").read().decode()
+    assert "Remontage lancé" in body and "Remontage en cours" in body
+    for _ in range(40):
+        if state.get("abc")["updated_at"] != before:
+            break
+        time.sleep(0.1)
+    assert seen == {"src": "abc.mp4", "layout": "crop", "subtitles": False}
+    row = state.get("abc")
+    assert row["status"] == "rendered" and row["updated_at"] != before
+
+
+def test_subtitles_setting(server):
+    base, state = server
+    data = urllib.parse.urlencode([("platforms", "tiktok"), ("post_slots", "18:00")]).encode()
+    _post(base + "/auto", data)
+    assert state.get_settings()["subtitles"] is False  # case décochée

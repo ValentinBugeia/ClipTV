@@ -147,7 +147,7 @@ clipbot twitch-auth | tiktok-auth | youtube-auth | instagram-auth --token …
 
 | Option | Effet |
 |---|---|
-| `--layout auto` | (défaut) facecam détectée → `split`, caméra plein écran → `crop` centré sur le visage, sinon `blur` |
+| `--layout auto` | (défaut) facecam détectée → `split` (facecam en haut), caméra plein écran → `crop` qui suit le visage, sinon `crop` centré |
 | `--platform/-p` | `tiktok`, `youtube`, `instagram` (répétable ; défaut `CLIPBOT_PLATFORMS`) |
 | `--publish` / `--schedule` | publie tout de suite / programme sur le prochain créneau |
 | `--ai-caption` | légende (accroche + hashtags) générée par Claude |
@@ -170,7 +170,7 @@ clipbot/
   watcher.py    surveillance d'un live (attente, chat, création de clips)
   twitch.py     API Helix, viralité, token utilisateur (device flow), création de clips
   live.py       lecture du chat IRC + détecteur de pics
-  facecam.py    détection du visage (OpenCV) et choix du cadrage
+  facecam.py    détection du visage (YuNet, OpenCV), suivi et choix du cadrage
   subtitles.py  transcription faster-whisper + sous-titres ASS karaoké
   render.py     filtergraph ffmpeg 9:16 (blur / crop / split) + incrustation
   captions.py   légendes IA (Claude, sortie JSON structurée)
@@ -203,7 +203,6 @@ Utiles comme référence ou pour piocher des idées :
 
 ## Pistes pour la suite
 
-- Suivi du visage image par image (le cadrage actuel est fixe sur tout le clip).
 - Combiner le chat avec le volume audio (cris) pour mieux détecter les moments forts.
 - Statistiques de vues par plateforme dans l'interface pour ajuster les seuils.
 

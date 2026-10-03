@@ -30,3 +30,6 @@ packages = ["clipbot"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+clipbot = ["models/*.onnx", "models/LICENSE-*"]

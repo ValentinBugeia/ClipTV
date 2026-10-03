@@ -17,7 +17,7 @@ def test_filter_ends_with_v(layout):
 
 def test_filter_custom_crops():
     assert "crop=320:228:1600:0," in build_filter("split", cam_box=(320, 228, 1600, 0))
-    assert "'min(max(0.2500*iw-540,0),iw-1080)'" in build_filter("crop", crop_center=0.25)
+    assert "'min(max((0.2500)*iw-540,0),iw-1080)'" in build_filter("crop", crop_center=0.25)
 
 
 @needs_ffmpeg
@@ -43,4 +43,25 @@ def test_render_produces_1080x1920(tmp_path, layout, extra):
         check=True, capture_output=True, text=True,
     ).stdout.strip()
     assert dims == "1080,1920"
+    assert abs(probe_duration(out) - 2) < 0.3
+
+
+def test_track_expr_interpolates():
+    from clipbot.render import track_expr
+
+    expr = track_expr([(0.0, 0.2), (2.0, 0.6)])
+    for t, want in ((-1, 0.2), (0, 0.2), (1, 0.4), (2, 0.6), (5, 0.6)):
+        got = eval(expr.replace("if(", "_if(").replace("lt(", "_lt("),
+                   {"_if": lambda c, a, b: a if c else b, "_lt": lambda a, b: a < b, "t": t})
+        assert abs(got - want) < 1e-3
+
+
+@needs_ffmpeg
+def test_render_follows_face(tmp_path):
+    src = tmp_path / "src.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc2=size=1920x1080:rate=30:duration=2", "-c:v", "libx264", str(src)],
+                   check=True)
+    out = render_vertical(src, tmp_path / "out.mp4", layout="crop",
+                          crop_track=[(0.0, 0.2), (1.0, 0.5), (2.0, 0.8)])
     assert abs(probe_duration(out) - 2) < 0.3

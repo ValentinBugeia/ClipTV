@@ -39,3 +39,31 @@ def test_detect_face_never_raises(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "cv2", fake)
     monkeypatch.setattr(facecam, "_detect", lambda *a: 1 / 0)
     assert facecam.detect_face(tmp_path / "x.mp4") is None  # erreur → cadrage par défaut
+
+
+def test_best_track_prefers_persistent_face():
+    from clipbot.facecam import _best_track
+
+    cam = (1700, 100, 80, 100, 0.9)
+    frames = [(i * 0.5, [cam] + ([(900, 500, 120, 150, 0.95)] if 4 <= i < 6 else []))
+              for i in range(20)]
+    best = _best_track(frames)
+    assert len(best) == 20 and all(b[0] == 1700 for _, b in best)
+
+
+def test_best_track_follows_moving_face():
+    from clipbot.facecam import _best_track
+
+    frames = [(i * 0.5, [(100 + 40 * i, 300, 300, 400, 0.9)]) for i in range(20)]
+    assert len(_best_track(frames)) == 20  # une seule piste malgré le déplacement
+
+
+def test_smooth_track():
+    from clipbot.facecam import smooth_track
+
+    still = [(i * 0.5, 0.5 + (0.01 if i % 2 else -0.01)) for i in range(20)]
+    assert len(smooth_track(still)) == 1  # tremblements ignorés : zoom fixe
+    moving = [(i * 0.5, 0.2 + 0.03 * i) for i in range(20)]
+    moving[7] = (3.5, 0.95)  # détection aberrante
+    pts = smooth_track(moving)
+    assert len(pts) > 2 and pts[0][1] < pts[-1][1] and max(c for _, c in pts) < 0.8

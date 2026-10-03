@@ -146,6 +146,8 @@ def cmd_review(args, cfg: Config) -> int:
     cfg.ensure_dirs()
     state = State(cfg.db_path)
     apply_settings(cfg, load_settings(state, cfg))  # réglages enregistrés depuis l'interface
+    # envois interrompus par l'arrêt précédent de l'app : à réessayer depuis « Erreurs »
+    state.recover_stuck(older_than=0)
     autopilot = Autopilot(cfg, state, Options(**{**opts.__dict__, "platforms": []}))
     autopilot.start()
     server = make_server(cfg, opts, host=args.host, port=args.port, state=state,

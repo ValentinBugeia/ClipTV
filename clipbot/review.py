@@ -149,8 +149,8 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 
 SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/stats", "Statistiques"),
             ("/accounts", "Comptes")]
-TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("published", "Publiés"),
-        ("rejected", "Rejetés"), ("failed", "Erreurs")]
+TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),
+        ("published", "Publiés"), ("rejected", "Rejetés"), ("failed", "Erreurs")]
 CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo")
 HOURS = [(6, "6 dernières heures"), (24, "24 dernières heures"), (72, "3 derniers jours"),
          (168, "7 derniers jours")]
@@ -346,6 +346,16 @@ def start_device_flow(pendings: dict, name: str, client, url_key: str) -> None:
             pending.state, pending.message = "error", str(exc)
 
     threading.Thread(target=poll, daemon=True).start()
+
+
+def publish_in_background(app, clip_id: str) -> None:
+    with app.publish_lock:  # une publication à la fois
+        try:
+            publish_clip(clip_id, app.cfg, app.state, app.opts)
+        except Exception as exc:  # ne jamais laisser un clip bloqué « en cours »
+            log.exception("Publication échouée pour %s", clip_id)
+            clip = app.state.get(clip_id)
+            app.state.record(clip_id, clip["channel"], "failed", error=str(exc))
 
 
 def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
@@ -551,11 +561,20 @@ class Handler(BaseHTTPRequestHandler):
         if status == "rendered" or (status == "failed" and c.get("output_path")):
             label = "Réessayer" if status == "failed" else "Publier maintenant"
             actions = ACTIONS.format(id=cid, caption=e(c["caption"]), now_label=label)
+        elif status == "publishing":
+            actions = ('<div class="when">⏳ Envoi vers TikTok en cours…</div>'
+                       f'<div class="meta">{e(c["caption"])}</div>')
         elif status == "scheduled":
             actions = SCHEDULED.format(id=cid, caption=e(c["caption"]),
                                        when=e(format_when(c["scheduled_at"], self.cfg.timezone)))
         else:
             actions = f'<div class="meta">{e(c["caption"])}</div>'
+            tiktok = self.state.posts(c["clip_id"]).get("tiktok", {})
+            if status == "published" and tiktok.get("status") == "ok" \
+                    and self.opts.mode == "draft":
+                actions += ('<div class="meta">📥 Envoyé dans ta <strong>boîte de réception '
+                            'TikTok</strong> : ouvre l\'app TikTok → notifications pour le '
+                            'publier sur ton profil.</div>')
         base = f'/video/{urllib.parse.quote(c["clip_id"], safe="")}'
         video = e(f"{base}?v={c['updated_at']}")  # nouvelle URL après un remontage (cache)
         if status in ("rendered", "scheduled") or (status == "failed" and c.get("output_path")):
@@ -1012,12 +1031,12 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
 
         if not self.state.claim(clip_id, caption):
             return self._redirect("Clip déjà publié ou en cours de publication.", err=True)
-        with self.app.publish_lock:  # une publication à la fois
-            errors = publish_clip(clip_id, self.cfg, self.state, self.opts)
-        if errors:
-            return self._redirect("Échec : " + " | ".join(errors), err=True, tab="failed")
-        names = ", ".join(PLATFORM_NAMES.get(p, p) for p in self.platforms)
-        return self._redirect(f"Publié sur {names} ✔", tab="published")
+        # l'envoi (upload + confirmation TikTok) peut prendre plusieurs minutes : en fond
+        threading.Thread(target=publish_in_background, args=(self.app, clip_id),
+                         daemon=True).start()
+        return self._redirect("Envoi lancé : le clip passera dans « Publiés » (ou « Erreurs ») "
+                              "dès que TikTok aura confirmé, la page se mettra à jour.",
+                              tab="publishing")
 
     def _redo(self, clip: dict, form: dict[str, str]):
         """Remonte la vidéo (cadrage / sous-titres) à partir du clip déjà téléchargé."""

@@ -66,13 +66,38 @@ def test_schedule_then_cancel(server):
 def test_publish_now(server, monkeypatch):
     from clipbot import pipeline
 
-    monkeypatch.setattr(pipeline, "publish_to", lambda p, *a: f"{p}-1")
+    import time
+
+    def slow_publish(p, *a):
+        time.sleep(0.5)  # TikTok met du temps à confirmer
+        return f"{p}-1"
+
+    monkeypatch.setattr(pipeline, "publish_to", slow_publish)
     base, state = server
     body = _post(base + "/publish/abc").read().decode()
-    assert "Publié sur" in body
-    assert state.get("abc")["status"] == "published"
+    assert "Envoi lancé" in body and "Envoi en cours" in body
+    assert state.get("abc")["status"] == "publishing"   # visible dans l'onglet dédié
+    assert "Envoi vers TikTok en cours" in urllib.request.urlopen(
+        base + "/?s=publishing").read().decode()
     body = _post(base + "/publish/abc").read().decode()
-    assert "déjà publié" in body
+    assert "déjà publié" in body                         # pas de double envoi
+    for _ in range(30):
+        if state.get("abc")["status"] == "published":
+            break
+        time.sleep(0.1)
+    assert state.get("abc")["status"] == "published"
+    assert "boîte de réception" in urllib.request.urlopen(
+        base + "/?s=published").read().decode()
+
+
+def test_stuck_publishing_recovered_on_start(tmp_path):
+    from clipbot.state import State
+
+    st = State(tmp_path / "s.sqlite3")
+    st.record("x", "c", "rendered", output_path="v.mp4")
+    st.claim("x")
+    assert st.recover_stuck(older_than=0) == 1
+    assert st.get("x")["status"] == "failed" and "interrompue" in st.get("x")["error"]
 
 
 def test_password(tmp_path):

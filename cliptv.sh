@@ -9,9 +9,9 @@ echo "  === cliptv ==="
 echo
 
 find_python() {
-  for c in python3.12 python3.11 python3.13 python3.10 python3; do
+  for c in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
     if command -v "$c" >/dev/null 2>&1 &&
-       "$c" -c 'import sys; sys.exit(0 if (3, 10) <= sys.version_info < (3, 14) else 1)' 2>/dev/null; then
+       "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
       echo "$c"; return 0
     fi
   done
@@ -31,7 +31,7 @@ if [ -z "$PY" ]; then
     need_brew; echo "Installation de Python…"; brew install python@3.12
     PY="$(find_python || true)"
   else
-    echo "Python 3.10 à 3.13 introuvable. Installe-le puis relance, par exemple :"
+    echo "Python 3.10 ou plus récent introuvable. Installe-le puis relance, par exemple :"
     echo "  sudo apt install python3 python3-venv      (Debian / Ubuntu)"
     echo "  sudo dnf install python3                   (Fedora)"
     exit 1

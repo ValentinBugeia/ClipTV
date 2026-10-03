@@ -24,3 +24,18 @@ def test_format_caption_dedup_and_credit():
     assert lines[0] == "Il ne s'y attendait pas 😭"
     assert lines[1] == "🎮 twitch.tv/kamet0"
     assert lines[2] == "#fyp #justchatting #kameto"
+
+
+def test_detect_face_never_raises(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    from clipbot import facecam
+
+    monkeypatch.setitem(sys.modules, "cv2", types.SimpleNamespace(__version__="5.0.0"))
+    assert facecam.detect_face(tmp_path / "x.mp4") is None  # OpenCV 5 : pas de cascade
+
+    fake = types.SimpleNamespace(__version__="4.14", CascadeClassifier=object)
+    monkeypatch.setitem(sys.modules, "cv2", fake)
+    monkeypatch.setattr(facecam, "_detect", lambda *a: 1 / 0)
+    assert facecam.detect_face(tmp_path / "x.mp4") is None  # erreur → cadrage par défaut

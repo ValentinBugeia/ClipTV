@@ -7,7 +7,7 @@ echo.
 echo   === cliptv ===
 echo.
 
-rem ---------- Python 3.10 a 3.13 ----------
+rem ---------- Python 3.10 ou plus ----------
 call :find_python
 if not defined PY (
   echo Python introuvable : installation automatique avec winget...
@@ -58,9 +58,9 @@ exit /b 0
 
 :find_python
 set "PY="
-for %%C in ("py -3.12" "py -3.11" "py -3.13" "py -3.10" "python") do (
+for %%C in ("py -3.13" "py -3.12" "py -3.14" "py -3.11" "py -3.10" "py -3" "python") do (
   if not defined PY (
-    %%~C -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info < (3, 14) else 1)" >nul 2>nul && set "PY=%%~C"
+    %%~C -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>nul && set "PY=%%~C"
   )
 )
 exit /b 0

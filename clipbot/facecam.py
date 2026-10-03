@@ -67,12 +67,25 @@ def choose_layout(face: Face | None) -> str:
 
 
 def detect_face(video: Path, *, samples: int = 12, min_hits: float = 0.4) -> Face | None:
+    """Visage stable du streamer, ou None. Ne lève jamais : sans détection, le clip
+    est simplement rendu en mode « blur »."""
     try:
         import cv2
     except ImportError:
         log.warning("opencv absent : pas de cadrage auto (pip install opencv-python-headless)")
         return None
+    if not hasattr(cv2, "CascadeClassifier"):  # retiré d'OpenCV 5
+        log.warning("OpenCV %s sans CascadeClassifier : pas de cadrage auto "
+                    "(pip install 'opencv-python-headless<5')", cv2.__version__)
+        return None
+    try:
+        return _detect(cv2, video, samples, min_hits)
+    except Exception:
+        log.exception("Détection du visage impossible : cadrage par défaut")
+        return None
 
+
+def _detect(cv2, video: Path, samples: int, min_hits: float) -> Face | None:
     cap = cv2.VideoCapture(str(video))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
     fw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))

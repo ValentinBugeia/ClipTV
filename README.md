@@ -1,4 +1,4 @@
-# twitch-clips-to-tiktok (`clipbot`)
+# cliptv (`clipbot`)
 
 Récupère automatiquement les clips **les plus viraux** d'une ou plusieurs chaînes Twitch,
 les convertit au **format téléphone 9:16** avec des **sous-titres animés** (style TikTok,

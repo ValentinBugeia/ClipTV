@@ -86,3 +86,21 @@ def test_cam_zone_adapts_to_facecam_size():
     assert cam_zone_height(big) == 632             # 33 % maximum
     w, h, x, y = cam_crop_box(big, zone_h=cam_zone_height(big))
     assert abs(w / h - 1080 / 632) < 0.02          # même ratio que la zone
+
+
+def test_static_photo_is_not_the_streamer():
+    import numpy as np
+
+    from clipbot.facecam import _best_track
+
+    rng = np.random.default_rng(0)
+    photo = np.full((24, 24), 120.0, dtype="float32")
+    frames = []
+    for i in range(20):
+        live = rng.uniform(0, 255, (24, 24)).astype("float32")  # visage qui change
+        frames.append((i * 0.5, [(100, 100, 150, 180, 0.95, photo),        # photo, plus grande
+                                 (1700, 800, 80, 100, 0.9, live)]))        # vraie facecam
+    best = _best_track(frames)
+    assert best and best[0][1][0] == 1700
+    only_photo = [(t, [b for b in boxes if b[0] == 100]) for t, boxes in frames]
+    assert _best_track(only_photo) == []  # une photo seule n'est pas une facecam

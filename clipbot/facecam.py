@@ -34,6 +34,10 @@ MIN_SCORE = 0.6         # confiance minimale YuNet
 FACECAM_MIN_PRESENCE = 0.6
 FACECAM_MAX_JITTER = 0.02
 CAMERA_MIN_HEIGHT = 0.18  # visage au-delà : caméra plein écran (just chatting), pas une facecam
+# un vrai visage bouge (clignements, parole, expressions) ; une photo du streamer dans
+# l'habillage du stream (tableau des scores, avatar) reste figée au pixel près.
+# Écart moyen entre deux vignettes 24x24 en niveaux de gris (0-255).
+MIN_LIVENESS = 0.8  # photo figée : 0 ; visages réels mesurés : 3 et plus
 MIN_FACE = 0.025        # hauteur minimale d'un visage (fraction de la hauteur de l'image)
 
 
@@ -182,7 +186,8 @@ def _detect(cv2, detector, video: Path, min_hits: float) -> Face | None:
             continue
         if scale < 1:
             frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-        boxes = [(x / scale, y / scale, w / scale, h / scale, sc)
+        boxes = [(x / scale, y / scale, w / scale, h / scale, sc,
+                  _thumb(cv2, frame, x, y, w, h))
                  for x, y, w, h, sc in detector(frame) if h / scale >= fh * MIN_FACE]
         frames.append((index / fps, boxes))
     cap.release()
@@ -208,6 +213,25 @@ def _spread(values: list[float]) -> float:
     """Écart typique à la médiane (robuste à une détection aberrante)."""
     m = median(values)
     return median(abs(v - m) for v in values) * 1.4826
+
+
+def _thumb(cv2, frame, x: float, y: float, w: float, h: float):
+    """Vignette 24x24 en niveaux de gris du visage (pour mesurer s'il est vivant)."""
+    x0, y0 = max(int(x), 0), max(int(y), 0)
+    crop = frame[y0:max(int(y + h), y0 + 1), x0:max(int(x + w), x0 + 1)]
+    if crop.size == 0:
+        return None
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    return cv2.resize(gray, (24, 24), interpolation=cv2.INTER_AREA).astype("float32")
+
+
+def liveness(track) -> float | None:
+    """Changement moyen du visage d'une image analysée à l'autre (None si inconnu)."""
+    thumbs = [b[5] for _, _, b in track if len(b) > 5 and b[5] is not None]
+    if len(thumbs) < 3:
+        return None
+    diffs = [float(abs(a - b).mean()) for a, b in zip(thumbs, thumbs[1:])]
+    return median(diffs)
 
 
 def _best_track(frames) -> list[tuple[float, tuple]]:
@@ -237,8 +261,12 @@ def _best_track(frames) -> list[tuple[float, tuple]]:
                 used.add(best_i)
     if not tracks:
         return []
+    # un visage figé (photo dans l'habillage) n'est jamais le streamer
+    alive = [tr for tr in tracks if (liveness(tr) is None or liveness(tr) >= MIN_LIVENESS)]
+    if not alive:
+        return []
     # la plus présente ; à égalité, la plus grande (la caméra du streamer)
-    best = max(tracks, key=lambda tr: (len(tr), median(b[3] for _, _, b in tr)))
+    best = max(alive, key=lambda tr: (len(tr), median(b[3] for _, _, b in tr)))
     return [(t, b) for _, t, b in best]
 
 

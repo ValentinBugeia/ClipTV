@@ -45,3 +45,24 @@ def test_tiktok_scopes_match_mode():
 
     assert scope() == "user.info.basic,video.upload"
     assert scope(direct=True).endswith(",video.publish")
+
+
+def test_categories():
+    from clipbot.twitch import TwitchClient, is_non_gaming
+
+    assert is_non_gaming("IRL") and is_non_gaming("Just Chatting")
+    assert not is_non_gaming("League of Legends") and not is_non_gaming("")
+
+    class Fake(TwitchClient):
+        calls = 0
+
+        def _get(self, path, params):
+            Fake.calls += 1
+            return {"data": [{"id": "509658", "name": "Just Chatting"}]}
+
+    tw = Fake("id", "secret")
+    clips = [clip("a", 10, 1), clip("b", 10, 1)]
+    clips[0].game_id = clips[1].game_id = "509658"
+    tw.annotate_categories(clips)
+    tw.annotate_categories(clips)
+    assert [c.category for c in clips] == ["Just Chatting"] * 2 and Fake.calls == 1  # cache

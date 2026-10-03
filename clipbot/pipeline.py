@@ -45,21 +45,28 @@ def template_caption(template: str, clip) -> str:
     )
 
 
-def render_video(src: Path, dst: Path, cfg: Config, opts: Options) -> tuple[Path, list]:
-    """Rend la vidéo verticale. Retourne (chemin, mots transcrits)."""
+def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
+                 allow_split: bool = True) -> tuple[Path, list]:
+    """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
+
+    ``allow_split=False`` (catégories IRL, Just Chatting…) : jamais de découpage
+    facecam / jeu, même si un visage est détecté dans la scène.
+    """
     from .render import render_vertical
     from .subtitles import transcribe, write_ass
 
     layout, cam_box, crop_center, crop_track = opts.layout, None, None, None
+    cam_height = None
     if layout in ("auto", "crop"):
-        from .facecam import (CAMERA_MIN_HEIGHT, cam_crop_box, choose_layout, detect_face,
-                              smooth_track)
+        from .facecam import (CAMERA_MIN_HEIGHT, cam_crop_box, cam_zone_height, choose_layout,
+                              detect_face, smooth_track)
 
         face = detect_face(src)
         if layout == "auto":
-            layout = choose_layout(face)
+            layout = choose_layout(face, allow_split=allow_split)
         if face and layout == "split":
-            cam_box = cam_crop_box(face)
+            cam_height = cam_zone_height(face)  # taille adaptée à la facecam d'origine
+            cam_box = cam_crop_box(face, zone_h=cam_height)
         elif face and layout == "crop" and face.relative_height >= CAMERA_MIN_HEIGHT:
             # caméra en grand : le zoom suit le visage (sinon : centre de l'image)
             crop_center = face.cx / face.frame_w
@@ -82,7 +89,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options) -> tuple[Path
     log.info("Rendu vertical (%s) → %s", layout, dst)
     render_vertical(src, dst, layout=layout, subtitles=subs, max_duration=opts.max_duration,
                     fonts_dir=opts.fonts_dir, cam_box=cam_box, crop_center=crop_center,
-                    crop_track=crop_track)
+                    crop_track=crop_track, cam_height=cam_height)
     return dst, words
 
 
@@ -173,12 +180,18 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options) -
     """Traite un clip de bout en bout. Retourne True si tout s'est bien passé."""
     from .download import download_clip
 
-    meta = dict(title=clip.title, url=clip.url, view_count=clip.view_count)
+    from .twitch import is_non_gaming
+
+    category = getattr(clip, "category", "")
+    meta = dict(title=clip.title, url=clip.url, view_count=clip.view_count, category=category)
     try:
         src = download_clip(clip.url, cfg.downloads_dir, clip.id)
         dst = cfg.output_dir / f"{channel}_{clip.id}.mp4"
+        if category:
+            log.info("Catégorie : %s", category)
         with _render_lock:
-            _, words = render_video(src, dst, cfg, opts)
+            _, words = render_video(src, dst, cfg, opts,
+                                    allow_split=not is_non_gaming(category))
         caption = make_caption(clip, words, cfg, opts)
         state.record(clip.id, channel, "rendered", output_path=str(dst), caption=caption, **meta)
     except Exception as exc:  # on continue avec les autres clips
@@ -210,6 +223,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
                                         max_duration=opts.max_duration)
                   if not state.is_done(c.id)]
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
+        twitch.annotate_categories(ranked[:top])
         for clip in ranked[:top]:
             log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
                      clip.virality(), clip.url)

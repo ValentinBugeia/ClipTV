@@ -321,7 +321,7 @@ def test_redo_without_subtitles(server, monkeypatch, tmp_path):
     (cfg_downloads / "abc.mp4").write_bytes(b"src")
     seen = {}
 
-    def fake_render(src, dst, cfg, opts):
+    def fake_render(src, dst, cfg, opts, **kw):
         seen.update(src=src.name, layout=opts.layout, subtitles=opts.subtitles)
         time.sleep(0.2)
         return dst, []

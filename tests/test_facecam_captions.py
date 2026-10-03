@@ -67,3 +67,22 @@ def test_smooth_track():
     moving[7] = (3.5, 0.95)  # détection aberrante
     pts = smooth_track(moving)
     assert len(pts) > 2 and pts[0][1] < pts[-1][1] and max(c for _, c in pts) < 0.8
+
+
+def test_irl_face_is_not_a_facecam():
+    small = dict(x=1650, y=60, w=120, h=120, frame_w=1920, frame_h=1080)
+    assert choose_layout(Face(**small)) == "split"                      # facecam fixe
+    assert choose_layout(Face(**small, jitter=0.08)) == "crop"          # caméra à la main
+    assert choose_layout(Face(**small, presence=0.35)) == "crop"        # passant
+    assert choose_layout(Face(**small), allow_split=False) == "crop"    # catégorie IRL
+
+
+def test_cam_zone_adapts_to_facecam_size():
+    from clipbot.facecam import cam_zone_height
+
+    tiny = Face(1700, 60, 40, 40, 1920, 1080)
+    big = Face(1500, 60, 200, 200, 1920, 1080)
+    assert cam_zone_height(tiny) == 480            # 25 % minimum
+    assert cam_zone_height(big) == 632             # 33 % maximum
+    w, h, x, y = cam_crop_box(big, zone_h=cam_zone_height(big))
+    assert abs(w / h - 1080 / 632) < 0.02          # même ratio que la zone

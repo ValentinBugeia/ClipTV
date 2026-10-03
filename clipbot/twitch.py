@@ -24,6 +24,7 @@ class Clip:
     duration: float
     language: str = ""
     game_id: str = ""
+    category: str = ""  # nom de la catégorie Twitch (rempli par annotate_categories)
 
     @classmethod
     def from_api(cls, data: dict) -> "Clip":
@@ -67,6 +68,19 @@ def rank_clips(
     return sorted(eligible, key=lambda c: c.virality(now), reverse=True)
 
 
+# catégories sans jeu : un visage y est filmé dans la scène, jamais une facecam incrustée
+NON_GAMING = {
+    "just chatting", "irl", "travel & outdoors", "talk shows & podcasts", "music", "art",
+    "food & drink", "sports", "asmr", "special events", "pools, hot tubs, and beaches",
+    "makers & crafting", "fitness & health", "science & technology", "beauty & body art",
+    "animals, aquariums, and zoos", "politics", "dj", "dance",
+}
+
+
+def is_non_gaming(category: str) -> bool:
+    return category.strip().lower() in NON_GAMING
+
+
 class TwitchClient:
     def __init__(self, client_id: str, client_secret: str, session: requests.Session | None = None):
         self.client_id = client_id
@@ -102,6 +116,24 @@ class TwitchClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    def game_names(self, game_ids) -> dict[str, str]:
+        """{game_id: nom de la catégorie}, avec cache."""
+        cache = self.__dict__.setdefault("_games", {})
+        missing = [g for g in {*game_ids} - set(cache) if g]
+        for i in range(0, len(missing), 100):
+            for g in self._get("/games", {"id": missing[i:i + 100]}).get("data", []):
+                cache[g["id"]] = g.get("name", "")
+        return {g: cache.get(g, "") for g in game_ids if g}
+
+    def annotate_categories(self, clips) -> None:
+        """Renseigne ``clip.category`` (sans bloquer le traitement en cas d'erreur)."""
+        try:
+            names = self.game_names([c.game_id for c in clips])
+        except Exception:
+            return
+        for c in clips:
+            c.category = names.get(c.game_id, "")
 
     def get_broadcaster_id(self, login: str) -> str:
         data = self._get("/users", {"login": login.lower()})["data"]

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS clips (
     publish_id   TEXT,
     error        TEXT,
     scheduled_at INTEGER,
+    category     TEXT,
     updated_at   INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS posts (
@@ -62,7 +63,8 @@ class State:
         self.lock = threading.RLock()
         self.conn.executescript(SCHEMA)
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(clips)")}
-        for col, typ in (("caption", "TEXT"), ("scheduled_at", "INTEGER")):  # bases v0.1/v0.2
+        for col, typ in (("caption", "TEXT"), ("scheduled_at", "INTEGER"),
+                         ("category", "TEXT")):  # bases créées par d'anciennes versions
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE clips ADD COLUMN {col} {typ}")
         self.conn.commit()
@@ -112,12 +114,12 @@ class State:
     def record(self, clip_id: str, channel: str, status: str, **fields) -> None:
         cols = {"title": None, "url": None, "view_count": None, "output_path": None,
                 "caption": None, "publish_id": None, "error": None, "scheduled_at": None,
-                **fields}
+                "category": None, **fields}
         self._write(
             """INSERT INTO clips (clip_id, channel, title, url, view_count, status,
                                   output_path, caption, publish_id, error, scheduled_at,
-                                  updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                                  category, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(clip_id) DO UPDATE SET
                  status=excluded.status,
                  output_path=COALESCE(excluded.output_path, clips.output_path),
@@ -125,10 +127,11 @@ class State:
                  publish_id=COALESCE(excluded.publish_id, clips.publish_id),
                  error=excluded.error,
                  scheduled_at=excluded.scheduled_at,
+                 category=COALESCE(excluded.category, clips.category),
                  updated_at=excluded.updated_at""",
             (clip_id, channel, cols["title"], cols["url"], cols["view_count"], status,
              cols["output_path"], cols["caption"], cols["publish_id"], cols["error"],
-             cols["scheduled_at"], int(time.time())),
+             cols["scheduled_at"], cols["category"], int(time.time())),
         )
 
     # ---------- programmation ----------

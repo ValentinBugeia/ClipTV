@@ -22,11 +22,17 @@ from statistics import median
 
 log = logging.getLogger("clipbot.facecam")
 
-# zone du haut en layout "split" : 1080 x 768 (2/5 de 1920)
-CAM_ASPECT = 1080 / 768
+# zone facecam du layout "split" : entre 25 % et 33 % de la hauteur selon la taille de
+# la facecam dans le stream (petite facecam -> petite zone, plus de place pour le jeu)
+CAM_ZONE_MIN, CAM_ZONE_MAX = 0.25, 0.33
+CAM_ASPECT = 1080 / 768  # ancien format fixe (2/5), gardé pour compatibilité
 MODEL = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
 DETECT_WIDTH = 1920     # pleine résolution HD : les petites facecams penchées restent détectables
 MIN_SCORE = 0.6         # confiance minimale YuNet
+# une facecam est un cadre incrusté : visible presque tout le temps et quasi immobile.
+# Un visage filmé dans la scène (live IRL, caméra à la main) bouge ou disparaît.
+FACECAM_MIN_PRESENCE = 0.6
+FACECAM_MAX_JITTER = 0.02
 CAMERA_MIN_HEIGHT = 0.18  # visage au-delà : caméra plein écran (just chatting), pas une facecam
 MIN_FACE = 0.025        # hauteur minimale d'un visage (fraction de la hauteur de l'image)
 
@@ -41,6 +47,8 @@ class Face:
     frame_h: int
     # position du centre au fil du clip : [(secondes, cx / largeur)]
     track: list[tuple[float, float]] = field(default_factory=list)
+    presence: float = 1.0  # part des images analysées où le visage est vu
+    jitter: float = 0.0    # déplacement typique du centre (fraction de l'image)
 
     @property
     def cx(self) -> float:
@@ -59,26 +67,43 @@ def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(v, hi))
 
 
-def cam_crop_box(face: Face, *, zoom: float = 2.6) -> tuple[int, int, int, int]:
+def cam_zone_height(face: Face, *, out_h: int = 1920) -> int:
+    """Hauteur (px, paire) de la zone facecam en haut de la vidéo verticale."""
+    frac = _clamp(0.20 + face.relative_height, CAM_ZONE_MIN, CAM_ZONE_MAX)
+    return int(out_h * frac) // 2 * 2
+
+
+def cam_crop_box(face: Face, *, zoom: float = 2.6, zone_h: int = 768,
+                 out_w: int = 1080) -> tuple[int, int, int, int]:
     """Rectangle (w, h, x, y) autour du visage, au ratio de la zone facecam du split."""
+    aspect = out_w / zone_h
     h = min(face.h * zoom, face.frame_h)
-    w = h * CAM_ASPECT
+    w = h * aspect
     if w > face.frame_w:
         w = face.frame_w
-        h = w / CAM_ASPECT
+        h = w / aspect
     x = _clamp(face.cx - w / 2, 0, face.frame_w - w)
     y = _clamp(face.cy - h / 2.4, 0, face.frame_h - h)  # un peu plus d'espace sous le menton
     even = lambda v: int(v) // 2 * 2  # noqa: E731 - libx264 veut des dimensions paires
     return even(w), even(h), even(x), even(y)
 
 
-def choose_layout(face: Face | None) -> str:
-    """crop (zoom plein écran) sans visage ou caméra plein écran, split si facecam."""
-    if face is None:
-        return "crop"
-    if face.relative_height >= CAMERA_MIN_HEIGHT:
-        return "crop"
-    return "split"
+def is_facecam(face: Face) -> bool:
+    """Petit visage fixe et toujours présent = facecam incrustée dans le stream."""
+    return (face.relative_height < CAMERA_MIN_HEIGHT
+            and face.presence >= FACECAM_MIN_PRESENCE
+            and face.jitter <= FACECAM_MAX_JITTER)
+
+
+def choose_layout(face: Face | None, *, allow_split: bool = True) -> str:
+    """split (facecam en haut, jeu en bas) seulement pour une vraie facecam ; sinon zoom.
+
+    ``allow_split=False`` pour les catégories sans jeu (IRL, Just Chatting…), où un
+    visage est forcément dans la scène filmée.
+    """
+    if face is not None and allow_split and is_facecam(face):
+        return "split"
+    return "crop"
 
 
 def detect_face(video: Path, *, min_hits: float = 0.35) -> Face | None:
@@ -100,7 +125,8 @@ def detect_face(video: Path, *, min_hits: float = 0.35) -> Face | None:
         log.exception("Détection du visage impossible : cadrage par défaut")
         return None
     log.info("Détection du visage (%s) : %s", name,
-             f"{face.w}x{face.h} en ({face.x},{face.y})" if face else "aucun visage stable")
+             f"{face.w}x{face.h} en ({face.x},{face.y}), présent {face.presence:.0%}, "
+             f"mouvement {face.jitter:.1%}" if face else "aucun visage stable")
     return face
 
 
@@ -166,12 +192,22 @@ def _detect(cv2, detector, video: Path, min_hits: float) -> Face | None:
     best = _best_track(frames)
     if not best or len(best) < len(frames) * min_hits:
         return None
+    cxs = [(b[0] + b[2] / 2) / fw for _, b in best]
+    cys = [(b[1] + b[3] / 2) / fh for _, b in best]
+    jitter = max(_spread(cxs), _spread(cys))
     return Face(
         x=int(median(b[0] for _, b in best)), y=int(median(b[1] for _, b in best)),
         w=int(median(b[2] for _, b in best)), h=int(median(b[3] for _, b in best)),
         frame_w=fw, frame_h=fh,
-        track=[(t, (b[0] + b[2] / 2) / fw) for t, b in best],
+        track=[(t, cx) for (t, _), cx in zip(best, cxs)],
+        presence=len(best) / len(frames), jitter=jitter,
     )
+
+
+def _spread(values: list[float]) -> float:
+    """Écart typique à la médiane (robuste à une détection aberrante)."""
+    m = median(values)
+    return median(abs(v - m) for v in values) * 1.4826
 
 
 def _best_track(frames) -> list[tuple[float, tuple]]:

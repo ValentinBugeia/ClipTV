@@ -15,6 +15,7 @@ def build_filter(
     cam_box: tuple[int, int, int, int] | None = None,
     crop_center: float | None = None,
     crop_track: list[tuple[float, float]] | None = None,
+    cam_height: int | None = None,
 ) -> str:
     """Construit le filtergraph ffmpeg.
 
@@ -44,7 +45,7 @@ def build_filter(
             x = f":'min(max(({center})*iw-{WIDTH // 2},0),iw-{WIDTH})':0"
         graph = f"[0:v]scale=-2:{HEIGHT},crop={WIDTH}:{HEIGHT}{x},setsar=1[v]"
     elif layout == "split":
-        cam_h = HEIGHT * 2 // 5
+        cam_h = cam_height or HEIGHT * 2 // 5
         game_h = HEIGHT - cam_h
         cam = "{}:{}:{}:{}".format(*cam_box) if cam_box else "iw/4:ih/4:iw*3/4:0"
         graph = (
@@ -89,10 +90,12 @@ def render_vertical(
     cam_box: tuple[int, int, int, int] | None = None,
     crop_center: float | None = None,
     crop_track: list[tuple[float, float]] | None = None,
+    cam_height: int | None = None,
 ) -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
     graph = build_filter(layout, str(subtitles.resolve()) if subtitles else None,
-                         cam_box=cam_box, crop_center=crop_center, crop_track=crop_track)
+                         cam_box=cam_box, crop_center=crop_center, crop_track=crop_track,
+                         cam_height=cam_height)
     if subtitles and fonts_dir:
         graph = graph.replace("ass=", f"ass=fontsdir={_escape_filter_path(str(fonts_dir.resolve()))}:filename=", 1)
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src)]

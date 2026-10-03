@@ -106,6 +106,7 @@ def _watch_live(channel, cfg, state, opts, twitch, auth, broadcaster_id, params:
                 log.warning("Clip pas encore disponible, ignoré")
                 continue
             log.info("Clip créé : %s", clip.url)
+            twitch.annotate_categories([clip])
             status[channel] = "🔴 en live · traitement d'un clip…"
             # traité dans la foulée (le chat continue d'être lu ensuite)
             if process_clip(clip, channel, cfg, state, opts):

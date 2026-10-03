@@ -91,7 +91,9 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
     from .pipeline import process_clip
 
     results = []
-    for clip, login in discover(twitch, state, max_duration=opts.max_duration, **kwargs):
+    found = discover(twitch, state, max_duration=opts.max_duration, **kwargs)
+    twitch.annotate_categories([clip for clip, _ in found])
+    for clip, login in found:
         log.info("→ %s · %s (%d vues, %.0f vues/h) %s", login, clip.title, clip.view_count,
                  clip.virality(), clip.url)
         try:

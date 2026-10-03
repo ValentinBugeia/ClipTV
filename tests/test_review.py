@@ -227,3 +227,15 @@ def test_tiktok_expired_code_message(server, monkeypatch):
                           b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
     body = _post(base + "/connect/tiktok-code", b"code=abc").read().decode()
     assert "a expiré ou a déjà servi" in body and "Reclique sur" in body
+
+
+@pytest.mark.parametrize("raw,code", [
+    ("https://example.com/tiktok/callback?code=AbC%2A1%21&scopes=x&state=s", "AbC*1!"),
+    ("https://example.com/cb?state=s&code=a+b%2Ac", "a+b*c"),
+    ("AbC%2A1", "AbC*1"),
+    ("code=AbC%2A1", "AbC*1"),
+])
+def test_extract_oauth_code(raw, code):
+    from clipbot.review import extract_oauth_code
+
+    assert extract_oauth_code(raw) == code

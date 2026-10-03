@@ -186,6 +186,18 @@ SEARCH = """<details class="panel">
 </details>"""
 
 
+def extract_oauth_code(raw: str) -> str:
+    """Code d'autorisation depuis l'adresse de retour collée, ou depuis le code seul.
+
+    Décodé une seule fois avec ``unquote`` (et non ``unquote_plus``) : les codes TikTok
+    contiennent des caractères encodés (%2A…) et parfois des « + » à garder tels quels.
+    """
+    raw = raw.strip().strip('"\'')
+    match = re.search(r"[?&#]code=([^&#\s]+)", raw)
+    value = match.group(1) if match else raw.removeprefix("code=")
+    return urllib.parse.unquote(value)
+
+
 def _tiktok_error(exc: BaseException) -> str:
     """Message compréhensible pour les échecs de connexion TikTok les plus fréquents."""
     text = str(exc)
@@ -941,8 +953,10 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
     def _tiktok_code(self, form: dict[str, str]):
         from .tiktok import TikTokClient
 
-        raw = form.get("code", "").strip()
-        code = urllib.parse.parse_qs(urllib.parse.urlparse(raw).query).get("code", [raw])[0]
+        code = extract_oauth_code(form.get("code", ""))
+        if not code:
+            return self._redirect("Adresse TikTok vide : colle l'adresse complète de la page "
+                                  "de retour.", err=True, to="/accounts")
         cfg = self.cfg
         try:
             cfg.require("tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri")

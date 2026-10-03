@@ -309,6 +309,18 @@ class Handler(BaseHTTPRequestHandler):
     def platforms(self) -> list[str]:
         return self.opts.platforms or self.cfg.platforms
 
+    def _is_local(self) -> bool:
+        """Requête faite sur ce PC même ? Un tunnel ou un proxy (Cloudflare, Tailscale,
+        ngrok, Caddy…) se connecte lui aussi depuis 127.0.0.1 : on le reconnaît à ses
+        en-têtes de relais et on le traite comme un accès extérieur."""
+        ip = self.client_address[0]
+        if not (ip.startswith("127.") or ip == "::1"):
+            return False
+        relayed = ("X-Forwarded-For", "X-Real-IP", "Forwarded", "CF-Connecting-IP",
+                   "True-Client-IP", "X-Forwarded-Host", "Tailscale-User-Login",
+                   "Tailscale-Funnel-Request", "Ngrok-Trace-Id")
+        return not any(h in self.headers for h in relayed)
+
     def _authorized(self) -> bool:
         """Sans mot de passe : seul ce PC a accès. Avec : tout appareil qui le connaît."""
         from .localkeys import PASSWORD_SETTING, check_password
@@ -316,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
         env_pw = self.cfg.review_password
         pw_hash = self.state.get_settings().get(PASSWORD_SETTING)
         if not env_pw and not pw_hash:
-            if self.client_address[0].startswith("127.") or self.client_address[0] == "::1":
+            if self._is_local():
                 return True
             port = self.server.server_address[1]
             self._send(403, "Accès depuis un autre appareil refusé : ouvre cliptv sur le PC "

@@ -202,3 +202,13 @@ def test_tiktok_code_paste_extracts_code(server, monkeypatch):
     url = urllib.parse.quote("https://ex.com/cb?code=ABC%2A123&state=x", safe="")
     body = _post(base + "/connect/tiktok-code", f"code={url}".encode()).read().decode()
     assert "TikTok connecté" in body and got["code"] == "ABC*123"
+
+
+@pytest.mark.parametrize("header", ["X-Forwarded-For", "CF-Connecting-IP",
+                                    "Tailscale-Funnel-Request"])
+def test_tunnel_is_not_treated_as_local(server, header):
+    base, _ = server
+    req = urllib.request.Request(base + "/", headers={header: "1"})
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        urllib.request.urlopen(req)
+    assert exc.value.code == 403

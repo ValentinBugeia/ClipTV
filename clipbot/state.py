@@ -187,7 +187,7 @@ class State:
         """Remet en échec les publications interrompues (crash pendant ``publishing``)."""
         return self._write(
             """UPDATE clips SET status='failed', error='publication interrompue', updated_at=?
-               WHERE status='publishing' AND updated_at < ?""",
+               WHERE status='publishing' AND updated_at <= ?""",
             (int(time.time()), int(time.time() - older_than)))
 
     # ---------- résultats par plateforme ----------

@@ -202,17 +202,25 @@ def cmd_twitch_auth(args, cfg: Config) -> int:
 
 
 def cmd_tiktok_auth(args, cfg: Config) -> int:
-    from .tiktok import TikTokClient, authorize_url
+    from .state import State
+    from .tiktok import PKCE_SETTING, TikTokClient, authorize_url, new_pkce
 
     cfg.require("tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri")
+    state = State(cfg.db_path)
     if not args.code:
+        verifier, challenge = new_pkce()
+        state.save_settings({PKCE_SETTING: verifier})
         print("1. Ouvre cette URL et autorise l'application :\n")
-        print(authorize_url(cfg.tiktok_client_key, cfg.tiktok_redirect_uri))
+        print(authorize_url(cfg.tiktok_client_key, cfg.tiktok_redirect_uri,
+                            code_challenge=challenge))
         print("\n2. Récupère le paramètre `code` dans l'URL de redirection, puis lance :")
         print("   clipbot tiktok-auth --code <CODE>")
         return 0
     client = TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret, cfg.tiktok_token_path)
-    client.exchange_code(args.code, cfg.tiktok_redirect_uri)
+    from .review import extract_oauth_code
+
+    client.exchange_code(extract_oauth_code(args.code), cfg.tiktok_redirect_uri,
+                         state.get_settings().get(PKCE_SETTING))
     print(f"Token enregistré dans {cfg.tiktok_token_path}")
     print(f"Compte TikTok : {client.user_info().get('display_name', '?')}")
     return 0

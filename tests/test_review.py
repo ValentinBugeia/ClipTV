@@ -195,7 +195,7 @@ def test_tiktok_code_paste_extracts_code(server, monkeypatch):
 
     got = {}
     monkeypatch.setattr(tiktok.TikTokClient, "exchange_code",
-                        lambda self, code, uri: got.setdefault("code", code))
+                        lambda self, code, uri, verifier=None: got.setdefault("code", code))
     base, state = server
     _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s"
                           b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
@@ -217,7 +217,7 @@ def test_tunnel_is_not_treated_as_local(server, header):
 def test_tiktok_expired_code_message(server, monkeypatch):
     from clipbot import tiktok
 
-    def refuse(self, code, uri):
+    def refuse(self, code, uri, verifier=None):
         raise RuntimeError("Échange OAuth TikTok refusé : {'error': 'invalid_grant', "
                            "'error_description': 'Authorization code is expired.'}")
 
@@ -265,3 +265,31 @@ def test_accounts_page_in_manual_mode(server):
     state.save_settings({"then": "manual"})
     body = urllib.request.urlopen(base + "/accounts").read().decode()
     assert "Pas nécessaire en mode" in body and 'href="/connect/tiktok"' not in body
+
+
+def test_tiktok_pkce_round_trip(server, monkeypatch):
+    import hashlib
+
+    from clipbot import tiktok
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+
+    base, state = server
+    _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s"
+                          b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
+    opener = urllib.request.build_opener(NoRedirect)
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        opener.open(base + "/connect/tiktok")
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(exc.value.headers["Location"]).query)
+    verifier = state.get_settings()["tiktok_pkce"]
+    assert q["code_challenge"] == [hashlib.sha256(verifier.encode()).hexdigest()]
+    assert q["code_challenge_method"] == ["S256"]
+    assert q["scope"] == ["user.info.basic,video.upload"]
+
+    got = {}
+    monkeypatch.setattr(tiktok.TikTokClient, "exchange_code",
+                        lambda self, code, uri, v=None: got.update(code=code, verifier=v))
+    _post(base + "/connect/tiktok-code", b"code=https%3A%2F%2Fex.com%2Fcb%3Fcode%3DXYZ")
+    assert got == {"code": "XYZ", "verifier": verifier}

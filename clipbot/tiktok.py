@@ -32,8 +32,25 @@ MAX_SINGLE_CHUNK = 64 * 1024 * 1024
 CHUNK_SIZE = 10 * 1024 * 1024
 
 
+PKCE_SETTING = "tiktok_pkce"  # code_verifier en attente (base locale)
+
+
+def new_pkce() -> tuple[str, str]:
+    """(code_verifier, code_challenge) pour la connexion TikTok.
+
+    Particularité TikTok : le challenge est le SHA-256 du verifier encodé en
+    **hexadécimal** (et non en base64url comme dans la RFC 7636).
+    """
+    import hashlib
+    import string
+
+    alphabet = string.ascii_letters + string.digits + "-._~"
+    verifier = "".join(secrets.choice(alphabet) for _ in range(64))
+    return verifier, hashlib.sha256(verifier.encode()).hexdigest()
+
+
 def authorize_url(client_key: str, redirect_uri: str, state: str | None = None,
-                  direct: bool = False) -> str:
+                  direct: bool = False, code_challenge: str | None = None) -> str:
     params = {
         "client_key": client_key,
         "scope": SCOPES_DIRECT if direct else SCOPES,
@@ -41,6 +58,8 @@ def authorize_url(client_key: str, redirect_uri: str, state: str | None = None,
         "redirect_uri": redirect_uri,
         "state": state or secrets.token_urlsafe(16),
     }
+    if code_challenge:
+        params.update(code_challenge=code_challenge, code_challenge_method="S256")
     return f"{AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
 
 
@@ -69,16 +88,20 @@ class TikTokClient:
         self.token_path.write_text(json.dumps(payload, indent=2))
         return payload
 
-    def exchange_code(self, code: str, redirect_uri: str) -> dict:
+    def exchange_code(self, code: str, redirect_uri: str,
+                      code_verifier: str | None = None) -> dict:
+        data = {
+            "client_key": self.client_key,
+            "client_secret": self.client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        }
+        if code_verifier:
+            data["code_verifier"] = code_verifier
         resp = self.session.post(
             f"{API}/oauth/token/",
-            data={
-                "client_key": self.client_key,
-                "client_secret": self.client_secret,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
-            },
+            data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=15,
         )

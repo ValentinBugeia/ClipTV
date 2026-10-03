@@ -757,12 +757,22 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             return self._redirect("TIKTOK_CLIENT_KEY / TIKTOK_REDIRECT_URI manquants dans .env",
                                   err=True, to="/accounts")
         self.send_response(302)
+        from .tiktok import PKCE_SETTING, new_pkce
+
+        verifier, challenge = new_pkce()  # gardé pour l'échange du code
+        self.state.save_settings({PKCE_SETTING: verifier})
         self.send_header("Location", authorize_url(cfg.tiktok_client_key,
                                                    cfg.tiktok_redirect_uri,
                                                    state=self.app.oauth_state,
-                                                   direct=self.opts.mode == "direct"))
+                                                   direct=self.opts.mode == "direct",
+                                                   code_challenge=challenge))
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def _pkce_verifier(self) -> str | None:
+        from .tiktok import PKCE_SETTING
+
+        return self.state.get_settings().get(PKCE_SETTING)
 
     def _tiktok_callback(self):
         from .tiktok import TikTokClient
@@ -778,7 +788,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         try:
             client = TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret,
                                   cfg.tiktok_token_path)
-            client.exchange_code(q["code"][0], cfg.tiktok_redirect_uri)
+            client.exchange_code(extract_oauth_code(self.path), cfg.tiktok_redirect_uri,
+                                 self._pkce_verifier())
         except Exception as exc:
             return self._redirect(_tiktok_error(exc), err=True, to="/accounts")
         return self._redirect("TikTok connecté ✔", to="/accounts")
@@ -1004,7 +1015,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         try:
             cfg.require("tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri")
             TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret,
-                         cfg.tiktok_token_path).exchange_code(code, cfg.tiktok_redirect_uri)
+                         cfg.tiktok_token_path).exchange_code(code, cfg.tiktok_redirect_uri,
+                                                              self._pkce_verifier())
         except (Exception, SystemExit) as exc:
             return self._redirect(_tiktok_error(exc), err=True, to="/accounts")
         return self._redirect("TikTok connecté ✔", to="/accounts")

@@ -154,3 +154,18 @@ def test_pages_render(server):
         assert urllib.request.urlopen(base + path).status == 200
     body = urllib.request.urlopen(base + "/accounts").read().decode()
     assert "Twitch (lecture des clips)" in body and "Tout vérifier" in body
+
+
+def test_search_without_channels_uses_discovery(server, monkeypatch):
+    from clipbot import review
+
+    seen = {}
+    monkeypatch.setattr(review, "run_search",
+                        lambda job, cfg, state, opts, channels, hours, top:
+                        seen.setdefault("channels", channels) and "" or "ok")
+    base, _ = server
+    body = _post(base + "/search", b"channels=&hours=24&top=3&then=review").read().decode()
+    assert "Recherche lancée" in body
+    import time
+    time.sleep(0.2)
+    assert seen["channels"] == []

@@ -211,6 +211,15 @@ def get_stream(client: TwitchClient, login: str) -> dict | None:
     return data[0] if data else None
 
 
+def get_top_streams(client: TwitchClient, *, language: str | None = None,
+                    first: int = 50) -> list[dict]:
+    """Lives en cours les plus regardés (triés par spectateurs), filtrés par langue."""
+    params = {"first": min(max(first, 1), 100), "type": "live"}
+    if language:
+        params["language"] = language
+    return client._get("/streams", params)["data"]
+
+
 def get_clip(client: TwitchClient, clip_id: str) -> Clip | None:
     data = client._get("/clips", {"id": clip_id})["data"]
     return Clip.from_api(data[0]) if data else None

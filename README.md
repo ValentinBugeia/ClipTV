@@ -2,8 +2,9 @@
 
 Une app web qui tourne **toute seule, de A à Z** :
 
-1. trouve les clips **les plus viraux** des chaînes Twitch que tu suis, et clippe
-   automatiquement les **moments forts des lives** (quand le chat s'emballe) ;
+1. **trouve tout seul les temps forts** du moment sur Twitch : il scanne les streams les
+   plus regardés dans ta langue et garde les clips qui montent le plus vite (aucune
+   chaîne à renseigner), et peut aussi clipper les **pics de chat** des lives de ton choix ;
 2. les monte au **format téléphone 9:16**, cadrés sur la facecam, avec des
    **sous-titres animés** (style TikTok, mot en cours surligné) ;
 3. écrit l'**accroche et les hashtags** avec Claude ;
@@ -39,8 +40,9 @@ Ensuite, **tout se passe dans le navigateur** :
 
 - **Comptes** : connecte Twitch, TikTok, YouTube et Instagram en un clic (ou en entrant un
   code), puis « Tout vérifier » teste chaque connexion pour de vrai ;
-- **Pilote auto** : choisis les chaînes, les lives à surveiller, les plateformes et les
-  heures de publication. Il est **activé par défaut** ;
+- **Pilote auto** : il est **activé par défaut** et trouve seul les clips ; tu peux
+  changer la langue, ajouter des chaînes favorites ou des lives à surveiller, et choisir
+  les heures de publication ;
 - **Clips** : suis ce qui est prêt, programmé ou publié, modifie une légende, annule un
   clip, ou lance une recherche ponctuelle.
 
@@ -68,8 +70,12 @@ alors ; rends le paquet public dans GitHub, ou fais `docker login ghcr.io`).
 
 ## Comment marche le pilote automatique
 
-- Toutes les N minutes (réglable), il prend les clips des dernières 24 h classés par
-  **vues/heure**, ignore ceux déjà traités et ceux sous le seuil de vues.
+- Toutes les heures (réglable), il prend les **30 lives les plus regardés** dans la langue
+  choisie (français par défaut), plus les streamers vus ces 3 derniers jours et tes chaînes
+  favorites. Il récupère leurs clips des dernières 24 h, les classe **tous ensemble par
+  vues/heure** (les moments que les viewers clippent et partagent le plus), et garde les
+  meilleurs, avec **un seul clip par streamer** à chaque passage pour varier.
+  Mode « Seulement mes chaînes » possible dans les réglages.
 - Pour les lives surveillés, il lit le chat et crée un clip dès que l'activité dépasse
   x3 la normale (emotes, « KEKW », « mdr », MAJUSCULES…), puis le traite aussitôt.
 - Chaque clip est placé sur le **prochain créneau libre** (par défaut 12:30, 18:00 et
@@ -95,7 +101,8 @@ Police des sous-titres : dépose `Montserrat-Black.ttf` dans `fonts/` (incluse d
 Toutes les étapes existent aussi en commandes, pour les scripts et le cron :
 
 ```bash
-clipbot run -c kamet0 -c zerator --top 3 --ai-caption --schedule   # clips viraux → programmés
+clipbot run --top 3 --ai-caption --schedule                        # temps forts trouvés seuls
+clipbot run -c kamet0 -c zerator --top 3 --schedule                # ou seulement ces chaînes
 clipbot run --every 60 --schedule                                  # en boucle (CLIPBOT_CHANNELS)
 clipbot watch kamet0 gotaga --forever --schedule                   # plusieurs lives en parallèle
 clipbot publisher                                                  # publie aux créneaux
@@ -122,6 +129,7 @@ garde les réglages faits dans l'interface.
 clipbot/
   review.py     interface web (Clips, Pilote auto, Comptes) — stdlib uniquement
   autopilot.py  pilote automatique (recherche périodique + surveillance des lives)
+  discover.py   découverte des temps forts (top streams → clips classés par vues/heure)
   schedule.py   créneaux de publication + planificateur
   pipeline.py   traitement d'un clip et publication multi-plateformes
   watcher.py    surveillance d'un live (attente, chat, création de clips)

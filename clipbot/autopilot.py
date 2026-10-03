@@ -34,11 +34,16 @@ def _env_list(name: str) -> list[str]:
 def default_settings(cfg: Config) -> dict:
     return {
         "enabled": os.environ.get("CLIPBOT_AUTOPILOT", "").lower() in ("1", "true", "yes", "on"),
+        # discover = trouve seul les temps forts des streams les plus regardés ;
+        # channels = seulement les chaînes listées
+        "source": "discover",
+        "language": os.environ.get("CLIPBOT_LANGUAGE", "fr"),
+        "streamers": 30,         # lives les plus regardés scannés à chaque passage
         "channels": _env_list("CLIPBOT_CHANNELS"),
         "live_channels": _env_list("CLIPBOT_WATCH_CHANNELS"),
         "every": 60,             # minutes entre deux recherches
         "hours": 24,             # fenêtre de recherche des clips
-        "top": 2,                # clips max par chaîne et par recherche
+        "top": 3,                # clips max par recherche (par chaîne en mode channels)
         "min_views": 50,
         "then": "schedule",      # schedule | publish
         "ai_caption": True,
@@ -134,8 +139,9 @@ class Autopilot:
         from .twitch import TwitchClient
 
         channels = settings["channels"]
-        if not channels:
-            self.message = "Aucune chaîne à suivre : ajoute-en dans les réglages"
+        discover = settings.get("source", "discover") == "discover"
+        if not discover and not channels:
+            self.message = "Aucune chaîne à suivre : ajoute-en ou passe en découverte auto"
             return
         queued = self.state.count("scheduled")
         limit = max_queue(settings)
@@ -151,6 +157,9 @@ class Autopilot:
             twitch = TwitchClient(self.cfg.twitch_client_id, self.cfg.twitch_client_secret)
             opts = self._options(settings)
             done, errors = 0, []
+            if discover:
+                done, errors = self._discover(settings, opts, twitch, limit)
+                channels = []
             for i, channel in enumerate(channels, 1):
                 if self.stop.is_set():
                     return
@@ -177,6 +186,28 @@ class Autopilot:
                 self.message += " · ⚠️ échec sur " + ", ".join(errors[:3])
         finally:
             self.searching = False
+
+    def _discover(self, settings: dict, opts: Options, twitch, limit: int):
+        from .discover import run_discovery
+
+        top = int(settings["top"])
+        if opts.schedule:
+            top = min(top, limit - self.state.count("scheduled"))
+            if top <= 0:
+                return 0, []
+        lang = settings.get("language") or None
+        self.message = f"Recherche des temps forts ({lang or 'toutes langues'})…"
+        try:
+            results = run_discovery(self.cfg, self.state, opts, twitch, language=lang,
+                                    streamers=int(settings.get("streamers", 30)),
+                                    hours=float(settings["hours"]), top=top,
+                                    min_views=int(settings["min_views"]),
+                                    favorites=settings["channels"])
+        except Exception as exc:
+            log.exception("Découverte échouée")
+            return 0, [f"découverte ({type(exc).__name__})"]
+        return (sum(ok for _, ok in results),
+                [f"clip {cid}" for cid, ok in results if not ok])
 
     # ---------- lives ----------
     def _sync_watchers(self, settings: dict) -> None:

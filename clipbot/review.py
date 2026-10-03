@@ -130,6 +130,10 @@ HOURS = [(6, "6 dernières heures"), (24, "24 dernières heures"), (72, "3 derni
          (168, "7 derniers jours")]
 EVERY = [(15, "toutes les 15 min"), (30, "toutes les 30 min"), (60, "toutes les heures"),
          (120, "toutes les 2 h"), (240, "toutes les 4 h"), (720, "toutes les 12 h")]
+LANGUAGES = [("fr", "Français"), ("en", "Anglais"), ("es", "Espagnol"), ("de", "Allemand"),
+             ("it", "Italien"), ("pt", "Portugais"), ("", "Toutes les langues")]
+SOURCES = [("discover", "Auto : streams les plus regardés"),
+           ("channels", "Seulement mes chaînes")]
 RATIOS = [(2.0, "Très sensible (x2)"), (3.0, "Normale (x3)"), (5.0, "Peu sensible (x5)")]
 PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube Shorts", "instagram": "Instagram Reels"}
 CHANNEL_RE = re.compile(r"\w{2,25}")
@@ -164,8 +168,8 @@ SEARCH = """<details class="panel">
 <summary>🔎 Recherche ponctuelle</summary>
 <form method="post" action="/search">
   <div class="grid">
-    <label class="full">Chaînes Twitch (séparées par des virgules)
-      <input name="channels" value="{channels}" placeholder="kamet0, zerator" required
+    <label class="full">Chaînes Twitch (laisse vide pour trouver seul les temps forts du moment)
+      <input name="channels" value="{channels}" placeholder="vide = découverte automatique"
              autocapitalize="none" autocorrect="off"></label>
     <label>Période <select name="hours">{hours}</select></label>
     <label>Clips par chaîne <input name="top" type="number" min="1" max="20" value="3"></label>
@@ -230,6 +234,13 @@ def run_search(job: SearchJob, cfg: Config, state: State, opts: Options, channel
     twitch = TwitchClient(cfg.twitch_client_id, cfg.twitch_client_secret)
     started = time.time()
     results: list[tuple[str, bool]] = []
+    if not channels:  # découverte automatique des temps forts
+        from .autopilot import load_settings
+        from .discover import run_discovery
+
+        lang = load_settings(state, cfg).get("language") or None
+        results = run_discovery(cfg, state, opts, twitch, language=lang, hours=hours, top=top,
+                                min_views=0)
     for i, channel in enumerate(channels, 1):
         job.message = f"Recherche en cours : {channel} ({i}/{len(channels)})…"
         results += run_channels([channel], cfg, state, opts, twitch, hours=hours, top=top,
@@ -237,7 +248,7 @@ def run_search(job: SearchJob, cfg: Config, state: State, opts: Options, channel
     ok = sum(r[1] for r in results)
     ko = len(results) - ok
     if not results:
-        return f"Aucun nouveau clip trouvé ({', '.join(channels)})"
+        return f"Aucun nouveau clip trouvé ({', '.join(channels) or 'découverte auto'})"
     return (f"Recherche terminée : {ok} clip(s) prêt(s)" + (f", {ko} en erreur" if ko else "")
             + f" · {int(time.time() - started)} s")
 
@@ -385,7 +396,8 @@ class Handler(BaseHTTPRequestHandler):
     def _search_panel(self) -> str:
         from .autopilot import load_settings
 
-        channels = ", ".join(load_settings(self.state, self.cfg)["channels"])
+        s = load_settings(self.state, self.cfg)
+        channels = ", ".join(s["channels"]) if s.get("source") == "channels" else ""
         return SEARCH.format(channels=e(channels), hours=_options(HOURS, 24),
                              disabled=" disabled" if self.app.job.running else "")
 
@@ -449,7 +461,8 @@ class Handler(BaseHTTPRequestHandler):
                          ("publish", "Publier dès que c'est prêt")], s["then"])
         body = f"""
 <div class="panel"><h2>{head}</h2>
-<p class="info">Il cherche les clips les plus viraux, les monte en vertical avec sous-titres,
+<p class="info">Il repère tout seul les temps forts des streams les plus regardés (les
+clips que les viewers partagent le plus en ce moment), les monte en vertical avec sous-titres,
 écrit la légende, puis les publie aux heures choisies. Il surveille aussi les lives et
 clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 (ou annuler un clip) dans l'onglet Clips.</p>
@@ -457,7 +470,10 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 
 <form method="post" action="/auto" class="panel"><h2>Réglages</h2>
 <div class="grid">
-  <label class="full">Chaînes dont on reprend les meilleurs clips
+  <label class="full">Où chercher les clips <select name="source">{_options(SOURCES, s.get('source', 'discover'))}</select></label>
+  <label>Langue des streams <select name="language">{_options(LANGUAGES, s.get('language', 'fr'))}</select></label>
+  <label>Streams scannés (mode auto) <input name="streamers" type="number" min="5" max="100" value="{e(s.get('streamers', 30))}"></label>
+  <label class="full">Chaînes favorites (toujours incluses ; obligatoires en mode « mes chaînes »)
     <input name="channels" value="{e(', '.join(s['channels']))}" placeholder="kamet0, zerator"
            autocapitalize="none" autocorrect="off"></label>
   <label class="full">Lives à surveiller (clip automatique à chaque pic de chat)
@@ -465,7 +481,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
            autocapitalize="none" autocorrect="off"></label>
   <label>Fréquence de recherche <select name="every">{_options(EVERY, int(s['every']))}</select></label>
   <label>Clips récents de moins de <select name="hours">{_options(HOURS, int(s['hours']))}</select></label>
-  <label>Clips max par chaîne <input name="top" type="number" min="1" max="20" value="{e(s['top'])}"></label>
+  <label>Clips max par recherche <input name="top" type="number" min="1" max="20" value="{e(s['top'])}"></label>
   <label>Vues minimum <input name="min_views" type="number" min="0" value="{e(s['min_views'])}"></label>
   <label>Quand un clip est prêt <select name="then">{then}</select></label>
   <label>Sensibilité des lives <select name="ratio">{_options(RATIOS, float(s['ratio']))}</select></label>
@@ -709,7 +725,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 
     def _search(self, form: dict[str, str]):
         channels = _split_channels(form.get("channels", ""))
-        if not channels or not all(CHANNEL_RE.fullmatch(c) for c in channels):
+        if not all(CHANNEL_RE.fullmatch(c) for c in channels):
             return self._redirect("Indique des noms de chaînes Twitch valides.", err=True)
         try:
             hours = min(max(float(form.get("hours", 24)), 1), 24 * 30)
@@ -720,7 +736,8 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
         opts = Options(**{**self.opts.__dict__, "ai_caption": form.get("ai") == "1",
                           "publish": then == "publish", "schedule": then == "schedule"})
         job = self.app.job
-        if not job.start(f"Recherche en cours : {channels[0]}…", run_search, job, self.cfg,
+        first = channels[0] if channels else "temps forts du moment"
+        if not job.start(f"Recherche en cours : {first}…", run_search, job, self.cfg,
                          self.state, opts, channels, hours, top):
             return self._redirect("Une recherche est déjà en cours.", err=True)
         return self._redirect("Recherche lancée : les clips apparaîtront ici au fur et à "
@@ -740,6 +757,10 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
             values = {
                 "channels": channels,
                 "live_channels": live,
+                "source": "channels" if one.get("source") == "channels" else "discover",
+                "language": one.get("language", "fr") if one.get("language", "fr") in
+                dict(LANGUAGES) else "fr",
+                "streamers": min(max(int(one.get("streamers", 30)), 5), 100),
                 "every": int(one.get("every", 60)),
                 "hours": int(one.get("hours", 24)),
                 "top": min(max(int(one.get("top", 2)), 1), 20),

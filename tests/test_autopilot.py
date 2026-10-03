@@ -18,7 +18,7 @@ def make(tmp_path, **settings):
 
 
 def test_search_schedules_and_respects_queue_limit(tmp_path, monkeypatch):
-    cfg, state = make(tmp_path, max_queue=3)
+    cfg, state = make(tmp_path, max_queue=3, source="channels")
     calls = []
 
     def fake_run(channels, cfg, state, opts, twitch, *, hours, top, min_views):
@@ -84,3 +84,19 @@ def test_live_without_twitch_account(tmp_path, monkeypatch):
     pilot = ap.Autopilot(cfg, state, Options())
     pilot._step()
     assert "connecte ton compte Twitch" in pilot.live_status["gotaga"]
+
+
+def test_discovery_is_default(tmp_path, monkeypatch):
+    cfg, state = make(tmp_path, channels=[])
+    seen = {}
+
+    def fake_discovery(cfg, state, opts, twitch, **kw):
+        seen.update(kw)
+        return [("x1", True), ("x2", False)]
+
+    monkeypatch.setattr("clipbot.discover.run_discovery", fake_discovery)
+    pilot = ap.Autopilot(cfg, state, Options())
+    pilot._step()
+    assert seen["language"] == "fr" and seen["streamers"] == 30
+    assert seen["top"] == 4  # 5 demandés, mais la file est plafonnée à 2 jours x 2 créneaux
+    assert "1 nouveau(x) clip(s)" in pilot.message and "clip x2" in pilot.message

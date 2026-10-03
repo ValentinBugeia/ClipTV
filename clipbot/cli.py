@@ -50,7 +50,12 @@ def cmd_run(args, cfg: Config) -> int:
     from .state import State
     from .twitch import TwitchClient
 
-    args.channel = _channels(args.channel, "CLIPBOT_CHANNELS")
+    import os
+
+    if args.channel or os.environ.get("CLIPBOT_CHANNELS", "").strip():
+        args.channel = _channels(args.channel, "CLIPBOT_CHANNELS")
+    else:
+        args.channel = []  # pas de chaîne : découverte automatique des temps forts
     cfg.require("twitch_client_id", "twitch_client_secret")
     cfg.ensure_dirs()
     opts = options_from_args(args)
@@ -70,8 +75,14 @@ def cmd_run(args, cfg: Config) -> int:
 
 
 def _run_once(args, cfg: Config, opts: Options, state, twitch) -> None:
+    from .discover import run_discovery
     from .pipeline import run_channels
 
+    if not args.channel:
+        run_discovery(cfg, state, opts, twitch, language=args.discover_language or None,
+                      streamers=args.streamers, hours=args.hours, top=args.top,
+                      min_views=args.min_views)
+        return
     run_channels(args.channel, cfg, state, opts, twitch, hours=args.hours, top=args.top,
                  min_views=args.min_views)
 
@@ -272,7 +283,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="récupère et traite les clips existants les plus viraux")
     run.add_argument("--channel", "-c", action="append",
-                     help="login Twitch, répétable (défaut : CLIPBOT_CHANNELS)")
+                     help="login Twitch, répétable (défaut : CLIPBOT_CHANNELS ; "
+                          "sinon découverte automatique des temps forts)")
+    run.add_argument("--discover-language", default="fr", metavar="LANG",
+                     help="découverte auto : langue des streams scannés ('' = toutes)")
+    run.add_argument("--streamers", type=int, default=30,
+                     help="découverte auto : nb de lives les plus regardés scannés")
     run.add_argument("--hours", type=float, default=24, help="fenêtre de recherche des clips")
     run.add_argument("--top", type=int, default=3, help="nb de clips par chaîne et par run")
     run.add_argument("--min-views", type=int, default=50)

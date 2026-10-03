@@ -345,3 +345,11 @@ def test_subtitles_setting(server):
     data = urllib.parse.urlencode([("platforms", "tiktok"), ("post_slots", "18:00")]).encode()
     _post(base + "/auto", data)
     assert state.get_settings()["subtitles"] is False  # case décochée
+
+
+def test_stats_page(server):
+    base, state = server
+    body = urllib.request.urlopen(base + "/stats?p=7").read().decode()
+    assert "Activer les statistiques TikTok" in body and "Activité de cliptv" in body
+    _post(base + "/stats/enable", b"")
+    assert state.get_settings()["tiktok_stats"] is True

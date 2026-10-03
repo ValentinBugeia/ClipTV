@@ -27,6 +27,10 @@ AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
 # Ne demander que ce que l'app TikTok possède, sinon TikTok refuse la connexion.
 SCOPES = "user.info.basic,video.upload"
 SCOPES_DIRECT = SCOPES + ",video.publish"
+# statistiques (produit « Display API ») : demandées seulement si activées dans l'app
+SCOPES_STATS = "user.info.stats,video.list"
+VIDEO_FIELDS = ("id,title,video_description,create_time,cover_image_url,share_url,"
+                "view_count,like_count,comment_count,share_count,duration")
 
 MAX_SINGLE_CHUNK = 64 * 1024 * 1024
 CHUNK_SIZE = 10 * 1024 * 1024
@@ -50,10 +54,14 @@ def new_pkce() -> tuple[str, str]:
 
 
 def authorize_url(client_key: str, redirect_uri: str, state: str | None = None,
-                  direct: bool = False, code_challenge: str | None = None) -> str:
+                  direct: bool = False, code_challenge: str | None = None,
+                  stats: bool = False) -> str:
+    scope = SCOPES_DIRECT if direct else SCOPES
+    if stats:
+        scope += "," + SCOPES_STATS
     params = {
         "client_key": client_key,
-        "scope": SCOPES_DIRECT if direct else SCOPES,
+        "scope": scope,
         "response_type": "code",
         "redirect_uri": redirect_uri,
         "state": state or secrets.token_urlsafe(16),
@@ -168,6 +176,42 @@ class TikTokClient:
         if resp.status_code >= 400 or err.get("code") not in (None, "ok"):
             raise RuntimeError(f"Erreur TikTok /user/info : {err or payload}")
         return payload.get("data", {}).get("user", {})
+
+    def _get_api(self, path: str, params: dict) -> dict:
+        resp = self.session.get(f"{API}{path}", params=params, timeout=30,
+                                headers={"Authorization": f"Bearer {self.access_token()}"})
+        payload = resp.json()
+        err = payload.get("error", {})
+        if resp.status_code >= 400 or err.get("code") not in (None, "ok"):
+            raise RuntimeError(f"Erreur TikTok {path} : {err or payload}")
+        return payload.get("data", {})
+
+    def account_stats(self) -> dict:
+        """Abonnés, j'aime, nombre de vidéos (scope user.info.stats)."""
+        return self._get_api("/user/info/", {"fields": "display_name,avatar_url,"
+                             "follower_count,following_count,likes_count,video_count"}
+                             ).get("user", {})
+
+    def list_videos(self, limit: int = 200) -> list[dict]:
+        """Vidéos publiées du compte, avec leurs statistiques (scope video.list)."""
+        videos, cursor = [], None
+        while len(videos) < limit:
+            body = {"max_count": 20, **({"cursor": cursor} if cursor else {})}
+            resp = self.session.post(
+                f"{API}/video/list/", params={"fields": VIDEO_FIELDS}, json=body,
+                headers={"Authorization": f"Bearer {self.access_token()}",
+                         "Content-Type": "application/json; charset=UTF-8"},
+                timeout=30)
+            payload = resp.json()
+            err = payload.get("error", {})
+            if resp.status_code >= 400 or err.get("code") not in (None, "ok"):
+                raise RuntimeError(f"Erreur TikTok /video/list : {err or payload}")
+            data = payload.get("data", {})
+            videos += data.get("videos", [])
+            cursor = data.get("cursor")
+            if not data.get("has_more") or not cursor:
+                break
+        return videos[:limit]
 
     def creator_info(self) -> dict:
         """Infos de publication directe (nécessite le scope video.publish)."""

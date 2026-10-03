@@ -77,6 +77,11 @@ Ensuite, **tout se passe dans le navigateur** :
   les heures de publication ;
 - **Clips** : suis ce qui est prêt, programmé ou publié, modifie une légende, annule un
   clip, ou lance une recherche ponctuelle.
+- **Statistiques** : vues, j'aime, commentaires, partages et engagement de tes vidéos
+  TikTok, meilleures vidéos, et vues moyennes par streamer, par catégorie et par heure
+  de publication (pour choisir les streamers et les créneaux). Nécessite le produit
+  **Display API** (scopes `user.info.stats` et `video.list`) dans ton app TikTok, puis
+  « Activer les statistiques » et une reconnexion de TikTok.
 
 > 🔒 L'interface est protégée par le mot de passe `CLIPBOT_REVIEW_PASSWORD` (utilisateur
 > `admin`). Ne l'expose jamais sur Internet sans mot de passe, et utilise le HTTPS.
@@ -164,6 +169,8 @@ garde les réglages faits dans l'interface.
 clipbot/
   review.py     interface web (Clips, Pilote auto, Comptes) — stdlib uniquement
   autopilot.py  pilote automatique (recherche périodique + surveillance des lives)
+  stats.py      statistiques TikTok (récupération, lien avec les clips, agrégats)
+  stats_page.py page Statistiques
   discover.py   découverte des temps forts (top streams → clips classés par vues/heure)
   schedule.py   créneaux de publication + planificateur
   pipeline.py   traitement d'un clip et publication multi-plateformes

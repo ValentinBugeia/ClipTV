@@ -147,7 +147,8 @@ setInterval(async () => {{
 FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 <rect width="100" height="100" rx="22" fill="#9147ff"/><path d="M38 28 L74 50 L38 72 Z" fill="#fff"/></svg>"""
 
-SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/accounts", "Comptes")]
+SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/stats", "Statistiques"),
+            ("/accounts", "Comptes")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("published", "Publiés"),
         ("rejected", "Rejetés"), ("failed", "Erreurs")]
 CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo")
@@ -487,6 +488,7 @@ class Handler(BaseHTTPRequestHandler):
             "/": self._clips_page,
             "/auto": self._auto_page,
             "/accounts": self._accounts_page,
+            "/stats": self._stats_page,
             "/status": self._status_json,
             "/favicon.svg": lambda: self._send(200, FAVICON, "image/svg+xml"),
             "/connect/tiktok": self._tiktok_redirect,
@@ -580,6 +582,39 @@ class Handler(BaseHTTPRequestHandler):
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
+
+    # ---------- page Statistiques ----------
+    def _stats_page(self):
+        from . import stats, stats_page
+
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        try:
+            days = int(q.get("p", ["30"])[0])
+        except ValueError:
+            days = 30
+        sort = q.get("sort", ["views"])[0]
+        since = time.time() - days * 86400 if days else 0
+        summary = stats.summary(self.state, since=since, tz=self.cfg.timezone)
+        self._page(stats_page.render(summary, days=days, sort=sort, tz=self.cfg.timezone),
+                   "/stats")
+
+    def _stats_refresh(self):
+        from . import stats
+
+        if not self.cfg.tiktok_token_path.exists():
+            return self._redirect("Connecte d'abord TikTok (page Comptes).", err=True,
+                                  to="/stats")
+        msg = stats.refresh(self.cfg, self.state)
+        err = bool(self.state.get_settings().get(stats.ERROR))
+        return self._redirect(msg, err=err, to="/stats")
+
+    def _stats_enable(self):
+        from . import stats
+
+        self.state.save_settings({stats.ENABLED: True, stats.ERROR: None})
+        return self._redirect("Statistiques activées : reconnecte maintenant TikTok (bouton "
+                              "« Reconnecter ») pour accorder les nouvelles autorisations.",
+                              to="/accounts")
 
     # ---------- page Pilote auto ----------
     def _auto_page(self):
@@ -717,7 +752,8 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                         'style="margin-top:8px"><input name="code" required '
                         'placeholder="https://…/callback?code=…" autocomplete="off">'
                         '<button class="small">Valider</button></form>')
-                if manual and not ok:  # aucune connexion nécessaire pour publier soi-même
+                stats_on = bool(self._settings().get("tiktok_stats"))
+                if manual and not ok and not stats_on:  # pas de connexion nécessaire
                     detail = ("Pas nécessaire en mode « je publie moi-même » : télécharge "
                               "chaque clip depuis l'onglet Clips. (La publication "
                               "automatique demande le produit Content Posting API avec le "
@@ -845,7 +881,9 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                                                    cfg.tiktok_redirect_uri,
                                                    state=self.app.oauth_state,
                                                    direct=self.opts.mode == "direct",
-                                                   code_challenge=challenge))
+                                                   code_challenge=challenge,
+                                                   stats=bool(self._settings().get(
+                                                       "tiktok_stats"))))
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -926,6 +964,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             "/auto/toggle": lambda: self._toggle_auto(one),
             "/auto/run": self._run_auto,
             "/accounts/check": self._run_checks,
+            "/stats/refresh": self._stats_refresh,
+            "/stats/enable": self._stats_enable,
             "/connect/twitch": lambda: self._connect_device("twitch"),
             "/connect/youtube": lambda: self._connect_device("youtube"),
             "/connect/instagram": lambda: self._connect_instagram(one),

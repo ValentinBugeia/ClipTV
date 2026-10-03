@@ -114,6 +114,10 @@ class Autopilot:
             self.wake.clear()
 
     def _step(self) -> None:
+        from . import stats
+
+        if stats.due(self.state) and self.cfg.tiktok_token_path.exists():
+            stats.refresh(self.cfg, self.state)  # statistiques TikTok, toutes les heures
         settings = load_settings(self.state, self.cfg)
         apply_settings(self.cfg, settings)
         self._sync_watchers(settings)

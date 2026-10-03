@@ -42,6 +42,21 @@ CREATE TABLE IF NOT EXISTS posts (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (clip_id, platform)
 );
+CREATE TABLE IF NOT EXISTS tiktok_videos (
+    video_id    TEXT PRIMARY KEY,
+    title       TEXT,
+    description TEXT,
+    create_time INTEGER,
+    cover       TEXT,
+    share_url   TEXT,
+    views       INTEGER,
+    likes       INTEGER,
+    comments    INTEGER,
+    shares      INTEGER,
+    duration    INTEGER,
+    clip_id     TEXT,               -- clip cliptv d'origine, si reconnu
+    updated_at  INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL             -- JSON
@@ -209,3 +224,28 @@ class State:
             return self.conn.execute(
                 "SELECT COUNT(*) FROM clips WHERE status = ? AND updated_at >= ?",
                 (status, int(since))).fetchone()[0]
+
+    # ---------- statistiques TikTok ----------
+    VIDEO_COLS = ("video_id", "title", "description", "create_time", "cover", "share_url",
+                  "views", "likes", "comments", "shares", "duration", "clip_id")
+
+    def save_videos(self, videos: list[dict]) -> None:
+        now = int(time.time())
+        cols = self.VIDEO_COLS
+        with self.lock:
+            self.conn.executemany(
+                f"""INSERT INTO tiktok_videos ({",".join(cols)}, updated_at)
+                    VALUES ({",".join("?" * (len(cols) + 1))})
+                    ON CONFLICT(video_id) DO UPDATE SET
+                    {",".join(f"{c}=excluded.{c}" for c in cols[1:] if c != "clip_id")},
+                    clip_id=COALESCE(excluded.clip_id, tiktok_videos.clip_id),
+                    updated_at=excluded.updated_at""",
+                [tuple(v.get(c) for c in cols) + (now,) for v in videos])
+            self.conn.commit()
+
+    def videos(self, since: float = 0) -> list[dict]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM tiktok_videos WHERE create_time >= ? ORDER BY views DESC",
+                (int(since),))
+            return [dict(r) for r in rows]

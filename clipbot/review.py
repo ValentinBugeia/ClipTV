@@ -289,6 +289,7 @@ class App:
     checks: list = field(default_factory=list)
     checks_at: float = 0
     oauth_state: str = field(default_factory=lambda: secrets.token_urlsafe(16))
+    auth_ok: set = field(default_factory=set)  # en-têtes déjà vérifiés (hash lent)
 
 
 # ---------------------------------------------------------------------------
@@ -309,12 +310,32 @@ class Handler(BaseHTTPRequestHandler):
         return self.opts.platforms or self.cfg.platforms
 
     def _authorized(self) -> bool:
-        if not self.cfg.review_password:
+        """Sans mot de passe : seul ce PC a accès. Avec : tout appareil qui le connaît."""
+        from .localkeys import PASSWORD_SETTING, check_password
+
+        env_pw = self.cfg.review_password
+        pw_hash = self.state.get_settings().get(PASSWORD_SETTING)
+        if not env_pw and not pw_hash:
+            if self.client_address[0].startswith("127.") or self.client_address[0] == "::1":
+                return True
+            port = self.server.server_address[1]
+            self._send(403, "Accès depuis un autre appareil refusé : ouvre cliptv sur le PC "
+                            f"qui le fait tourner (http://localhost:{port}), page Comptes, et "
+                            "choisis un mot de passe d'accès. (Avec Docker : définis "
+                            "CLIPBOT_REVIEW_PASSWORD dans le fichier .env.)")
+            return False
+        header = self.headers.get("Authorization", "")
+        if header in self.app.auth_ok:
             return True
-        expected = base64.b64encode(
-            f"{self.cfg.review_user}:{self.cfg.review_password}".encode()).decode()
-        given = self.headers.get("Authorization", "").removeprefix("Basic ").strip()
-        if hmac.compare_digest(given.encode(), expected.encode()):
+        try:
+            _, _, given = base64.b64decode(header.removeprefix("Basic ").strip()) \
+                .decode().partition(":")
+        except ValueError:
+            given = None
+        if given is not None and (
+                (env_pw and hmac.compare_digest(given.encode(), env_pw.encode()))
+                or (pw_hash and check_password(pw_hash, given))):
+            self.app.auth_ok.add(header)
             return True
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="cliptv", charset="UTF-8"')
@@ -522,7 +543,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
         has_twitch = bool(cfg.twitch_client_id and cfg.twitch_client_secret)
         row("Twitch (lecture des clips)", "✅" if has_twitch else "❌",
             "Clés configurées" if has_twitch else
-            "Ajoute TWITCH_CLIENT_ID et TWITCH_CLIENT_SECRET dans le fichier .env")
+            "Renseigne le Client ID et le secret Twitch dans « Clés API » ci-dessous")
         connected = cfg.twitch_token_path.exists()
         row("Twitch (clips des lives)", "✅" if connected else "—",
             pending_html("twitch", "Twitch") or
@@ -541,16 +562,24 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                           f"Dans l'app TikTok Developers, l'URL de redirection doit être "
                           f"<code>{e(callback)}</code> (TIKTOK_REDIRECT_URI)")
                 if not keys:
-                    detail = "Ajoute TIKTOK_CLIENT_KEY et TIKTOK_CLIENT_SECRET dans .env"
+                    detail = "Renseigne la Client key et le secret TikTok dans « Clés API » ci-dessous"
                 action = (f'<a class="btn small" href="/connect/tiktok">'
                           f'{"Reconnecter" if ok else "Connecter"}</a>') if keys else ""
+                if keys and not ok:
+                    detail += (
+                        "<br>Si la page de retour ne s'ouvre pas (app lancée sur un PC), "
+                        "copie son adresse complète et colle-la ici :"
+                        '<form method="post" action="/connect/tiktok-code" class="row" '
+                        'style="margin-top:8px"><input name="code" required '
+                        'placeholder="https://…/callback?code=…" autocomplete="off">'
+                        '<button class="small">Valider</button></form>')
                 row("TikTok", "✅" if ok else "—", detail, action, dest)
             elif platform == "youtube":
                 keys = bool(cfg.youtube_client_id and cfg.youtube_client_secret)
                 ok = cfg.youtube_token_path.exists()
                 detail = pending_html("youtube", "YouTube") or (
                     f"Chaîne connectée (vidéos en « {e(cfg.youtube_privacy)} »)" if ok else
-                    "Ajoute YOUTUBE_CLIENT_ID et YOUTUBE_CLIENT_SECRET dans .env" if not keys
+                    "Renseigne les clés YouTube dans « Clés API » ci-dessous" if not keys
                     else "Connexion par code, comme pour une TV")
                 row("YouTube Shorts", "✅" if ok else "—", detail,
                     self._button("/connect/youtube", "Reconnecter" if ok else "Connecter",
@@ -565,10 +594,10 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     ("Token enregistré (prolongé automatiquement)" if ok else
                      "Compte pro + token longue durée du tableau de bord Meta") + form, dest=dest)
 
-        claude = bool(os.environ.get("ANTHROPIC_API_KEY"))
+        claude = bool(os.environ.get("ANTHROPIC_API_KEY"))  # .env ou Clés API
         row("Claude (légendes)", "✅" if claude else "—",
             "Clé configurée" if claude else
-            "Ajoute ANTHROPIC_API_KEY dans .env (sinon légende standard)")
+            "Renseigne la clé dans « Clés API » ci-dessous (sinon légende standard)")
 
         checks = ""
         if self.app.checks:
@@ -585,6 +614,8 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     'à activer dans Pilote auto)</summary>' + "".join(others) + "</details>")
         body = f"""
 <div class="panel"><h2>Comptes</h2>{''.join(rows)}</div>{more}
+{self._keys_panel()}
+{self._access_panel()}
 <div class="panel"><h2>Diagnostic</h2>
 <p class="info">Teste ffmpeg, la police, et chaque connexion avec un vrai appel aux API.</p>
 {checks}
@@ -592,6 +623,56 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 <button>Tout vérifier</button></form></div>"""
         waiting = any(p.state == "pending" for p in self.app.pending.values())
         self._page(body, "/accounts", narrow=True, refresh=5 if waiting else 0)
+
+    def _keys_panel(self) -> str:
+        from .localkeys import KEYS, current_value
+
+        fields = []
+        for env, attr, label, secret in KEYS:
+            if env.startswith("YOUTUBE") and "youtube" not in self.platforms:
+                continue
+            value = current_value(self.cfg, env, attr)
+            if secret:
+                hint = "••••••• enregistrée (laisse vide pour garder)" if value else ""
+                fields.append(f'<label>{e(label)}<input type="password" name="{env}" '
+                              f'placeholder="{hint}" autocomplete="off"></label>')
+            else:
+                fields.append(f'<label>{e(label)}<input name="{env}" value="{e(value)}" '
+                              f'autocomplete="off" autocapitalize="none"></label>')
+        return f"""<details class="panel"{" open" if not self.cfg.twitch_client_id else ""}>
+<summary>🔑 Clés API</summary>
+<p class="info">À créer une fois sur dev.twitch.tv, developers.tiktok.com et
+console.anthropic.com (voir le README). Elles sont gardées sur ce PC uniquement.</p>
+<form method="post" action="/keys"><div class="grid">{''.join(fields)}</div>
+<div class="row" style="margin-top:12px"><button>Enregistrer les clés</button></div></form>
+</details>"""
+
+    def _access_panel(self) -> str:
+        from .localkeys import PASSWORD_SETTING, lan_address
+
+        has_pw = bool(self.cfg.review_password
+                      or self.state.get_settings().get(PASSWORD_SETTING))
+        host, port = self.server.server_address[:2]
+        ip = lan_address() if host in ("0.0.0.0", "") else None
+        if not has_pw:
+            where = ("Pour l'ouvrir depuis un autre PC ou ton téléphone (même Wi-Fi), "
+                     "choisis d'abord un mot de passe.")
+        elif ip:
+            url = f"http://{ip}:{port}"
+            where = (f'Depuis un autre PC ou ton téléphone sur le même Wi-Fi, ouvre '
+                     f'<a href="{e(url)}">{e(url)}</a> (n\'importe quel nom d\'utilisateur '
+                     f'+ ce mot de passe).')
+        else:
+            where = "Mot de passe actif."
+        return f"""<div class="panel"><h2>Accès depuis d'autres appareils</h2>
+<p class="info">{where}</p>
+<p class="info">⚠️ Si tu installes cliptv sur plusieurs PC avec le <strong>même compte
+TikTok</strong>, n'active le pilote automatique que sur un seul, sinon les mêmes clips
+seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.</p>
+<form method="post" action="/password" class="row">
+<input type="password" name="password" minlength="6" required autocomplete="new-password"
+       placeholder="{'nouveau mot de passe' if has_pw else 'choisis un mot de passe (6 caractères min.)'}">
+<button class="small">{'Changer' if has_pw else 'Définir'}</button></form></div>"""
 
     @staticmethod
     def _button(action: str, label: str, disabled: bool = False) -> str:
@@ -684,6 +765,9 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
             "/connect/twitch": lambda: self._connect_device("twitch"),
             "/connect/youtube": lambda: self._connect_device("youtube"),
             "/connect/instagram": lambda: self._connect_instagram(one),
+            "/connect/tiktok-code": lambda: self._tiktok_code(one),
+            "/keys": lambda: self._save_keys(one),
+            "/password": lambda: self._save_password(one),
         }
         if path in routes:
             return routes[path]()
@@ -828,6 +912,39 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
         except (Exception, SystemExit) as exc:
             return self._redirect(f"Connexion impossible : {exc}", err=True, to="/accounts")
         return self._redirect("Entre le code affiché sur la page indiquée.", to="/accounts")
+
+    def _tiktok_code(self, form: dict[str, str]):
+        from .tiktok import TikTokClient
+
+        raw = form.get("code", "").strip()
+        code = urllib.parse.parse_qs(urllib.parse.urlparse(raw).query).get("code", [raw])[0]
+        cfg = self.cfg
+        try:
+            cfg.require("tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri")
+            TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret,
+                         cfg.tiktok_token_path).exchange_code(code, cfg.tiktok_redirect_uri)
+        except (Exception, SystemExit) as exc:
+            return self._redirect(f"Connexion TikTok échouée : {exc}", err=True, to="/accounts")
+        return self._redirect("TikTok connecté ✔", to="/accounts")
+
+    def _save_keys(self, form: dict[str, str]):
+        from .localkeys import save_keys
+
+        changed = save_keys(self.state, self.cfg, form)
+        msg = ("Clés enregistrées : " + ", ".join(changed)) if changed else "Aucun changement."
+        return self._redirect(msg, to="/accounts")
+
+    def _save_password(self, form: dict[str, str]):
+        from .localkeys import PASSWORD_SETTING, hash_password
+
+        password = form.get("password", "")
+        if len(password) < 6:
+            return self._redirect("Mot de passe trop court (6 caractères minimum).", err=True,
+                                  to="/accounts")
+        self.state.save_settings({PASSWORD_SETTING: hash_password(password)})
+        self.app.auth_ok.clear()
+        return self._redirect("Mot de passe enregistré ✔ (le navigateur va te le demander)",
+                              to="/accounts")
 
     def _connect_instagram(self, form: dict[str, str]):
         from .instagram import InstagramClient

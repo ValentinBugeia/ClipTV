@@ -19,6 +19,38 @@ Twitch (clips + chat des lives) ─► yt-dlp ─► cadrage visage ─► Whisp
         ─► légende Claude ─► programmation sur créneaux ─► TikTok · YouTube Shorts · Instagram Reels
 ```
 
+## Installation sur un PC (Windows, Mac, Linux)
+
+1. Sur https://github.com/ValentinBugeia/cliptv : bouton vert **Code** → **Download ZIP**,
+   puis décompresse le dossier où tu veux.
+2. Lance le fichier qui correspond à ton système :
+   - **Windows** : double-clic sur `cliptv-windows.bat` (si Windows affiche « PC protégé »,
+     clique sur *Informations complémentaires* → *Exécuter quand même*) ;
+   - **Mac** : double-clic sur `cliptv-mac.command` (la première fois : clic droit →
+     *Ouvrir*). Il faut [Homebrew](https://brew.sh) ;
+   - **Linux** : `./cliptv.sh` (installe d'abord `python3-venv` et `ffmpeg` avec ton
+     gestionnaire de paquets).
+3. Le lanceur installe tout seul ce qui manque (Python, ffmpeg sous Windows, dépendances,
+   police des sous-titres) puis **ouvre l'app dans le navigateur**. Le premier lancement
+   prend quelques minutes ; ensuite, quelques secondes.
+4. Dans l'app, page **Comptes** : colle tes clés dans « Clés API », connecte TikTok, puis
+   « Tout vérifier ». Le pilote automatique démarre tout seul.
+
+Laisse la fenêtre du lanceur ouverte : l'app tourne tant qu'elle est ouverte et que le PC
+est allumé (pense à désactiver la mise en veille). Pour mettre à jour : retélécharge le ZIP
+et remplace les fichiers, **en gardant le dossier `data/`** (tes clips, réglages et comptes).
+
+**Plusieurs PC** : chaque installation est indépendante (ses propres clés et réglages).
+⚠️ Avec le **même compte TikTok**, n'active le pilote automatique que sur **un seul PC**,
+sinon les mêmes clips partiraient en double. Pour suivre l'app depuis un autre PC ou ton
+téléphone sur le même Wi-Fi : choisis un mot de passe dans **Comptes → Accès depuis
+d'autres appareils**, l'adresse à ouvrir (`http://192.168.x.x:8000`) s'affiche juste
+au-dessus. Sans mot de passe, l'app n'est accessible que depuis le PC où elle tourne.
+
+> **TikTok sur un PC** : TikTok renvoie vers ton `TIKTOK_REDIRECT_URI` après la
+> connexion. Si cette page ne s'ouvre pas (pas de serveur derrière), copie l'adresse
+> complète de la page de retour et colle-la dans le champ prévu de la page Comptes.
+
 ## Démarrage rapide (serveur, 24 h/24)
 
 Sur un petit serveur Linux (VPS à quelques €/mois, 2 Go de RAM minimum) avec Docker :
@@ -53,7 +85,10 @@ Mise à jour : `git pull && docker compose up -d --build`. L'image est aussi pub
 `ghcr.io/valentinbugeia/cliptv` à chaque push sur `main` (`docker compose pull` suffit
 alors ; rends le paquet public dans GitHub, ou fais `docker login ghcr.io`).
 
-## Clés API (à mettre dans `.env`)
+## Clés API (page Comptes → « Clés API », ou fichier `.env`)
+
+Les clés saisies dans l'interface sont gardées dans `data/` sur ce PC et remplacent
+celles du `.env`.
 
 | Service | Où | Variables |
 |---|---|---|
@@ -143,8 +178,11 @@ clipbot/
   youtube.py    YouTube Shorts : device flow Google, upload resumable
   instagram.py  Instagram Reels : upload resumable, publication
   doctor.py     diagnostic de l'installation et des connexions
+  localkeys.py  clés API et mot de passe saisis dans l'interface
+  fonts.py      téléchargement de la police des sous-titres
   state.py      historique SQLite + réglages
   cli.py        commandes
+cliptv-windows.bat, cliptv-mac.command, cliptv.sh   lanceurs en double-clic
 Dockerfile, docker-compose.yml   déploiement serveur (+ HTTPS Caddy)
 tests/          pytest (dont rendu ffmpeg réel)
 ```

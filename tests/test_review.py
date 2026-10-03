@@ -169,3 +169,36 @@ def test_search_without_channels_uses_discovery(server, monkeypatch):
     import time
     time.sleep(0.2)
     assert seen["channels"] == []
+
+
+def test_ui_password_and_keys(server):
+    import base64
+
+    base, state = server
+    _post(base + "/keys", b"TWITCH_CLIENT_ID=abc&TWITCH_CLIENT_SECRET=xyz")
+    assert state.get_settings()["keys"]["TWITCH_CLIENT_SECRET"] == "xyz"
+    body = urllib.request.urlopen(base + "/accounts").read().decode()
+    assert 'value="abc"' in body and "xyz" not in body  # le secret n'est jamais réaffiché
+
+    with pytest.raises(urllib.error.HTTPError):  # la redirection exige déjà le mot de passe
+        _post(base + "/password", b"password=motdepasse")
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        urllib.request.urlopen(base + "/")
+    assert exc.value.code == 401
+    auth = base64.b64encode(b"nimporte:motdepasse").decode()
+    req = urllib.request.Request(base + "/", headers={"Authorization": f"Basic {auth}"})
+    assert urllib.request.urlopen(req).status == 200
+
+
+def test_tiktok_code_paste_extracts_code(server, monkeypatch):
+    from clipbot import tiktok
+
+    got = {}
+    monkeypatch.setattr(tiktok.TikTokClient, "exchange_code",
+                        lambda self, code, uri: got.setdefault("code", code))
+    base, state = server
+    _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s"
+                          b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
+    url = urllib.parse.quote("https://ex.com/cb?code=ABC%2A123&state=x", safe="")
+    body = _post(base + "/connect/tiktok-code", f"code={url}".encode()).read().decode()
+    assert "TikTok connecté" in body and got["code"] == "ABC*123"

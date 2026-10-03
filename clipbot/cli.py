@@ -137,13 +137,12 @@ def cmd_review(args, cfg: Config) -> int:
     from .schedule import run_publisher
     from .state import State
 
-    fonts_dir = Path(args.fonts_dir) if Path(args.fonts_dir).is_dir() else None
+    from .fonts import ensure_font
+
+    fonts_dir = ensure_font(Path(args.fonts_dir))
     # options de rendu utilisées par le pilote auto et les recherches lancées du navigateur
     opts = Options(mode=args.mode, privacy=args.privacy, platforms=args.platform or [],
                    fonts_dir=fonts_dir, language=args.language)
-    if args.host not in ("127.0.0.1", "localhost") and not cfg.review_password:
-        log.warning("Interface exposée sur %s SANS mot de passe : "
-                    "définis CLIPBOT_REVIEW_PASSWORD", args.host)
     cfg.ensure_dirs()
     state = State(cfg.db_path)
     apply_settings(cfg, load_settings(state, cfg))  # réglages enregistrés depuis l'interface
@@ -153,7 +152,12 @@ def cmd_review(args, cfg: Config) -> int:
                          autopilot=autopilot)
     if not args.no_publisher:  # publie les clips programmés à l'heure
         threading.Thread(target=run_publisher, args=(state, cfg, opts), daemon=True).start()
-    print(f"cliptv : http://{args.host}:{args.port}  (Ctrl+C pour quitter)")
+    url = f"http://localhost:{args.port}"
+    print(f"\n  cliptv est lancé : {url}\n  (laisse cette fenêtre ouverte ; Ctrl+C pour quitter)\n")
+    if args.open:
+        import webbrowser
+
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -324,6 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="interface web + pilote automatique + publication programmée (tout-en-un)")
     review.add_argument("--host", default="127.0.0.1")
     review.add_argument("--port", type=int, default=8000)
+    review.add_argument("--open", action="store_true", help="ouvre l'app dans le navigateur")
     review.add_argument("--no-publisher", action="store_true",
                         help="ne publie pas les clips programmés (si `publisher` tourne à part)")
     review.add_argument("--fonts-dir", default="fonts")
@@ -366,7 +371,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
-    return args.func(args, Config())
+    from .localkeys import load_stored_keys
+
+    cfg = Config()
+    load_stored_keys(cfg)  # clés saisies dans l'interface (page Comptes)
+    return args.func(args, cfg)
 
 
 if __name__ == "__main__":

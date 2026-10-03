@@ -4,6 +4,14 @@ Récupère automatiquement les clips **les plus viraux** d'une ou plusieurs cha�
 les convertit au **format téléphone 9:16** avec des **sous-titres animés** (style TikTok,
 mot en cours surligné) et les **publie sur TikTok** via l'API officielle.
 
+Deux façons de trouver les clips :
+- **`run`** : prend les clips existants les plus vus (vues/heure) sur les dernières 24 h ;
+- **`watch`** : surveille le **chat d'un live** et crée automatiquement un clip quand le chat
+  explose (emotes, "KEKW", "mdr", MAJUSCULES…), puis le traite dans la foulée.
+
+Les vidéos rendues passent par une **interface web de revue** (`clipbot review`) où tu
+valides/modifies la légende avant d'envoyer sur TikTok — ou partent directement avec `--publish`.
+
 ```
 Twitch Helix API ──► classement viralité ──► yt-dlp ──► faster-whisper ──► ffmpeg 9:16 + ASS ──► TikTok Content Posting API
    (clips 24h)        (vues / heure)        (mp4)      (mots horodatés)    (blur / crop / split)    (brouillon ou direct)
@@ -15,7 +23,7 @@ Prérequis : Python ≥ 3.10 et **ffmpeg** (avec libass, inclus dans les builds 
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[all,dev]"   # all = opencv (cadrage visage) + anthropic (légendes IA)
 cp .env.example .env   # puis remplis les clés
 ```
 
@@ -25,6 +33,12 @@ Police des sous-titres : dépose `Montserrat-Black.ttf` dans `fonts/` (sinon pol
 
 **Twitch** — https://dev.twitch.tv/console/apps → nouvelle app → `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`.
 Le token "app" (client credentials) suffit pour lire les clips publics.
+
+Pour `watch` (création de clips), connecte aussi ton compte Twitch (scope `clips:edit`) :
+`clipbot twitch-auth` puis valide le code affiché sur twitch.tv/activate.
+
+**Claude** (optionnel, `--ai-caption`) — `ANTHROPIC_API_KEY` ou `ant auth login`. Génère une
+accroche + hashtags à partir de la transcription (modèle : `CLIPBOT_LLM_MODEL`).
 
 **TikTok** — https://developers.tiktok.com → crée une app, ajoute **Login Kit** et
 **Content Posting API**, scopes `video.upload` (+ `video.publish` pour la publication directe),
@@ -48,17 +62,26 @@ clipbot render mon_clip.mp4 --layout blur --language fr
 # Les 3 clips les plus viraux des dernières 24h, rendus dans data/output/ (sans publier)
 clipbot run -c kamet0 -c zerator --hours 24 --top 3 --language fr
 
-# Idem + envoi en brouillon sur TikTok
-clipbot run -c kamet0 --top 2 --publish --mode draft
+# Valider les clips rendus dans le navigateur, puis publier d'un clic
+clipbot review            # http://localhost:8000
+
+# Ou envoi direct en brouillon TikTok, avec légende générée par Claude
+clipbot run -c kamet0 --top 2 --ai-caption --publish --mode draft
+
+# Pendant un live : clippe automatiquement les pics de chat
+clipbot watch kamet0 --ratio 3 --cooldown 120 --ai-caption
 ```
 
 Options utiles :
 
 | Option | Effet |
 |---|---|
-| `--layout blur` | vidéo 16:9 centrée sur fond flouté (défaut) |
+| `--layout auto` | (défaut) détecte le visage : facecam → `split`, caméra plein écran → `crop` centré sur le visage, sinon `blur` |
+| `--layout blur` | vidéo 16:9 centrée sur fond flouté |
 | `--layout crop` | recadrage plein écran sur le centre |
-| `--layout split` | facecam (coin haut-droit de la source) en haut, jeu en bas |
+| `--layout split` | facecam en haut (coin haut-droit si non détectée), jeu en bas |
+| `--ai-caption` | légende (accroche + hashtags) générée par Claude |
+| `watch --ratio 3` | déclenche quand le chat est 3x plus actif que la normale |
 | `--min-views N` | ignore les clips avec moins de N vues |
 | `--caption "…"` | légende TikTok, variables `{title}` `{channel}` `{channel_tag}` `{clipper}` |
 | `--highlight "#FFE600"` | couleur du mot surligné |
@@ -77,13 +100,18 @@ Un historique SQLite (`data/state.sqlite3`) évite de retraiter/republier deux f
 
 ```
 clipbot/
-  twitch.py     API Helix, pagination, score de viralité (vues/heure)
+  twitch.py     API Helix, viralité, token utilisateur (device flow), création de clips
+  live.py       lecture du chat IRC + détecteur de pics
+  facecam.py    détection du visage (OpenCV) et choix du cadrage
+  captions.py   légendes IA (Claude, sortie JSON structurée)
+  pipeline.py   traitement complet d'un clip
+  review.py     interface web de validation (stdlib)
   download.py   téléchargement des clips (yt-dlp)
   subtitles.py  transcription faster-whisper + génération ASS karaoké
   render.py     filtergraph ffmpeg 9:16 (blur / crop / split) + incrustation
   tiktok.py     OAuth + upload chunké + publication / brouillon + suivi du statut
   state.py      historique SQLite
-  cli.py        commandes `run`, `render`, `tiktok-auth`
+  cli.py        commandes `run`, `watch`, `render`, `review`, `twitch-auth`, `tiktok-auth`
 tests/          pytest (dont rendu ffmpeg réel)
 ```
 
@@ -103,11 +131,10 @@ Utiles comme référence ou pour piocher des idées :
 
 ## Pistes pour la suite
 
-- Détection de moments viraux en **live** (pics de messages/emotes dans le chat IRC) puis
-  création du clip via `POST /helix/clips` (nécessite un token utilisateur `clips:edit`).
-- Recadrage intelligent sur la facecam (détection de visage) au lieu du coin fixe en `split`.
-- Titre/hashtags générés par LLM à partir de la transcription.
-- Interface web (file d'attente, validation manuelle avant publication).
+- Suivi du visage image par image (le cadrage actuel est fixe sur tout le clip).
+- Combiner le chat avec le volume audio (cris) pour mieux détecter les moments forts.
+- Surveiller plusieurs lives en parallèle.
+- Statistiques TikTok (vues par clip) pour ajuster les seuils.
 
 ## ⚖️ Droits
 

@@ -126,3 +126,111 @@ class TwitchClient:
                 break
             params["after"] = cursor
         return clips[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Token utilisateur (nécessaire pour créer des clips pendant un live)
+# ---------------------------------------------------------------------------
+
+DEVICE_URL = "https://id.twitch.tv/oauth2/device"
+USER_SCOPES = "clips:edit"
+
+
+class TwitchUserAuth:
+    """Device Code Flow : l'utilisateur valide un code sur twitch.tv/activate.
+
+    Le token est stocké dans ``token_path`` et rafraîchi automatiquement.
+    """
+
+    def __init__(self, client_id: str, client_secret: str | None, token_path,
+                 session: requests.Session | None = None):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.token_path = token_path
+        self.session = session or requests.Session()
+
+    def _save(self, payload: dict) -> dict:
+        import json
+
+        payload["obtained_at"] = int(time.time())
+        self.token_path.parent.mkdir(parents=True, exist_ok=True)
+        self.token_path.write_text(json.dumps(payload, indent=2))
+        return payload
+
+    def start_device_flow(self) -> dict:
+        resp = self.session.post(
+            DEVICE_URL, data={"client_id": self.client_id, "scopes": USER_SCOPES}, timeout=15
+        )
+        resp.raise_for_status()
+        return resp.json()  # device_code, user_code, verification_uri, interval, expires_in
+
+    def poll_device_flow(self, device: dict) -> dict:
+        deadline = time.time() + device.get("expires_in", 1800)
+        while time.time() < deadline:
+            time.sleep(device.get("interval", 5))
+            resp = self.session.post(
+                TOKEN_URL,
+                data={
+                    "client_id": self.client_id,
+                    "scopes": USER_SCOPES,
+                    "device_code": device["device_code"],
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return self._save(resp.json())
+            if "authorization_pending" not in resp.text:
+                raise RuntimeError(f"Autorisation Twitch refusée : {resp.text}")
+        raise TimeoutError("Code Twitch expiré, relance `clipbot twitch-auth`.")
+
+    def access_token(self) -> str:
+        import json
+
+        if not self.token_path.exists():
+            raise SystemExit("Pas de token Twitch utilisateur : lance `clipbot twitch-auth`.")
+        tok = json.loads(self.token_path.read_text())
+        if time.time() > tok["obtained_at"] + tok.get("expires_in", 0) - 300:
+            data = {"client_id": self.client_id, "grant_type": "refresh_token",
+                    "refresh_token": tok["refresh_token"]}
+            if self.client_secret:
+                data["client_secret"] = self.client_secret
+            resp = self.session.post(TOKEN_URL, data=data, timeout=15)
+            resp.raise_for_status()
+            tok = self._save(resp.json())
+        return tok["access_token"]
+
+
+def _user_headers(client: TwitchClient, auth: TwitchUserAuth) -> dict:
+    return {"Client-Id": client.client_id, "Authorization": f"Bearer {auth.access_token()}"}
+
+
+def get_stream(client: TwitchClient, login: str) -> dict | None:
+    """Infos du live en cours, ou None si la chaîne est hors ligne."""
+    data = client._get("/streams", {"user_login": login.lower()})["data"]
+    return data[0] if data else None
+
+
+def get_clip(client: TwitchClient, clip_id: str) -> Clip | None:
+    data = client._get("/clips", {"id": clip_id})["data"]
+    return Clip.from_api(data[0]) if data else None
+
+
+def create_clip(client: TwitchClient, auth: TwitchUserAuth, broadcaster_id: str,
+                *, wait: float = 45.0) -> Clip | None:
+    """Crée un clip des dernières secondes du live et attend qu'il soit disponible."""
+    resp = client.session.post(
+        f"{HELIX}/clips",
+        params={"broadcaster_id": broadcaster_id},
+        headers=_user_headers(client, auth),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    clip_id = resp.json()["data"][0]["id"]
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        time.sleep(5)
+        clip = get_clip(client, clip_id)
+        if clip:
+            return clip
+    return None

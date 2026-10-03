@@ -100,3 +100,19 @@ def test_discovery_is_default(tmp_path, monkeypatch):
     assert seen["language"] == "fr" and seen["streamers"] == 30
     assert seen["top"] == 4  # 5 demandés, mais la file est plafonnée à 2 jours x 2 créneaux
     assert "1 nouveau(x) clip(s)" in pilot.message and "clip x2" in pilot.message
+
+
+def test_manual_mode_keeps_clips_for_the_user(tmp_path, monkeypatch):
+    cfg, state = make(tmp_path, then="manual", max_queue=2)
+    seen = {}
+
+    def fake_discovery(cfg, state, opts, twitch, **kw):
+        seen.update(top=kw["top"], publish=opts.publish, schedule=opts.schedule)
+        return [("x1", True)]
+
+    monkeypatch.setattr("clipbot.discover.run_discovery", fake_discovery)
+    state.record("old", "c", "rendered")  # déjà un clip qui attend
+    pilot = ap.Autopilot(cfg, state, Options())
+    pilot._step()
+    assert seen == {"top": 1, "publish": False, "schedule": False}
+    assert "prêt(s) à publier" in pilot.message

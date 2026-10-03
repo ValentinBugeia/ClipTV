@@ -45,7 +45,7 @@ def default_settings(cfg: Config) -> dict:
         "hours": 24,             # fenêtre de recherche des clips
         "top": 3,                # clips max par recherche (par chaîne en mode channels)
         "min_views": 50,
-        "then": "schedule",      # schedule | publish
+        "then": "schedule",      # schedule | publish | manual (tu publies toi-même)
         "ai_caption": True,
         "ratio": 3.0,            # sensibilité de la détection de pics de chat
         "platforms": list(cfg.platforms),
@@ -131,7 +131,7 @@ class Autopilot:
         return Options(**{**self.base_opts.__dict__,
                           "ai_caption": bool(settings["ai_caption"]),
                           "publish": settings["then"] == "publish",
-                          "schedule": settings["then"] != "publish",
+                          "schedule": settings["then"] == "schedule",
                           "platforms": list(settings["platforms"])})
 
     def _search(self, settings: dict) -> None:
@@ -143,10 +143,11 @@ class Autopilot:
         if not discover and not channels:
             self.message = "Aucune chaîne à suivre : ajoute-en ou passe en découverte auto"
             return
-        queued = self.state.count("scheduled")
         limit = max_queue(settings)
+        queued = self._pending(settings)
         if settings["then"] != "publish" and queued >= limit:
-            self.message = (f"File d'attente pleine ({queued} clips programmés) : "
+            what = "à publier" if settings["then"] == "manual" else "programmés"
+            self.message = (f"File d'attente pleine ({queued} clips {what}) : "
                             "recherche reportée")
             return
         if not (self.cfg.twitch_client_id and self.cfg.twitch_client_secret):
@@ -166,8 +167,8 @@ class Autopilot:
                 self.message = f"Recherche en cours : {channel} ({i}/{len(channels)})…"
                 # ne remplit pas la file au-delà de la limite
                 top = int(settings["top"])
-                if opts.schedule:
-                    top = min(top, limit - self.state.count("scheduled"))
+                if not opts.publish:
+                    top = min(top, limit - self._pending(settings))
                     if top <= 0:
                         break
                 try:
@@ -180,19 +181,24 @@ class Autopilot:
                     continue
                 done += sum(ok for _, ok in results)
                 errors += [f"{channel} (clip {cid})" for cid, ok in results if not ok]
-            verb = "publié(s)" if opts.publish else "programmé(s)"
+            verb = {"publish": "publié(s)", "manual": "prêt(s) à publier"}.get(
+                settings["then"], "programmé(s)")
             self.message = f"Dernière recherche : {done} nouveau(x) clip(s) {verb}"
             if errors:  # visible sur la page, détail dans les logs / l'onglet Erreurs
                 self.message += " · ⚠️ échec sur " + ", ".join(errors[:3])
         finally:
             self.searching = False
 
+    def _pending(self, settings: dict) -> int:
+        """Clips en attente : programmés, ou prêts à publier à la main."""
+        return self.state.count("rendered" if settings["then"] == "manual" else "scheduled")
+
     def _discover(self, settings: dict, opts: Options, twitch, limit: int):
         from .discover import run_discovery
 
         top = int(settings["top"])
-        if opts.schedule:
-            top = min(top, limit - self.state.count("scheduled"))
+        if not opts.publish:
+            top = min(top, limit - self._pending(settings))
             if top <= 0:
                 return 0, []
         lang = settings.get("language") or None

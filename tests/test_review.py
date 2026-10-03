@@ -239,3 +239,22 @@ def test_extract_oauth_code(raw, code):
     from clipbot.review import extract_oauth_code
 
     assert extract_oauth_code(raw) == code
+
+
+def test_manual_publishing(server):
+    base, state = server
+    body = urllib.request.urlopen(base + "/").read().decode()
+    assert "Télécharger" in body and "Copier la légende" in body
+    resp = urllib.request.urlopen(base + "/video/abc?dl=1")
+    assert resp.headers["Content-Disposition"] == 'attachment; filename="v.mp4"'
+    _post(base + "/done/abc", b"")
+    assert state.get("abc")["status"] == "published"
+    assert state.posts("abc")["manuel"]["status"] == "ok"
+
+
+def test_manual_mode_setting(server):
+    base, state = server
+    data = urllib.parse.urlencode([("then", "manual"), ("platforms", "tiktok"),
+                                   ("post_slots", "18:00")]).encode()
+    _post(base + "/auto", data)
+    assert state.get_settings()["then"] == "manual"

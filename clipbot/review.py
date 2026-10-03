@@ -86,6 +86,7 @@ PAGE = """<!doctype html>
   button:disabled {{ opacity:.5; cursor:default }}
   .now {{ background:#5c16c5 }} .rej {{ background:#3a3a3d }} .small {{ flex:0 0 auto; min-height:36px; padding:6px 12px }}
   .when {{ font-weight:600 }}
+  .manual .btn, .manual button {{ flex:1 1 40%; min-height:40px }}
   .badges {{ display:flex; gap:6px; flex-wrap:wrap }}
   .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
   .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
@@ -108,6 +109,17 @@ PAGE = """<!doctype html>
 {body}
 </div>
 <script>
+// copie la légende du clip (fonctionne aussi hors HTTPS, via une sélection)
+function copyCaption(btn) {{
+  const area = btn.closest('.card').querySelector('textarea');
+  const text = area ? area.value : '';
+  const done = () => {{ btn.textContent = '✔ Copiée'; setTimeout(() => btn.textContent = '📋 Copier la légende', 2000); }};
+  if (navigator.clipboard && window.isSecureContext) {{
+    navigator.clipboard.writeText(text).then(done);
+  }} else if (area) {{
+    area.select(); document.execCommand('copy'); done();
+  }}
+}}
 // met à jour l'état du pilote / de la recherche sans recharger (une légende en cours d'édition n'est pas perdue)
 setInterval(async () => {{
   try {{
@@ -125,7 +137,7 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/accounts", "Comptes")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("published", "Publiés"),
         ("rejected", "Rejetés"), ("failed", "Erreurs")]
-CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule")
+CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done")
 HOURS = [(6, "6 dernières heures"), (24, "24 dernières heures"), (72, "3 derniers jours"),
          (168, "7 derniers jours")]
 EVERY = [(15, "toutes les 15 min"), (30, "toutes les 30 min"), (60, "toutes les heures"),
@@ -135,7 +147,8 @@ LANGUAGES = [("fr", "Français"), ("en", "Anglais"), ("es", "Espagnol"), ("de", 
 SOURCES = [("discover", "Auto : streams les plus regardés"),
            ("channels", "Seulement mes chaînes")]
 RATIOS = [(2.0, "Très sensible (x2)"), (3.0, "Normale (x3)"), (5.0, "Peu sensible (x5)")]
-PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube Shorts", "instagram": "Instagram Reels"}
+PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube Shorts", "instagram": "Instagram Reels",
+                  "manuel": "Publié à la main"}
 CHANNEL_RE = re.compile(r"\w{2,25}")
 
 CARD = """<div class="card">
@@ -154,6 +167,13 @@ ACTIONS = """<form method="post" action="/schedule/{id}">
     <button class="rej" type="submit" formaction="/reject/{id}">Rejeter</button>
   </div>
 </form>"""
+
+MANUAL = """<div class="row manual">
+  <a class="btn small rej" href="{video}?dl=1" download>⬇ Télécharger</a>
+  <button type="button" class="small rej" onclick="copyCaption(this)">📋 Copier la légende</button>
+  <form method="post" action="/done/{id}" style="display:contents">
+    <button class="small rej" title="Tu l'as publié toi-même depuis TikTok">✔ Publié à la main</button></form>
+</div>"""
 
 SCHEDULED = """<div class="when">⏰ {when}</div>
 <form method="post" action="/publish/{id}">
@@ -469,6 +489,9 @@ class Handler(BaseHTTPRequestHandler):
                                        when=e(format_when(c["scheduled_at"], self.cfg.timezone)))
         else:
             actions = f'<div class="meta">{e(c["caption"])}</div>'
+        video = e(f'/video/{urllib.parse.quote(c["clip_id"], safe="")}')
+        if status in ("rendered", "scheduled") or (status == "failed" and c.get("output_path")):
+            actions += MANUAL.format(video=video, id=cid)  # publication à la main
         posts = self.state.posts(c["clip_id"])
         badges = "".join(
             f'<span class="badge {e(p["status"])}" title="{e(p.get("error") or p.get("post_id"))}">'
@@ -476,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
             for name, p in posts.items())
         badges = f'<div class="badges">{badges}</div>' if badges else ""
         error = f" · ⚠️ {e(c['error'])}" if c.get("error") else ""
-        return CARD.format(video=e(f'/video/{urllib.parse.quote(c["clip_id"], safe="")}'),
+        return CARD.format(video=video,
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
@@ -516,7 +539,8 @@ class Handler(BaseHTTPRequestHandler):
             f'{" checked" if p in s["platforms"] else ""}> {PLATFORM_NAMES[p]}</label>'
             for p in PLATFORMS)
         then = _options([("schedule", "Programmer sur les créneaux"),
-                         ("publish", "Publier dès que c'est prêt")], s["then"])
+                         ("publish", "Publier dès que c'est prêt"),
+                         ("manual", "Le garder : je publie moi-même")], s["then"])
         body = f"""
 <div class="panel"><h2>{head}</h2>
 <p class="info">Il repère tout seul les temps forts des streams les plus regardés (les
@@ -764,6 +788,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             end = min(end, size - 1)
         self.send_response(206 if rng else 200)
         self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "video/mp4")
+        if "dl=1" in urllib.parse.urlparse(self.path).query:  # bouton « Télécharger »
+            self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
         if rng:
@@ -819,6 +845,12 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             return self._redirect("Clip introuvable.", err=True)
         caption = form.get("caption", clip["caption"] or "").strip()
 
+        if action == "done":
+            if clip["status"] not in ("rendered", "scheduled", "failed"):
+                return self._redirect("Clip déjà traité.", err=True)
+            self.state.record_post(clip_id, "manuel", "ok")
+            self.state.record(clip_id, clip["channel"], "published")
+            return self._redirect("Clip marqué comme publié ✔")
         if action == "unschedule":
             ok = self.state.unschedule(clip_id)
             return self._redirect("Programmation annulée." if ok else "Clip déjà parti.",
@@ -886,7 +918,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 "hours": int(one.get("hours", 24)),
                 "top": min(max(int(one.get("top", 2)), 1), 20),
                 "min_views": max(int(one.get("min_views", 0)), 0),
-                "then": "publish" if one.get("then") == "publish" else "schedule",
+                "then": one.get("then") if one.get("then") in ("publish", "manual")
+                else "schedule",
                 "ratio": float(one.get("ratio", 3)),
                 "post_slots": slots,
                 "max_queue": max(int(one.get("max_queue", 0)), 0),

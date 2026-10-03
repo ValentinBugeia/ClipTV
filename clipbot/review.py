@@ -485,8 +485,11 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
         cfg = self.cfg
         rows = []
 
-        def row(title: str, state: str, detail: str, action: str = "") -> None:
-            rows.append(f'<div class="acc"><div><strong>{title}</strong> {state}'
+        others: list[str] = []  # plateformes désactivées, repliées en bas
+
+        def row(title: str, state: str, detail: str, action: str = "",
+                dest: list[str] | None = None) -> None:
+            (rows if dest is None else dest).append(f'<div class="acc"><div><strong>{title}</strong> {state}'
                         f'<div class="info">{detail}</div></div><div>{action}</div></div>')
 
         def pending_html(name: str, label: str) -> str | None:
@@ -512,12 +515,12 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                          disabled=not has_twitch))
 
         for platform in PLATFORMS:
-            used = platform in self.platforms
-            tag = "" if used else ' <span class="badge">non utilisé</span>'
+            dest = rows if platform in self.platforms else others
             if platform == "tiktok":
                 keys = bool(cfg.tiktok_client_key and cfg.tiktok_client_secret)
                 ok = cfg.tiktok_token_path.exists()
-                callback = f"https://{self.headers.get('Host', 'ton-domaine')}/tiktok/callback"
+                callback = cfg.tiktok_redirect_uri or \
+                    f"https://{self.headers.get('Host', 'ton-domaine')}/tiktok/callback"
                 detail = ("Compte connecté (envoi en brouillon par défaut)" if ok else
                           f"Dans l'app TikTok Developers, l'URL de redirection doit être "
                           f"<code>{e(callback)}</code> (TIKTOK_REDIRECT_URI)")
@@ -525,7 +528,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     detail = "Ajoute TIKTOK_CLIENT_KEY et TIKTOK_CLIENT_SECRET dans .env"
                 action = (f'<a class="btn small" href="/connect/tiktok">'
                           f'{"Reconnecter" if ok else "Connecter"}</a>') if keys else ""
-                row("TikTok" + tag, "✅" if ok else "—", detail, action)
+                row("TikTok", "✅" if ok else "—", detail, action, dest)
             elif platform == "youtube":
                 keys = bool(cfg.youtube_client_id and cfg.youtube_client_secret)
                 ok = cfg.youtube_token_path.exists()
@@ -533,18 +536,18 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     f"Chaîne connectée (vidéos en « {e(cfg.youtube_privacy)} »)" if ok else
                     "Ajoute YOUTUBE_CLIENT_ID et YOUTUBE_CLIENT_SECRET dans .env" if not keys
                     else "Connexion par code, comme pour une TV")
-                row("YouTube Shorts" + tag, "✅" if ok else "—", detail,
+                row("YouTube Shorts", "✅" if ok else "—", detail,
                     self._button("/connect/youtube", "Reconnecter" if ok else "Connecter",
-                                 disabled=not keys))
+                                 disabled=not keys), dest)
             else:
                 ok = cfg.instagram_token_path.exists() or bool(cfg.instagram_access_token)
                 form = ('<form method="post" action="/connect/instagram" class="row" '
                         'style="margin-top:8px"><input name="token" required '
                         'placeholder="token longue durée Meta" autocomplete="off">'
                         '<button class="small">Enregistrer</button></form>')
-                row("Instagram Reels" + tag, "✅" if ok else "—",
+                row("Instagram Reels", "✅" if ok else "—",
                     ("Token enregistré (prolongé automatiquement)" if ok else
-                     "Compte pro + token longue durée du tableau de bord Meta") + form)
+                     "Compte pro + token longue durée du tableau de bord Meta") + form, dest=dest)
 
         claude = bool(os.environ.get("ANTHROPIC_API_KEY"))
         row("Claude (légendes)", "✅" if claude else "—",
@@ -560,8 +563,12 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                       "".join(f"<tr><td>{ICONS[c.status]}</td><td>{e(c.label)}</td>"
                               f"<td class='info'>{e(c.detail)}</td></tr>"
                               for c in self.app.checks) + "</table>")
+        more = ""
+        if others:
+            more = ('<details class="panel"><summary>Autres plateformes (désactivées — '
+                    'à activer dans Pilote auto)</summary>' + "".join(others) + "</details>")
         body = f"""
-<div class="panel"><h2>Comptes</h2>{''.join(rows)}</div>
+<div class="panel"><h2>Comptes</h2>{''.join(rows)}</div>{more}
 <div class="panel"><h2>Diagnostic</h2>
 <p class="info">Teste ffmpeg, la police, et chaque connexion avec un vrai appel aux API.</p>
 {checks}

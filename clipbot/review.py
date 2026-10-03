@@ -103,6 +103,8 @@ PAGE = """<!doctype html>
 </style></head><body>
 <header><div class="top"><h1><a href="/">clip<span>tv</span></a></h1>
 <span id="status" class="pill{status_cls}">{status}</span></div>
+<div id="fresh" class="flash" style="display:none;margin:8px 0 0">Nouveaux clips prêts ·
+<a href="" onclick="location.reload();return false">actualiser</a></div>
 <nav>{nav}</nav></header>
 <div class="wrap{wrap_cls}">
 {flash}
@@ -120,14 +122,25 @@ function copyCaption(btn) {{
     area.select(); document.execCommand('copy'); done();
   }}
 }}
-// met à jour l'état du pilote / de la recherche sans recharger (une légende en cours d'édition n'est pas perdue)
+// met à jour l'état du pilote / de la recherche, et la page Clips quand un clip est prêt.
+// Si une légende est en cours d'édition, on affiche un lien au lieu de recharger.
+const VERSION = "{version}", AUTORELOAD = {autoreload};
+let editing = false;
+document.addEventListener('input', e => {{ if (e.target.tagName === 'TEXTAREA') editing = true; }});
 setInterval(async () => {{
   try {{
     const s = await (await fetch('/status', {{credentials: 'same-origin'}})).json();
     const pill = document.getElementById('status');
     pill.textContent = s.message; pill.classList.toggle('on', s.active);
+    if (AUTORELOAD && s.version !== VERSION) {{
+      // ne pas interrompre une légende en cours d'édition ou une vidéo en lecture
+      const busy = editing || document.activeElement.tagName === 'TEXTAREA'
+                   || [...document.querySelectorAll('video')].some(v => !v.paused);
+      if (busy) document.getElementById('fresh').style.display = 'block';
+      else location.reload();
+    }}
   }} catch (e) {{}}
-}}, 10000);
+}}, 5000);
 </script>
 </body></html>"""
 
@@ -146,6 +159,8 @@ LANGUAGES = [("fr", "Français"), ("en", "Anglais"), ("es", "Espagnol"), ("de", 
              ("it", "Italien"), ("pt", "Portugais"), ("", "Toutes les langues")]
 SOURCES = [("discover", "Auto : streams les plus regardés"),
            ("channels", "Seulement mes chaînes")]
+LAYOUTS = [("auto", "Auto : facecam en haut si détectée, sinon zoom"),
+           ("crop", "Zoom plein écran"), ("blur", "Vidéo entière sur fond flouté")]
 RATIOS = [(2.0, "Très sensible (x2)"), (3.0, "Normale (x3)"), (5.0, "Peu sensible (x5)")]
 PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube Shorts", "instagram": "Instagram Reels",
                   "manuel": "Publié à la main"}
@@ -423,6 +438,7 @@ class Handler(BaseHTTPRequestHandler):
                       for p, label in SECTIONS)
         status, active = self._status()
         page = PAGE.format(
+            version=e(self.state.version()), autoreload="true" if section == "/" else "false",
             nav=nav, flash=flash, body=body, status=e(status),
             status_cls=" on" if active else "", wrap_cls=" narrow" if narrow else "",
             refresh=f'\n<meta http-equiv="refresh" content="{refresh}">' if refresh else "")
@@ -452,7 +468,8 @@ class Handler(BaseHTTPRequestHandler):
     def _status_json(self):
         message, active = self._status()
         self._send(200, json.dumps({"running": self.app.job.running, "active": active,
-                                    "message": message}, ensure_ascii=False),
+                                    "message": message, "version": self.state.version()},
+                                   ensure_ascii=False),
                    "application/json; charset=utf-8")
 
     # ---------- page Clips ----------
@@ -566,6 +583,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
   <label>Clips max par recherche <input name="top" type="number" min="1" max="20" value="{e(s['top'])}"></label>
   <label>Vues minimum <input name="min_views" type="number" min="0" value="{e(s['min_views'])}"></label>
   <label>Quand un clip est prêt <select name="then">{then}</select></label>
+  <label class="full">Cadrage des vidéos <select name="layout">{_options(LAYOUTS, s.get('layout', 'auto'))}</select></label>
   <label>Sensibilité des lives <select name="ratio">{_options(RATIOS, float(s['ratio']))}</select></label>
   <label class="full">Heures de publication (heure de {e(self.cfg.timezone)})
     <input name="post_slots" value="{e(', '.join(s['post_slots']))}" placeholder="12:30, 18:00, 21:00"></label>
@@ -907,7 +925,11 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         except ValueError:
             return self._redirect("Paramètres de recherche invalides.", err=True)
         then = form.get("then", "review")
+        from .autopilot import load_settings
+
+        layout = load_settings(self.state, self.cfg).get("layout", "auto")
         opts = Options(**{**self.opts.__dict__, "ai_caption": form.get("ai") == "1",
+                          "layout": layout,
                           "publish": then == "publish", "schedule": then == "schedule"})
         job = self.app.job
         first = channels[0] if channels else "temps forts du moment"
@@ -942,6 +964,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 "then": one.get("then") if one.get("then") in ("publish", "manual")
                 else "schedule",
                 "ratio": float(one.get("ratio", 3)),
+                "layout": one.get("layout") if one.get("layout") in dict(LAYOUTS) else "auto",
                 "post_slots": slots,
                 "max_queue": max(int(one.get("max_queue", 0)), 0),
                 "platforms": [p for p in form.get("platforms", []) if p in PLATFORMS],

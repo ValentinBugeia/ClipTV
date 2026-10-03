@@ -97,6 +97,13 @@ class State:
                 rows = self.conn.execute(f"SELECT * FROM clips ORDER BY {order}")
             return [dict(r) for r in rows]
 
+    def version(self) -> str:
+        """Change dès qu'un clip est ajouté ou change d'état (actualisation de la page)."""
+        with self.lock:
+            n, last = self.conn.execute(
+                "SELECT COUNT(*), COALESCE(MAX(updated_at), 0) FROM clips").fetchone()
+        return f"{n}-{last}"
+
     def count(self, status: str) -> int:
         with self.lock:
             return self.conn.execute("SELECT COUNT(*) FROM clips WHERE status = ?",

@@ -47,6 +47,7 @@ def default_settings(cfg: Config) -> dict:
         "min_views": 50,
         "then": "schedule",      # schedule | publish | manual (tu publies toi-même)
         "ai_caption": True,
+        "layout": "auto",        # auto (facecam en haut sinon zoom) | crop (zoom) | blur
         "ratio": 3.0,            # sensibilité de la détection de pics de chat
         "platforms": list(cfg.platforms),
         "post_slots": list(cfg.post_slots),
@@ -132,7 +133,8 @@ class Autopilot:
                           "ai_caption": bool(settings["ai_caption"]),
                           "publish": settings["then"] == "publish",
                           "schedule": settings["then"] == "schedule",
-                          "platforms": list(settings["platforms"])})
+                          "platforms": list(settings["platforms"]),
+                          "layout": settings.get("layout", "auto")})
 
     def _search(self, settings: dict) -> None:
         from .pipeline import run_channels
@@ -219,7 +221,7 @@ class Autopilot:
     def _sync_watchers(self, settings: dict) -> None:
         wanted = set(settings.get("live_channels") or []) if settings.get("enabled") else set()
         key = json.dumps({k: settings.get(k) for k in
-                          ("ratio", "then", "ai_caption", "platforms")}, sort_keys=True)
+                          ("ratio", "then", "ai_caption", "platforms", "layout")}, sort_keys=True)
         if key != self._watch_key:  # réglages changés : on relance les surveillances
             self._watch_key = key
             self._apply_watchers(set())

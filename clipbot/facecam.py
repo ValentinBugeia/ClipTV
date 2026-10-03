@@ -58,9 +58,9 @@ def cam_crop_box(face: Face, *, zoom: float = 2.6) -> tuple[int, int, int, int]:
 
 
 def choose_layout(face: Face | None) -> str:
-    """blur si pas de visage, crop si caméra plein écran (just chatting), split sinon."""
+    """crop (zoom plein écran) sans visage ou caméra plein écran, split si facecam."""
     if face is None:
-        return "blur"
+        return "crop"
     if face.relative_height >= 0.18:
         return "crop"
     return "split"

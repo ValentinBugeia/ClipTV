@@ -12,7 +12,7 @@ def test_cam_crop_box_ratio_and_bounds():
 
 
 def test_choose_layout():
-    assert choose_layout(None) == "blur"
+    assert choose_layout(None) == "crop"
     assert choose_layout(Face(800, 200, 300, 300, 1920, 1080)) == "crop"    # just chatting
     assert choose_layout(Face(1650, 60, 120, 120, 1920, 1080)) == "split"   # facecam
 

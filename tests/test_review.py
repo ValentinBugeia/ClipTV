@@ -293,3 +293,17 @@ def test_tiktok_pkce_round_trip(server, monkeypatch):
                         lambda self, code, uri, v=None: got.update(code=code, verifier=v))
     _post(base + "/connect/tiktok-code", b"code=https%3A%2F%2Fex.com%2Fcb%3Fcode%3DXYZ")
     assert got == {"code": "XYZ", "verifier": verifier}
+
+
+def test_layout_setting_and_status_version(server):
+    import json
+
+    base, state = server
+    v1 = json.loads(urllib.request.urlopen(base + "/status").read())["version"]
+    data = urllib.parse.urlencode([("layout", "crop"), ("platforms", "tiktok"),
+                                   ("post_slots", "18:00")]).encode()
+    _post(base + "/auto", data)
+    assert state.get_settings()["layout"] == "crop"
+    state.record("new", "c", "rendered", title="t")
+    v2 = json.loads(urllib.request.urlopen(base + "/status").read())["version"]
+    assert v1 != v2

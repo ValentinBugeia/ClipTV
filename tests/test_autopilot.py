@@ -116,3 +116,11 @@ def test_manual_mode_keeps_clips_for_the_user(tmp_path, monkeypatch):
     pilot._step()
     assert seen == {"top": 1, "publish": False, "schedule": False}
     assert "prêt(s) à publier" in pilot.message
+
+
+def test_layout_setting_reaches_render_options(tmp_path):
+    cfg, state = make(tmp_path)
+    pilot = ap.Autopilot(cfg, state, Options())
+    assert pilot._options(ap.load_settings(state, cfg)).layout == "auto"
+    state.save_settings({"layout": "blur"})
+    assert pilot._options(ap.load_settings(state, cfg)).layout == "blur"

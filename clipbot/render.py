@@ -19,7 +19,7 @@ def build_filter(
 
     - ``blur`` : la vidéo 16:9 est centrée, le fond est la même vidéo zoomée et floutée
       (format le plus courant pour les clips de stream).
-    - ``crop`` : recadrage plein écran sur le centre de l'image.
+    - ``crop`` : zoom plein écran (recadrage sur le centre ou sur le visage).
     - ``split`` : facecam en haut, gameplay en bas.
 
     ``cam_box`` = (w, h, x, y) de la facecam dans la source (sinon coin haut-droit) ;

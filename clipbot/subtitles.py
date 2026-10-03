@@ -17,6 +17,30 @@ class Word:
     end: float
 
 
+SAMPLE_RATE = 16000  # fréquence attendue par Whisper
+
+
+def load_audio(video: Path):
+    """Piste audio en mono 16 kHz (numpy float32), extraite avec ffmpeg.
+
+    On ne laisse pas faster-whisper décoder lui-même : il passe par PyAV, dont les
+    versions récentes (installées avec Python 3.14) ont retiré une option qu'il utilise
+    (« open() got an unexpected keyword argument 'metadata_errors' »).
+    """
+    import subprocess
+
+    import numpy as np
+
+    proc = subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(video), "-vn",
+         "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "s16le", "-"],
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"Extraction audio impossible : {proc.stderr.decode()[-300:]}")
+    return np.frombuffer(proc.stdout, np.int16).astype(np.float32) / 32768.0
+
+
 def transcribe(
     video: Path,
     *,
@@ -28,8 +52,11 @@ def transcribe(
 
     compute_type = "int8" if device in ("auto", "cpu") else "float16"
     model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    audio = load_audio(video)
+    if audio.size == 0:  # clip sans piste audio
+        return []
     segments, _info = model.transcribe(
-        str(video), language=language, word_timestamps=True, vad_filter=True
+        audio, language=language, word_timestamps=True, vad_filter=True
     )
     words: list[Word] = []
     for seg in segments:

@@ -33,3 +33,24 @@ def test_build_ass_highlights_each_word():
 def test_braces_are_escaped():
     ass = build_ass(words(("{evil}", 0, .5)))
     assert "{evil}" not in ass and "(EVIL)" in ass
+
+
+def test_load_audio_with_ffmpeg(tmp_path):
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg absent")
+    np = pytest.importorskip("numpy")
+    from clipbot.subtitles import SAMPLE_RATE, load_audio
+
+    src = tmp_path / "a.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc=size=320x240:duration=2", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=2", "-shortest", "-c:v", "libx264",
+                    "-c:a", "aac", str(src)], check=True)
+    audio = load_audio(src)
+    assert audio.dtype == np.float32 and abs(len(audio) / SAMPLE_RATE - 2) < 0.1
+    assert 0.05 < float(abs(audio).max()) <= 1.0

@@ -86,7 +86,27 @@ PAGE = """<!doctype html>
   button:disabled {{ opacity:.5; cursor:default }}
   .now {{ background:#5c16c5 }} .rej {{ background:#3a3a3d }} .small {{ flex:0 0 auto; min-height:36px; padding:6px 12px }}
   .when {{ font-weight:600 }}
-  .manual .btn, .manual button {{ flex:1 1 40%; min-height:40px }}
+  form.act textarea {{ min-height:0; font-size:14px; padding:8px }}
+  .bar {{ display:flex; gap:6px; margin-top:6px; align-items:stretch }}
+  .bar > button {{ flex:1 1 0; min-height:38px; padding:6px 8px; font-size:14px }}
+  details.more {{ position:relative; flex:0 0 auto }}
+  .iconbtn {{ list-style:none; height:100%; min-height:38px; width:42px; display:grid; place-items:center;
+             background:#3a3a3d; border-radius:8px; cursor:pointer; font-weight:700; font-size:18px }}
+  .iconbtn::-webkit-details-marker {{ display:none }}
+  details.more[open] .iconbtn {{ background:#4a4a4f }}
+  .menu {{ position:absolute; right:0; top:calc(100% + 6px); z-index:5; width:250px; background:#1f1f23;
+          border:1px solid #333; border-radius:10px; padding:6px; display:flex; flex-direction:column;
+          gap:2px; box-shadow:0 10px 30px rgba(0,0,0,.5) }}
+  .menu > a, .menu > button {{ background:transparent; color:var(--fg); text-align:left; text-decoration:none;
+          padding:9px 10px; min-height:0; border-radius:6px; font-weight:500; font-size:14px; flex:none }}
+  .menu > a:hover, .menu > button:hover {{ background:#2a2a2d }}
+  .menu .danger {{ color:#ff9b9b }}
+  .menu .redo {{ border-top:1px solid #2a2a2d; border-bottom:1px solid #2a2a2d; margin:4px 0; padding:8px 10px;
+          display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:14px }}
+  .menu .redo span {{ flex:1 1 100% }}
+  .menu .redo select {{ flex:1 1 100%; padding:6px; font-size:14px }}
+  .menu .redo label {{ flex:1; font-size:14px }}
+  .menu .redo button {{ flex:0 0 auto; min-height:32px; padding:4px 12px; font-size:14px }}
   .badges {{ display:flex; gap:6px; flex-wrap:wrap }}
   .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
   .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
@@ -111,6 +131,10 @@ PAGE = """<!doctype html>
 {body}
 </div>
 <script>
+// ferme le menu « ⋯ » ouvert quand on clique ailleurs
+document.addEventListener('click', ev => {{
+  document.querySelectorAll('details.more[open]').forEach(d => {{ if (!d.contains(ev.target)) d.open = false; }});
+}});
 // copie la légende du clip (fonctionne aussi hors HTTPS, via une sélection)
 function copyCaption(btn) {{
   const area = btn.closest('.card').querySelector('textarea');
@@ -166,6 +190,8 @@ PROGRESS_UI = """<style>
   #progress .pfoot { display:flex; justify-content:space-between; align-items:center; margin-top:12px;
                      color:#adadb8; font-size:13px; gap:8px }
   #progress .pfoot button { flex:0 0 auto; min-height:34px; padding:4px 12px; background:#3a3a3d }
+  #progress .pfoot span { flex:1 }
+  #progress .pfoot button.stop { background:#8b1d1d }
   #progress .pdone { padding:10px 12px; border-radius:8px; background:#1f3a1f; margin-top:8px }
 </style>
 <div id="progress" role="status" aria-live="polite"></div>
@@ -182,7 +208,7 @@ PROGRESS_UI = """<style>
     if (text !== undefined) n.textContent = text;
     return n;
   }
-  function fmt(s) { return Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s'; }
+  function fmt(s) { return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s'; }
   function render(p, steps) {
     const recent = !p.active && p.ended && (Date.now() / 1000 - p.ended) < 12;
     if (!(p.active || recent) || String(p.run) === hidden) { box.style.display = 'none'; return; }
@@ -197,6 +223,8 @@ PROGRESS_UI = """<style>
       const ico = el('span', 'ico');
       if (state === 'st-now') ico.append(el('span', 'spin')); else ico.textContent = state ? '✓' : '○';
       const txt = el('div', '', s[1]);
+      const spent = (p.durations || {})[s[0]];
+      if (state === 'st-done' && spent) txt.append(el('span', 'help', '  · ' + fmt(spent)));
       if (state === 'st-now') txt.append(el('div', 'help', p.detail ? p.detail + ' — ' + s[2] : s[2]));
       li.append(ico, txt); ol.append(li);
     });
@@ -204,6 +232,15 @@ PROGRESS_UI = """<style>
     if (!p.active && p.message) box.append(el('div', 'pdone', p.message));
     const foot = el('div', 'pfoot');
     foot.append(el('span', '', (p.active ? 'En cours depuis ' : 'Durée : ') + fmt(p.elapsed || 0)));
+    if (p.active) {
+      const stop = el('button', 'stop', p.stopping ? 'Arrêt…' : '⏹ Arrêter');
+      stop.type = 'button'; stop.disabled = !!p.stopping;
+      stop.onclick = async () => {
+        stop.disabled = true; stop.textContent = 'Arrêt…';
+        try { await fetch('/stop', {method: 'POST', credentials: 'same-origin'}); } catch (e) {}
+      };
+      foot.append(stop);
+    }
     const btn = el('button', '', p.active ? 'Masquer' : 'Fermer');
     btn.type = 'button';
     btn.onclick = () => { hidden = String(p.run); try { sessionStorage.setItem(key, hidden); } catch (e) {}
@@ -257,38 +294,41 @@ CARD = """<div class="card">
   {actions}
 </div>"""
 
-ACTIONS = """<form method="post" action="/schedule/{id}">
-  <textarea name="caption" aria-label="Légende">{caption}</textarea>
-  <div class="row">
-    <button type="submit">Programmer</button>
-    <button class="now" type="submit" formaction="/publish/{id}">{now_label}</button>
-    <button class="rej" type="submit" formaction="/reject/{id}">Rejeter</button>
+# une seule rangée d'actions par clip ; le reste dans le menu « ⋯ » (un seul formulaire :
+# chaque bouton envoie la légende éditée vers sa propre action via formaction)
+ACTIONS = """<form method="post" action="/schedule/{id}" class="act">
+  <textarea name="caption" rows="3" aria-label="Légende">{caption}</textarea>
+  <div class="bar">
+    <button type="submit" title="Sur le prochain créneau libre">⏰ Programmer</button>
+    <button class="now" type="submit" formaction="/publish/{id}">🚀 {now_label}</button>
+    {menu}
   </div>
 </form>"""
-
-MANUAL = """<div class="row manual">
-  <a class="btn small rej" href="{download}" download>⬇ Télécharger</a>
-  <button type="button" class="small rej" onclick="copyCaption(this)">📋 Copier la légende</button>
-  <form method="post" action="/done/{id}" style="display:contents">
-    <button class="small rej" title="Tu l'as publié toi-même depuis TikTok">✔ Publié à la main</button></form>
-</div>
-<details><summary class="meta" style="cursor:pointer">🎬 Refaire le montage</summary>
-<form method="post" action="/redo/{id}" class="row" style="margin-top:8px">
-  <select name="layout" style="flex:1 1 60%">{layouts}</select>
-  <label class="check" style="font-size:14px"><input type="checkbox" name="subtitles" value="1"{subs_checked}> Sous-titres</label>
-  <button class="small">Refaire</button>
-</form>
-<p class="meta">Décoche « Sous-titres » si la vidéo d'origine en contient déjà.</p>
-</details>"""
 
 SCHEDULED = """<div class="when">⏰ {when}</div>
-<form method="post" action="/publish/{id}">
-  <textarea name="caption" aria-label="Légende">{caption}</textarea>
-  <div class="row">
-    <button class="now" type="submit">Publier maintenant</button>
-    <button class="rej" type="submit" formaction="/unschedule/{id}">Annuler</button>
+<form method="post" action="/publish/{id}" class="act">
+  <textarea name="caption" rows="3" aria-label="Légende">{caption}</textarea>
+  <div class="bar">
+    <button class="now" type="submit">🚀 Publier maintenant</button>
+    <button class="rej" type="submit" formaction="/unschedule/{id}">↩ Annuler</button>
+    {menu}
   </div>
 </form>"""
+
+MENU = """<details class="more"><summary class="iconbtn" title="Plus d'actions" aria-label="Plus d'actions">⋯</summary>
+  <div class="menu">
+    <a href="{download}" download>⬇ Télécharger la vidéo</a>
+    <button type="button" onclick="copyCaption(this)">📋 Copier la légende</button>
+    <button type="submit" formaction="/done/{id}" title="Tu l'as publié toi-même depuis TikTok">✔ Marquer comme publié</button>
+    <div class="redo">
+      <span>🎬 Refaire le montage</span>
+      <select name="layout" aria-label="Cadrage">{layouts}</select>
+      <label class="check"><input type="checkbox" name="subtitles" value="1"{subs_checked}> Sous-titres</label>
+      <button type="submit" formaction="/redo/{id}">Refaire</button>
+    </div>
+    {reject}
+  </div>
+</details>"""
 
 SEARCH = """<details class="panel">
 <summary>🔎 Recherche ponctuelle</summary>
@@ -386,6 +426,8 @@ def run_search(job: SearchJob, cfg: Config, state: State, opts: Options, channel
     progress.begin("Recherche ponctuelle")
     try:
         message = _run_search(job, cfg, state, opts, channels, hours, top, twitch)
+    except progress.Cancelled:
+        message = "Recherche arrêtée (les clips déjà prêts sont conservés)"
     except BaseException as exc:
         progress.end(f"Échec : {exc}")
         raise
@@ -654,14 +696,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def _card(self, c: dict) -> str:
         cid, status = e(c["clip_id"]), c["status"]
+        base = f'/video/{urllib.parse.quote(c["clip_id"], safe="")}'
+        video = e(f"{base}?v={c['updated_at']}")  # nouvelle URL après un remontage (cache)
+        menu = ""
+        if status in ("rendered", "scheduled") or (status == "failed" and c.get("output_path")):
+            settings = self._settings()
+            reject = ('<button type="submit" class="danger" formaction="/reject/{id}">'
+                      '🗑 Rejeter</button>'.format(id=cid) if status != "scheduled" else "")
+            menu = MENU.format(download=e(f"{base}?dl=1"), id=cid, reject=reject,
+                               layouts=_options(LAYOUTS_REDO, settings.get("layout", "auto")),
+                               subs_checked=" checked" if settings.get("subtitles", True) else "")
         if status == "rendered" or (status == "failed" and c.get("output_path")):
-            label = "Réessayer" if status == "failed" else "Publier maintenant"
-            actions = ACTIONS.format(id=cid, caption=e(c["caption"]), now_label=label)
+            label = "Réessayer" if status == "failed" else "Publier"
+            actions = ACTIONS.format(id=cid, caption=e(c["caption"]), now_label=label, menu=menu)
         elif status == "publishing":
             actions = ('<div class="when">⏳ Envoi vers TikTok en cours…</div>'
                        f'<div class="meta">{e(c["caption"])}</div>')
         elif status == "scheduled":
-            actions = SCHEDULED.format(id=cid, caption=e(c["caption"]),
+            actions = SCHEDULED.format(id=cid, caption=e(c["caption"]), menu=menu,
                                        when=e(format_when(c["scheduled_at"], self.cfg.timezone)))
         else:
             actions = f'<div class="meta">{e(c["caption"])}</div>'
@@ -671,14 +723,6 @@ class Handler(BaseHTTPRequestHandler):
                 actions += ('<div class="meta">📥 Envoyé dans ta <strong>boîte de réception '
                             'TikTok</strong> : ouvre l\'app TikTok → notifications pour le '
                             'publier sur ton profil.</div>')
-        base = f'/video/{urllib.parse.quote(c["clip_id"], safe="")}'
-        video = e(f"{base}?v={c['updated_at']}")  # nouvelle URL après un remontage (cache)
-        if status in ("rendered", "scheduled") or (status == "failed" and c.get("output_path")):
-            settings = self._settings()
-            actions += MANUAL.format(  # publication à la main + remontage
-                download=e(f"{base}?dl=1"), id=cid,
-                layouts=_options(LAYOUTS_REDO, settings.get("layout", "auto")),
-                subs_checked=" checked" if settings.get("subtitles", True) else "")
         if c["clip_id"] in self.app.redoing:
             player = ('<div class="when" style="padding:40px 0;text-align:center">'
                       '⏳ Remontage en cours…</div>')
@@ -712,6 +756,13 @@ class Handler(BaseHTTPRequestHandler):
         summary = stats.summary(self.state, since=since, tz=self.cfg.timezone)
         self._page(stats_page.render(summary, days=days, sort=sort, tz=self.cfg.timezone),
                    "/stats")
+
+    def _stop(self):
+        from . import progress
+
+        if progress.cancel():
+            return self._send(200, json.dumps({"ok": True}), "application/json")
+        return self._send(409, json.dumps({"ok": False}), "application/json")
 
     def _stats_refresh(self):
         from . import stats
@@ -1080,6 +1131,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             "/auto/run": self._run_auto,
             "/accounts/check": self._run_checks,
             "/stats/refresh": self._stats_refresh,
+            "/stop": self._stop,
             "/stats/enable": self._stats_enable,
             "/connect/twitch": lambda: self._connect_device("twitch"),
             "/connect/youtube": lambda: self._connect_device("youtube"),

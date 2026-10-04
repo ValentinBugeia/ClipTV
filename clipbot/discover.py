@@ -71,16 +71,23 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
     channels = candidate_channels(twitch, state, language=language, streamers=streamers,
                                   favorites=favorites)
     log.info("Découverte : %d chaînes scannées (%s)", len(channels), language or "toutes langues")
-    clips, owner = [], {}
-    for login, broadcaster_id in channels.items():
+    from concurrent.futures import ThreadPoolExecutor
+
+    def fetch(item):
+        login, broadcaster_id = item
         try:
-            found = twitch.get_clips(broadcaster_id, since_hours=hours, limit=50)
+            return login, twitch.get_clips(broadcaster_id, since_hours=hours, limit=50)
         except Exception:
             log.warning("Clips indisponibles pour %s", login)
-            continue
-        for c in found:
-            owner[c.id] = login
-        clips += found
+            return login, []
+
+    clips, owner = [], {}
+    # 8 requêtes Twitch à la fois (bien sous la limite de 800/min) au lieu d'une par une
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for login, found in pool.map(fetch, channels.items()):
+            for c in found:
+                owner[c.id] = login
+            clips += found
     picked = pick_clips(clips, top=top, per_channel=per_channel, min_views=min_views,
                         max_duration=max_duration, language=language, is_done=state.is_done)
     log.info("%d clips trouvés, %d retenus", len(clips), len(picked))
@@ -88,9 +95,8 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
 
 
 def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tuple[str, bool]]:
-    from .pipeline import process_clip
-
     from . import progress
+    from .pipeline import Prefetcher, process_clip
 
     results = []
     progress.step("search", f"Lives les plus regardés ({kwargs.get('language') or 'toutes langues'})")
@@ -98,14 +104,18 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
     if not found:
         progress.step("search", "Aucun nouveau clip assez viral pour le moment")
     twitch.annotate_categories([clip for clip, _ in found])
-    for i, (clip, login) in enumerate(found, 1):
-        progress.clip(i, len(found), f"{login} · {clip.title}")
-        log.info("→ %s · %s (%d vues, %.0f vues/h) %s", login, clip.title, clip.view_count,
-                 clip.virality(), clip.url)
-        try:
-            ok = process_clip(clip, login, cfg, state, opts)
-        except Exception:
-            log.exception("Erreur sur %s", clip.id)
-            ok = False
-        results.append((clip.id, ok))
+    prefetch = Prefetcher(cfg, [clip for clip, _ in found])  # téléchargements anticipés
+    try:
+        for i, (clip, login) in enumerate(found, 1):
+            progress.clip(i, len(found), f"{login} · {clip.title}")
+            log.info("→ %s · %s (%d vues, %.0f vues/h) %s", login, clip.title,
+                     clip.view_count, clip.virality(), clip.url)
+            try:
+                ok = process_clip(clip, login, cfg, state, opts, source=prefetch.source(clip))
+            except Exception:
+                log.exception("Erreur sur %s", clip.id)
+                ok = False
+            results.append((clip.id, ok))
+    finally:
+        prefetch.close()
     return results

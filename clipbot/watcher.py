@@ -112,8 +112,13 @@ def _watch_live(channel, cfg, state, opts, twitch, auth, broadcaster_id, params:
             from . import progress
 
             progress.begin(f"Clip du live de {channel}")
-            ok = process_clip(clip, channel, cfg, state, opts)
-            progress.end("Clip du live prêt" if ok else "Clip du live en erreur")
+            try:
+                ok = process_clip(clip, channel, cfg, state, opts)
+            except progress.Cancelled:  # arrêt de ce clip ; la surveillance continue
+                ok = False
+                progress.end("Clip du live arrêté")
+            else:
+                progress.end("Clip du live prêt" if ok else "Clip du live en erreur")
             if ok:
                 clips += 1
             status[channel] = f"🔴 en live, chat surveillé · {clips} clip(s) ce live"

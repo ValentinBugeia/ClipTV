@@ -41,6 +41,21 @@ def load_audio(video: Path):
     return np.frombuffer(proc.stdout, np.int16).astype(np.float32) / 32768.0
 
 
+_models: dict = {}  # modèles Whisper déjà chargés (le chargement prend plusieurs secondes)
+
+
+def _model(model_size: str, device: str):
+    from faster_whisper import WhisperModel
+    import os
+
+    key = (model_size, device)
+    if key not in _models:
+        compute_type = "int8" if device in ("auto", "cpu") else "float16"
+        _models[key] = WhisperModel(model_size, device=device, compute_type=compute_type,
+                                    cpu_threads=os.cpu_count() or 4)
+    return _models[key]
+
+
 def transcribe(
     video: Path,
     *,
@@ -48,18 +63,20 @@ def transcribe(
     device: str = "auto",
     language: str | None = None,
 ) -> list[Word]:
-    from faster_whisper import WhisperModel
-
-    compute_type = "int8" if device in ("auto", "cpu") else "float16"
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    model = _model(model_size, device)
     audio = load_audio(video)
     if audio.size == 0:  # clip sans piste audio
         return []
+    # beam_size=5 (défaut) : meilleure précision des sous-titres que le décodage direct
     segments, _info = model.transcribe(
-        audio, language=language, word_timestamps=True, vad_filter=True
+        audio, language=language, word_timestamps=True, vad_filter=True, beam_size=5,
+        condition_on_previous_text=False,  # évite les répétitions en boucle
     )
+    from . import progress
+
     words: list[Word] = []
-    for seg in segments:
+    for seg in segments:  # la transcription avance segment par segment
+        progress.check()  # bouton « Arrêter »
         for w in seg.words or []:
             text = w.word.strip()
             if text:

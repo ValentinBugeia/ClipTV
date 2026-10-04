@@ -25,6 +25,8 @@ def has_audio(path: Path) -> bool:
 def _fetch(url: str, dest_dir: Path, clip_id: str, fmt: str) -> Path:
     import yt_dlp
 
+    from . import progress
+
     for old in dest_dir.glob(f"{clip_id}.*"):  # pas de reste d'un essai précédent
         old.unlink()
     opts = {
@@ -33,6 +35,8 @@ def _fetch(url: str, dest_dir: Path, clip_id: str, fmt: str) -> Path:
         "quiet": True,
         "no_warnings": True,
         "merge_output_format": "mp4",
+        # bouton « Arrêter » : interrompt le téléchargement en cours
+        "progress_hooks": [lambda _d: progress.check()],
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])

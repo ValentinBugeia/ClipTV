@@ -28,20 +28,62 @@ STEPS = [
 
 _lock = threading.Lock()
 _state: dict = {"active": False, "run": 0}
+_cancel = threading.Event()
+
+
+class Cancelled(BaseException):
+    """Recherche arrêtée par l'utilisateur.
+
+    Hérite de BaseException (pas d'Exception) pour traverser les ``except Exception`` qui
+    protègent chaque clip : l'arrêt doit remonter jusqu'à la boucle de recherche.
+    """
+
+
+def cancel() -> bool:
+    """Demande l'arrêt du traitement en cours. Retourne False si rien ne tournait."""
+    with _lock:
+        if not _state["active"]:
+            return False
+        _state["detail"] = "Arrêt en cours…"
+        _state["stopping"] = True
+    _cancel.set()
+    return True
+
+
+def cancelled() -> bool:
+    return _cancel.is_set()
+
+
+def check() -> None:
+    """À appeler dans les boucles longues : lève ``Cancelled`` si l'arrêt est demandé."""
+    if _cancel.is_set():
+        raise Cancelled()
 
 
 def begin(title: str) -> None:
+    _cancel.clear()
     with _lock:
         _state.update(active=True, run=_state["run"] + 1, title=title, step=None, detail="",
-                      clip="", started=time.time(), message="", ended=None)
+                      clip="", started=time.time(), message="", ended=None, durations={},
+                      step_started=None, stopping=False)
 
 
 def step(key: str, detail: str = "") -> None:
+    check()
     with _lock:
         if not _state["active"]:  # étape hors recherche (ex. clip de live) : on démarre
             _state.update(active=True, run=_state["run"] + 1, title="Traitement d'un clip",
-                          clip="", started=time.time(), message="", ended=None)
-        _state.update(step=key, detail=detail)
+                          clip="", started=time.time(), message="", ended=None, durations={},
+                          step_started=None)
+        _close_step()
+        _state.update(step=key, detail=detail, step_started=time.time())
+
+
+def _close_step() -> None:
+    """Ajoute le temps passé dans l'étape courante (cumulé sur tous les clips)."""
+    if _state.get("step") and _state.get("step_started"):
+        d = _state.setdefault("durations", {})
+        d[_state["step"]] = d.get(_state["step"], 0) + time.time() - _state["step_started"]
 
 
 def clip(index: int, total: int, title: str) -> None:
@@ -50,14 +92,25 @@ def clip(index: int, total: int, title: str) -> None:
 
 
 def end(message: str) -> None:
+    import logging
+
     with _lock:
-        if _state["active"]:
-            _state.update(active=False, step=None, message=message, ended=time.time())
+        if not _state["active"]:
+            _cancel.clear()
+            return
+        _close_step()
+        _state.update(active=False, step=None, step_started=None, message=message,
+                      ended=time.time(), stopping=False)
+        spent = ", ".join(f"{k} {v:.0f} s" for k, v in _state.get("durations", {}).items())
+    _cancel.clear()
+    if spent:
+        logging.getLogger("clipbot").info("Durée par étape : %s", spent)
 
 
 def snapshot() -> dict:
     with _lock:
         snap = dict(_state)
+    snap["durations"] = {k: int(v) for k, v in (snap.get("durations") or {}).items()}
     snap["elapsed"] = int((snap.get("ended") or time.time()) - snap.get("started", time.time())) \
         if snap.get("started") else 0
     return snap

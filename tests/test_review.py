@@ -397,3 +397,31 @@ def test_progress_in_status(server):
     s = json.loads(urllib.request.urlopen(base + "/status").read())
     assert not s["progress"]["active"] and s["progress"]["message"] == "Terminé"
     assert 'id="progress"' in urllib.request.urlopen(base + "/").read().decode()
+
+
+def test_stop_search(server, monkeypatch):
+    import time
+
+    from clipbot import progress, review
+
+    def slow_search(job, cfg, state, opts, channels, hours, top):
+        progress.begin("Recherche ponctuelle")
+        try:
+            for _ in range(100):
+                progress.step("search")
+                time.sleep(0.05)
+        except progress.Cancelled:
+            progress.end("Recherche arrêtée")
+            return "Recherche arrêtée"
+        return "fini"
+
+    monkeypatch.setattr(review, "run_search", slow_search)
+    base, _ = server
+    _post(base + "/search", b"channels=kamet0")
+    time.sleep(0.3)
+    assert urllib.request.urlopen(urllib.request.Request(base + "/stop", data=b"")).status == 200
+    for _ in range(40):
+        if not progress.snapshot()["active"]:
+            break
+        time.sleep(0.05)
+    assert progress.snapshot()["message"] == "Recherche arrêtée"

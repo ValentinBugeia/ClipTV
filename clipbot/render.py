@@ -104,14 +104,34 @@ def render_vertical(
     cmd += [
         "-filter_complex", graph,
         "-map", "[v]", "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+        # veryfast : ~40 % plus rapide que medium, TikTok réencode de toute façon
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-r", "30",
         "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
         "-movflags", "+faststart",
         str(dst),
     ]
-    subprocess.run(cmd, check=True)
+    _run_interruptible(cmd, dst)
     return dst
+
+
+def _run_interruptible(cmd: list[str], dst: Path) -> None:
+    """Lance ffmpeg ; le bouton « Arrêter » le coupe et supprime le fichier incomplet."""
+    import time
+
+    from . import progress
+
+    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+    while proc.poll() is None:
+        if progress.cancelled():
+            proc.kill()
+            proc.wait()
+            dst.unlink(missing_ok=True)
+            raise progress.Cancelled()
+        time.sleep(0.3)
+    if proc.returncode != 0:
+        err = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+        raise subprocess.CalledProcessError(proc.returncode, cmd, stderr=err)
 
 
 def probe_duration(path: Path) -> float:

@@ -47,23 +47,48 @@ def template_caption(template: str, clip) -> str:
 
 
 def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
-                 allow_split: bool = True) -> tuple[Path, list]:
+                 allow_split: bool = True, on_words=None) -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
 
     ``allow_split=False`` (catégories IRL, Just Chatting…) : jamais de découpage
     facecam / jeu, même si un visage est détecté dans la scène.
+
+    La détection du visage tourne en parallèle de la transcription ; ``on_words(words)``
+    est appelé dès la transcription finie (la légende peut s'écrire pendant le montage).
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     from .render import render_vertical
     from .subtitles import transcribe, write_ass
 
     layout, cam_box, crop_center, crop_track = opts.layout, None, None, None
     cam_height = None
+    pool = ThreadPoolExecutor(max_workers=1)
+    face_job = None
     if layout in ("auto", "crop"):
-        from .facecam import (CAMERA_MIN_HEIGHT, cam_crop_box, cam_zone_height, choose_layout,
-                              detect_face, smooth_track)
+        from .facecam import detect_face
 
         progress.step("face")
-        face = detect_face(src)
+        face_job = pool.submit(detect_face, src)
+
+    words = []
+    try:
+        if opts.subtitles:
+            log.info("Transcription de %s (whisper %s)…", src.name, cfg.whisper_model)
+            progress.step("transcribe", "en parallèle de la détection du visage"
+                          if face_job else "")
+            words = transcribe(src, model_size=cfg.whisper_model, device=cfg.whisper_device,
+                               language=opts.language)
+        face = face_job.result() if face_job else None
+    finally:
+        pool.shutdown(wait=True)
+    if on_words is not None:
+        on_words(words)
+
+    if face_job is not None:
+        from .facecam import (CAMERA_MIN_HEIGHT, cam_crop_box, cam_zone_height, choose_layout,
+                              smooth_track)
+
         if layout == "auto":
             layout = choose_layout(face, allow_split=allow_split)
         if face and layout == "split":
@@ -76,12 +101,8 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         log.info("Cadrage : %s%s%s", layout, f" (visage {face.w}x{face.h})" if face else "",
                  " avec suivi du visage" if crop_track and len(crop_track) > 1 else "")
 
-    words, subs = [], None
+    subs = None
     if opts.subtitles:
-        log.info("Transcription de %s (whisper %s)…", src.name, cfg.whisper_model)
-        progress.step("transcribe")
-        words = transcribe(src, model_size=cfg.whisper_model, device=cfg.whisper_device,
-                           language=opts.language)
         if words:
             # en split, la jonction facecam/jeu est vers 40 % de la hauteur : on descend un peu
             subs = write_ass(words, dst.with_suffix(".ass"), font=opts.font,
@@ -181,8 +202,13 @@ def publish_clip(clip_id: str, cfg: Config, state: State, opts: Options) -> list
     return errors
 
 
-def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options) -> bool:
-    """Traite un clip de bout en bout. Retourne True si tout s'est bien passé."""
+def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
+                 source=None) -> bool:
+    """Traite un clip de bout en bout. Retourne True si tout s'est bien passé.
+
+    ``source`` : fonction qui renvoie la vidéo déjà téléchargée (téléchargement anticipé).
+    Lève ``progress.Cancelled`` si l'utilisateur arrête la recherche.
+    """
     from .download import download_clip
 
     from .twitch import is_non_gaming
@@ -191,16 +217,32 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options) -
     meta = dict(title=clip.title, url=clip.url, view_count=clip.view_count, category=category)
     try:
         progress.step("download", f"{channel} · {clip.title}")
-        src = download_clip(clip.url, cfg.downloads_dir, clip.id)
+        src = source() if source else download_clip(clip.url, cfg.downloads_dir, clip.id)
         dst = cfg.output_dir / f"{channel}_{clip.id}.mp4"
         if category:
             log.info("Catégorie : %s", category)
+        caption_job: dict = {}
+
+        def write_caption(words):  # pendant le montage vidéo (réseau, pas de CPU)
+            def run():
+                try:
+                    caption_job["text"] = make_caption(clip, words, cfg, opts)
+                except Exception:
+                    log.exception("Légende IA impossible : légende modèle utilisée")
+            caption_job["thread"] = threading.Thread(target=run, daemon=True)
+            caption_job["thread"].start()
+
         with _render_lock:
-            _, words = render_video(src, dst, cfg, opts,
-                                    allow_split=not is_non_gaming(category))
+            render_video(src, dst, cfg, opts, allow_split=not is_non_gaming(category),
+                         on_words=write_caption)
         progress.step("caption")
-        caption = make_caption(clip, words, cfg, opts)
+        if "thread" in caption_job:
+            caption_job["thread"].join()
+        caption = caption_job.get("text") or template_caption(opts.caption_template, clip)
         state.record(clip.id, channel, "rendered", output_path=str(dst), caption=caption, **meta)
+    except progress.Cancelled:
+        log.info("Recherche arrêtée pendant %s", clip.id)
+        raise
     except Exception as exc:  # on continue avec les autres clips
         log.exception("Échec pour %s", clip.id)
         state.record(clip.id, channel, "failed", error=str(exc), **meta)
@@ -232,14 +274,42 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
                   if not state.is_done(c.id)]
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         twitch.annotate_categories(ranked[:top])
-        for i, clip in enumerate(ranked[:top], 1):
-            progress.clip(i, min(top, len(ranked)), clip.title)
-            log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
-                     clip.virality(), clip.url)
-            try:
-                ok = process_clip(clip, channel, cfg, state, opts)
-            except Exception:  # erreur réseau Twitch etc. : on passe à la suite
-                log.exception("Erreur sur %s", clip.id)
-                ok = False
-            results.append((clip.id, ok))
+        prefetch = Prefetcher(cfg, ranked[:top])
+        try:
+            for i, clip in enumerate(ranked[:top], 1):
+                progress.clip(i, min(top, len(ranked)), clip.title)
+                log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
+                         clip.virality(), clip.url)
+                results.append((clip.id, _process(clip, channel, cfg, state, opts, prefetch)))
+        finally:
+            prefetch.close()
     return results
+
+
+def _process(clip, channel, cfg, state, opts, prefetch) -> bool:
+    try:
+        return process_clip(clip, channel, cfg, state, opts, source=prefetch.source(clip))
+    except Exception:  # erreur réseau Twitch etc. : on passe à la suite
+        log.exception("Erreur sur %s", clip.id)
+        return False
+
+
+class Prefetcher:
+    """Télécharge les clips suivants pendant que le clip courant est monté."""
+
+    def __init__(self, cfg: Config, clips, workers: int = 3):
+        from concurrent.futures import ThreadPoolExecutor
+
+        from .download import download_clip
+
+        self.pool = ThreadPoolExecutor(max_workers=workers)
+        self.jobs = {c.id: self.pool.submit(download_clip, c.url, cfg.downloads_dir, c.id)
+                     for c in clips}
+
+    def source(self, clip):
+        job = self.jobs.get(clip.id)
+        return job.result if job else None
+
+    def close(self) -> None:
+        self.pool.shutdown(wait=False, cancel_futures=True)
+

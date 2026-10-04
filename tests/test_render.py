@@ -65,3 +65,25 @@ def test_render_follows_face(tmp_path):
     out = render_vertical(src, tmp_path / "out.mp4", layout="crop",
                           crop_track=[(0.0, 0.2), (1.0, 0.5), (2.0, 0.8)])
     assert abs(probe_duration(out) - 2) < 0.3
+
+
+@needs_ffmpeg
+def test_stop_interrupts_render(tmp_path):
+    import threading
+    import time
+
+    from clipbot import progress
+
+    src = tmp_path / "long.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc2=size=1920x1080:rate=30:duration=40", "-c:v", "libx264",
+                    "-preset", "ultrafast", str(src)], check=True)
+    out = tmp_path / "out.mp4"
+    progress.begin("test")
+    threading.Timer(1.0, progress.cancel).start()
+    t = time.time()
+    with pytest.raises(progress.Cancelled):
+        render_vertical(src, out, layout="blur")
+    assert time.time() - t < 5 and not out.exists()   # coupé vite, pas de fichier partiel
+    progress.end("arrêté")
+    assert not progress.cancel()                        # plus rien en cours

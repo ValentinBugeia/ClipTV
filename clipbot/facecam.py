@@ -6,7 +6,7 @@ Nécessite ``opencv-python-headless`` (extra ``pip install -e ".[face]"``).
   ``clipbot/models``), bien plus fiable que les cascades de Haar sur les visages de
   trois-quarts, penchés, mal éclairés ou petits (facecam dans un coin). Repli sur Haar
   si YuNet est indisponible.
-- On analyse ~2 images par seconde et on **suit** chaque visage d'une image à l'autre :
+- On analyse ~1 image par seconde et on **suit** chaque visage d'une image à l'autre :
   le streamer est la piste présente le plus souvent ; un visage qui n'apparaît que
   brièvement dans le jeu est ignoré.
 - La piste donne aussi la position du visage au fil du temps : en mode zoom, le
@@ -27,7 +27,7 @@ log = logging.getLogger("clipbot.facecam")
 CAM_ZONE_MIN, CAM_ZONE_MAX = 0.25, 0.33
 CAM_ASPECT = 1080 / 768  # ancien format fixe (2/5), gardé pour compatibilité
 MODEL = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
-DETECT_WIDTH = 1920     # pleine résolution HD : les petites facecams penchées restent détectables
+DETECT_WIDTH = 1280     # assez pour les petites facecams penchées, 2,5x plus rapide que 1920
 MIN_SCORE = 0.6         # confiance minimale YuNet
 # une facecam est un cadre incrusté : visible presque tout le temps et quasi immobile.
 # Un visage filmé dans la scène (live IRL, caméra à la main) bouge ou disparaît.
@@ -174,21 +174,34 @@ def _detect(cv2, detector, video: Path, min_hits: float) -> Face | None:
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     fw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     fh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    samples = int(min(max(total / fps * 2, 16), 60))  # ~2 images/s, 60 au plus
+    samples = int(min(max(total / fps, 16), 30))  # ~1 image/s (2/s si clip court), 30 max
     scale = min(1.0, DETECT_WIDTH / fw) if fw else 1.0
+    wanted = {int(total * (i + 0.5) / samples) for i in range(samples)}
+    last = max(wanted)
 
-    frames: list[tuple[float, list[tuple[float, float, float, float, float]]]] = []
-    for i in range(samples):
-        index = int(total * (i + 0.5) / samples)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, index)
+    def faces_in(frame, s: float):
+        small = frame if s >= 1 else cv2.resize(frame, None, fx=s, fy=s,
+                                                interpolation=cv2.INTER_AREA)
+        return [(x / s, y / s, w / s, h / s, sc, _thumb(cv2, small, x, y, w, h))
+                for x, y, w, h, sc in detector(small) if h / s >= fh * MIN_FACE]
+
+    frames: list[tuple[float, list]] = []
+    # lecture séquentielle (grab sans décodage complet) : bien plus rapide que des sauts
+    from . import progress
+
+    for index in range(last + 1):
+        if index % 30 == 0:
+            progress.check()  # bouton « Arrêter »
+        if index not in wanted:
+            if not cap.grab():
+                break
+            continue
         ok, frame = cap.read()
         if not ok:
-            continue
-        if scale < 1:
-            frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-        boxes = [(x / scale, y / scale, w / scale, h / scale, sc,
-                  _thumb(cv2, frame, x, y, w, h))
-                 for x, y, w, h, sc in detector(frame) if h / scale >= fh * MIN_FACE]
+            break
+        boxes = faces_in(frame, scale)
+        if not boxes and scale < 1:  # rien en résolution réduite : petite facecam ?
+            boxes = faces_in(frame, 1.0)
         frames.append((index / fps, boxes))
     cap.release()
     if not frames:

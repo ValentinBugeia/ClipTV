@@ -197,6 +197,8 @@ class Autopilot:
             self.message = f"Dernière recherche : {done} nouveau(x) clip(s) {verb}"
             if errors:  # visible sur la page, détail dans les logs / l'onglet Erreurs
                 self.message += " · ⚠️ échec sur " + ", ".join(errors[:3])
+        except progress.Cancelled:  # bouton « Arrêter » : prochaine recherche à l'heure prévue
+            self.message = "Recherche arrêtée"
         finally:
             self.searching = False
             progress.end(self.message)

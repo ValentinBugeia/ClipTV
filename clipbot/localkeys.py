@@ -20,8 +20,6 @@ KEYS = [
     ("TIKTOK_CLIENT_KEY", "tiktok_client_key", "TikTok — Client key", False),
     ("TIKTOK_CLIENT_SECRET", "tiktok_client_secret", "TikTok — Client secret", True),
     ("TIKTOK_REDIRECT_URI", "tiktok_redirect_uri", "TikTok — Redirect URI", False),
-    ("UPLOADPOST_API_KEY", None, "Upload-Post — clé API (TikTok en public)", True),
-    ("UPLOADPOST_USER", None, "Upload-Post — nom du profil", False),
     ("ANTHROPIC_API_KEY", None, "Claude — clé API (légendes)", True),
     ("YOUTUBE_CLIENT_ID", "youtube_client_id", "YouTube — Client ID", False),
     ("YOUTUBE_CLIENT_SECRET", "youtube_client_secret", "YouTube — Client secret", True),

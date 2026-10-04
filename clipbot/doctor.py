@@ -128,16 +128,6 @@ def _online(label: str, fn) -> Check:
         return Check(FAIL, label, explain(exc))
 
 
-def _tiktok_mode(cfg: Config) -> str:
-    """Mode d'envoi TikTok choisi dans l'interface (page Comptes)."""
-    if not cfg.db_path.exists():
-        return "draft"
-    from .pipeline import TIKTOK_MODE
-    from .state import State
-
-    return State(cfg.db_path).get_settings().get(TIKTOK_MODE) or "draft"
-
-
 def check_online(cfg: Config, ai: bool = True) -> list[Check]:
     out: list[Check] = []
 
@@ -172,20 +162,7 @@ def check_online(cfg: Config, ai: bool = True) -> list[Check]:
                              "pas connecté : `clipbot twitch-auth` (seulement pour watch)"))
 
     for platform in cfg.platforms:
-        if platform == "tiktok" and _tiktok_mode(cfg) == "uploadpost":
-            def uploadpost():
-                import os
-
-                from .uploadpost import UploadPostClient
-
-                user = os.environ.get("UPLOADPOST_USER")
-                if not user:
-                    raise SystemExit("Configuration manquante : UPLOADPOST_USER")
-                name = UploadPostClient.from_env().tiktok_account(user)
-                return f"via Upload-Post : compte {name} (publication en public)"
-
-            out.append(_online("TikTok", uploadpost))
-        elif platform == "tiktok":
+        if platform == "tiktok":
             def tiktok():
                 from .tiktok import TikTokClient
 

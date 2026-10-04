@@ -522,3 +522,28 @@ def test_direct_post_requires_tiktok_choices(server, monkeypatch):
     assert seen["opts"] == {"privacy_level": "PUBLIC_TO_EVERYONE", "disable_comment": False,
                             "disable_duet": True, "disable_stitch": True,
                             "brand_organic_toggle": False, "brand_content_toggle": False}
+
+
+def test_restore_rejected_clip(server):
+    base, state = server
+    _post(base + "/reject/abc")
+    assert state.get("abc")["status"] == "rejected"
+    page = urllib.request.urlopen(base + "/?s=rejected").read().decode()
+    assert 'action="/restore/abc"' in page
+    body = _post(base + "/restore/abc").read().decode()
+    assert "Clip récupéré" in body and state.get("abc")["status"] == "rendered"
+
+
+def test_retry_failed_shows_tiktok_screen_again(server, monkeypatch):
+    from clipbot import tiktok
+    from clipbot.tiktok_post import SETTING
+
+    monkeypatch.setattr(tiktok.TikTokClient, "creator_info", lambda self: CREATOR)
+    base, state = server
+    _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s")
+    _post(base + "/tiktok/mode", b"mode=direct")
+    state.save_settings({SETTING: {"abc": {"privacy_level": "SELF_ONLY"}}})  # 1er essai
+    state.record("abc", "kamet0", "failed", error="boom")
+    resp = _post(base + "/publish/abc")
+    assert "/tiktok/post/abc?then=publish" in resp.url
+    assert state.get("abc")["status"] == "failed"

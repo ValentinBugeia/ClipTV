@@ -268,7 +268,7 @@ SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/stats", "Statistiques")
             ("/accounts", "Comptes"), ("/help", "Aide")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),
         ("published", "Publiés"), ("rejected", "Rejetés"), ("failed", "Erreurs")]
-CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo")
+CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo", "restore")
 HOURS = [(6, "6 dernières heures"), (24, "24 dernières heures"), (72, "3 derniers jours"),
          (168, "7 derniers jours")]
 EVERY = [(15, "toutes les 15 min"), (30, "toutes les 30 min"), (60, "toutes les heures"),
@@ -743,6 +743,10 @@ class Handler(BaseHTTPRequestHandler):
                                        when=e(format_when(c["scheduled_at"], self.cfg.timezone)))
         else:
             actions = f'<div class="meta">{e(c["caption"])}</div>'
+            if status == "rejected":
+                actions += (f'<form method="post" action="/restore/{cid}" class="act">'
+                            '<button type="submit" class="small">↩ Remettre dans « À valider »'
+                            '</button></form>')
             tiktok = self.state.posts(c["clip_id"]).get("tiktok", {})
             if status == "published":  # légende prête à coller dans TikTok
                 actions = (f'<textarea readonly rows="3" aria-label="Légende">{e(c["caption"] or "")}'
@@ -1225,7 +1229,9 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             return self._clip_action(parts[0], urllib.parse.unquote(parts[1]), one)
         return self._send(404, "introuvable")
 
-    def _clip_action(self, action: str, clip_id: str, form: dict[str, str]):
+    def _clip_action(self, action: str, clip_id: str, form: dict[str, str],
+                     chosen: bool = False):
+        """``chosen`` : les réglages TikTok viennent d'être choisis sur l'écran dédié."""
         clip = self.state.get(clip_id)
         if not clip:
             return self._redirect("Ce clip n'existe plus → actualise la page.", err=True)
@@ -1248,8 +1254,20 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record(clip_id, clip["channel"], "rejected", caption=caption)
             return self._redirect("Clip rejeté.")
-        if action in ("publish", "schedule") and self._needs_tiktok_choices(clip_id) \
-                and clip["status"] in ("rendered", "failed", "scheduled"):
+        if action == "restore":
+            if clip["status"] != "rejected" or not clip.get("output_path") \
+                    or not Path(clip["output_path"]).exists():
+                return self._redirect("Impossible de récupérer ce clip : sa vidéo a été "
+                                      "supprimée → relance une recherche.", err=True,
+                                      tab="rejected")
+            self.state.record(clip_id, clip["channel"], "rendered")
+            return self._redirect("Clip récupéré : il est de nouveau dans « À valider ».",
+                                  tab="rendered")
+        # publication directe : TikTok exige que l'utilisateur choisisse les réglages ;
+        # l'écran est aussi reproposé pour réessayer un clip en erreur
+        if action in ("publish", "schedule") and not chosen \
+                and clip["status"] in ("rendered", "failed", "scheduled") \
+                and self._needs_tiktok_choices(clip_id, retry=clip["status"] == "failed"):
             # publication directe : TikTok exige que l'utilisateur choisisse les réglages
             self.state.record(clip_id, clip["channel"], clip["status"], caption=caption)
             return self._redirect_to(f"/tiktok/post/{urllib.parse.quote(clip_id, safe='')}"
@@ -1271,12 +1289,12 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                               tab="publishing")
 
     # ---------- écran « Publier sur TikTok » (publication directe) ----------
-    def _needs_tiktok_choices(self, clip_id: str) -> bool:
+    def _needs_tiktok_choices(self, clip_id: str, retry: bool = False) -> bool:
         from .tiktok_post import SETTING
 
         platforms = self.opts.platforms or self.cfg.platforms
         return ("tiktok" in platforms and self._tiktok_mode() == "direct"
-                and clip_id not in self.state.get_settings().get(SETTING, {}))
+                and (retry or clip_id not in self.state.get_settings().get(SETTING, {})))
 
     def _creator_info(self) -> tuple[dict, str]:
         from .errors import explain
@@ -1328,7 +1346,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         saved = dict(self.state.get_settings().get(tiktok_post.SETTING, {}))
         saved[clip_id] = options
         self.state.save_settings({tiktok_post.SETTING: saved})
-        return self._clip_action(then, clip_id, {"caption": form.get("caption", "")})
+        return self._clip_action(then, clip_id, {"caption": form.get("caption", "")},
+                                 chosen=True)
 
     def _redirect_to(self, location: str):
         self.send_response(303)

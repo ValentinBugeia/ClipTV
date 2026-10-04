@@ -60,5 +60,7 @@ fi
 echo "Installation / mise à jour des dépendances (la première fois : quelques minutes)…"
 .venv/bin/python -m pip install -q --upgrade pip
 .venv/bin/python -m pip install -q -e ".[all]"
+# yt-dlp doit suivre les changements du site de Twitch : toujours la dernière version
+.venv/bin/python -m pip install -q --upgrade yt-dlp || echo "(mise à jour de yt-dlp impossible, on continue)"
 
 exec .venv/bin/python -m clipbot app --host 0.0.0.0 --open "$@"

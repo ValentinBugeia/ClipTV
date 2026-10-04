@@ -49,6 +49,8 @@ echo Installation / mise a jour des dependances (la premiere fois : quelques min
 ".venv\Scripts\python.exe" -m pip install -q --upgrade pip
 ".venv\Scripts\python.exe" -m pip install -q -e ".[all]"
 if errorlevel 1 goto :fail
+rem yt-dlp doit suivre les changements du site de Twitch : toujours la derniere version
+".venv\Scripts\python.exe" -m pip install -q --upgrade yt-dlp
 
 rem Windows peut demander d'autoriser l'acces reseau : accepte pour ouvrir l'app
 rem depuis tes autres appareils (sinon elle reste accessible sur ce PC seulement).

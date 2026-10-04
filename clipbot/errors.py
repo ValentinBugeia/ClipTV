@@ -43,6 +43,11 @@ RULES: list[tuple[str, str]] = [
      f"caractère près, sur developers.tiktok.com et dans {KEYS}."),
     (r"Refresh du token TikTok refusé|access_token_invalid|token_expired",
      f"La connexion à TikTok a expiré → {RECONNECT_TIKTOK}."),
+    (r"(creator_info|/post/publish/video/init).*(scope_not_authorized|scope_permission_missed)",
+     "TikTok refuse la publication directe : l'autorisation video.publish manque → sur "
+     "developers.tiktok.com, dans le Sandbox de ton app : Content Posting API → active "
+     "« Direct Post », ajoute le scope video.publish, Save ; puis page Comptes → Reconnecter "
+     "TikTok et accepte les nouvelles autorisations."),
     (r"scope_not_authorized|scope_permission_missed|insufficient.?scope",
      "TikTok refuse : une autorisation (scope) manque → vérifie les scopes de ton app sur "
      f"developers.tiktok.com (user.info.basic, video.upload), puis {RECONNECT_TIKTOK}."),

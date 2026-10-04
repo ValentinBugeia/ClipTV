@@ -475,3 +475,50 @@ def test_published_clip_has_copyable_caption(server):
     state.record("abc", "kamet0", "published", caption="légende #fyp")
     body = urllib.request.urlopen(base + "/?s=published").read().decode()
     assert "légende #fyp</textarea>" in body and "copyCaption(this)" in body
+
+
+CREATOR = {"creator_nickname": "C'était En Live", "can_post": True,
+           "max_video_post_duration_sec": 600, "comment_disabled": False,
+           "duet_disabled": True, "stitch_disabled": False,
+           "privacy_level_options": ["PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]}
+
+
+def test_direct_post_requires_tiktok_choices(server, monkeypatch):
+    from clipbot import pipeline, tiktok
+
+    monkeypatch.setattr(tiktok.TikTokClient, "creator_info", lambda self: CREATOR)
+    base, state = server
+    _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s")
+    _post(base + "/tiktok/mode", b"mode=direct")
+
+    # « Programmer » ouvre l'écran TikTok au lieu de programmer directement
+    resp = _post(base + "/schedule/abc", "caption=ma légende".encode())
+    assert "/tiktok/post/abc?then=schedule" in resp.url
+    page = resp.read().decode()
+    assert "C&#x27;était En Live" in page and "Music Usage Confirmation" in page
+    assert '<option value="" selected disabled>' in page          # aucune visibilité imposée
+    assert 'name="allow_duet" value="1" disabled' in page          # duo désactivé par le créateur
+    assert "ma légende</textarea>" in page
+
+    # sans visibilité : refusé
+    page = _post(base + "/tiktok/post/abc", b"then=schedule&caption=x").read().decode()
+    assert "Choisis qui peut voir" in page and state.get("abc")["status"] == "rendered"
+
+    # contenu de marque privé : refusé
+    page = _post(base + "/tiktok/post/abc", b"then=schedule&caption=x&privacy=SELF_ONLY"
+                 b"&commercial=1&branded=1").read().decode()
+    assert "ne peut pas être privé" in page
+
+    body = _post(base + "/tiktok/post/abc", "then=schedule&caption=légende finale"
+                 "&privacy=PUBLIC_TO_EVERYONE&allow_comment=1&allow_duet=1".encode()).read().decode()
+    assert "Programmé pour" in body
+    clip = state.get("abc")
+    assert clip["status"] == "scheduled" and clip["caption"] == "légende finale"
+
+    seen = {}
+    monkeypatch.setattr(pipeline, "publish_to", lambda platform, path, caption, cfg, opts:
+                        seen.setdefault("opts", opts.tiktok_options) and "pid")
+    pipeline.publish_clip("abc", pipeline.Config(), state, pipeline.Options(platforms=["tiktok"]))
+    assert seen["opts"] == {"privacy_level": "PUBLIC_TO_EVERYONE", "disable_comment": False,
+                            "disable_duet": True, "disable_stitch": True,
+                            "brand_organic_toggle": False, "brand_content_toggle": False}

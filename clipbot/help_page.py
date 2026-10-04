@@ -114,7 +114,7 @@ ouverte et le PC allumé pendant que l'app travaille.</p></div>
   (mode test), puis <strong>Create Sandbox</strong>. <em>Fais toute la suite dans le Sandbox.</em></li>
   <li>Dans <strong>Products → Add products</strong>, ajoute :
     <ul><li><strong>Login Kit</strong> : coche la plateforme <strong>Web</strong> et mets en
-    <strong>Redirect URI</strong> : <code>https://example.com/tiktok/callback</code></li>
+    <strong>Redirect URI</strong> : <code>https://valentinbugeia.github.io/ClipTV/callback.html</code></li>
     <li><strong>Content Posting API</strong> (pour envoyer les vidéos)</li>
     <li><strong>Display API</strong> (facultatif, pour l'onglet Statistiques)</li></ul></li>
   <li>Dans <strong>Scopes</strong>, vérifie : <code>user.info.basic</code>, <code>video.upload</code>
@@ -123,7 +123,7 @@ ouverte et le PC allumé pendant que l'app travaille.</p></div>
   <li>Clique sur <strong>Save</strong>, puis copie la <strong>Client key</strong> et le
   <strong>Client secret</strong> du Sandbox.</li>
   <li>Dans cliptv : <a href="/accounts">Comptes</a> → <strong>Clés API</strong> → colle la Client
-  key, le Client secret et la Redirect URI <code>https://example.com/tiktok/callback</code>
+  key, le Client secret et la Redirect URI <code>https://valentinbugeia.github.io/ClipTV/callback.html</code>
   → <strong>Enregistrer les clés</strong>.</li>
   <li>Toujours dans Comptes : <strong>Connecter</strong> à côté de TikTok → accepte → tu arrives sur
   une page « Example Domain » : <strong>c'est normal</strong>. Copie toute l'adresse de cette page
@@ -180,7 +180,7 @@ Lis le message à droite : il dit quelle clé ou quel compte pose problème et q
 souvent, une clé a été mal copiée (espace en trop, caractère manquant) : recopie-la dans
 <a href="/accounts">Comptes → Clés API</a>.</div></details>
 <details class="faq"><summary>« Le code TikTok a expiré ou a déjà servi »</summary><div>
-Le code dans l'adresse example.com ne dure que quelques instants et ne sert qu'une fois. Reclique
+Le code reçu sur la page de retour ne dure que quelques instants et ne sert qu'une fois. Reclique
 sur <strong>Connecter</strong>, accepte, puis colle tout de suite la nouvelle adresse et clique
 une seule fois sur <strong>Valider</strong>.</div></details>
 <details class="faq"><summary>ClipTV dit « publié » mais rien n'arrive dans TikTok</summary><div>

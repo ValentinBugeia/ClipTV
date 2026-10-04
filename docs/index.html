@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipTV</title>
+<meta name="description" content="ClipTV turns Twitch stream highlights into vertical videos with subtitles and publishes them to the creator's own TikTok account.">
+<link rel="icon" href="logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="wrap"><img src="logo.png" alt=""><strong>ClipTV</strong>
+<nav><a href="terms.html">Terms of Service</a><a href="privacy.html">Privacy Policy</a></nav></div></header>
+<main class="wrap">
+<h1>Twitch highlights, ready for TikTok</h1>
+<p class="lead">ClipTV is a personal desktop tool for content creators. It finds popular moments
+from Twitch streams, turns them into vertical videos with subtitles, and publishes them to the
+creator's own TikTok account, after the creator has reviewed each video.</p>
+
+<div class="card">
+<h2 style="margin-top:0">How it works</h2>
+<ol class="steps">
+  <li><strong>Find</strong> — ClipTV lists popular public clips from Twitch (Twitch API).</li>
+  <li><strong>Edit</strong> — each clip is converted to the 9:16 vertical format, the streamer's
+  face is framed and animated subtitles are added. A caption credits the streamer
+  (<code>twitch.tv/&lt;channel&gt;</code>).</li>
+  <li><strong>Review</strong> — the creator watches the video, edits the caption, and chooses the
+  TikTok settings (who can view the video, comments, duet, stitch, content disclosure).</li>
+  <li><strong>Publish</strong> — with the creator's confirmation, ClipTV publishes the video to the
+  creator's TikTok account through the official TikTok Content Posting API, now or at a time the
+  creator picked.</li>
+</ol>
+</div>
+
+<h2>TikTok integration</h2>
+<p>ClipTV uses Login Kit so the creator can connect their own TikTok account, and the Content
+Posting API to publish the videos they approved. With the creator's permission, it also reads the
+public statistics of their videos (views, likes, comments, shares) to show which videos perform
+best. ClipTV only acts on the account of the creator who connected it.</p>
+
+<h2>Where ClipTV runs</h2>
+<p>ClipTV is installed and runs on the creator's own computer. There is no ClipTV server and no
+ClipTV account: videos, captions and TikTok access tokens stay on that computer. See the
+<a href="privacy.html">Privacy Policy</a>.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests: <a href="https://github.com/ValentinBugeia/ClipTV/issues">open an issue on GitHub</a>.</p>
+</main>
+<footer><div class="wrap">ClipTV · <a href="terms.html">Terms of Service</a> · <a href="privacy.html">Privacy Policy</a>
+<br><span class="muted">ClipTV is not affiliated with TikTok or Twitch.</span></div></footer>
+</body>
+</html>

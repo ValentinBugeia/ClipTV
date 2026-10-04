@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipTV TikTok connection</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="logo.png">
+<link rel="stylesheet" href="style.css">
+<style>
+  .url { width:100%; min-height:90px; background:#0e0e10; color:var(--fg); border:1px solid var(--line);
+         border-radius:10px; padding:10px; font:13px/1.4 ui-monospace,monospace }
+  .btn { display:inline-block; background:var(--accent); color:#fff; border:0; border-radius:10px;
+         padding:12px 18px; font-weight:600; font-size:15px; cursor:pointer; text-decoration:none; margin:6px 8px 6px 0 }
+  .btn.alt { background:#2a2a2d }
+</style>
+</head>
+<body>
+<header><div class="wrap"><img src="logo.png" alt=""><strong>ClipTV</strong></div></header>
+<main class="wrap">
+<h1 id="title">Connexion TikTok</h1>
+<div id="ok">
+<p class="lead">Dernière étape : renvoie cette autorisation à ClipTV.</p>
+<div class="card">
+<p><strong>ClipTV est ouvert sur cet ordinateur ?</strong></p>
+<a class="btn" id="local" href="#">Terminer la connexion dans ClipTV</a>
+<p class="muted">Sinon (ClipTV ouvert sur un autre appareil ou un autre port) : copie cette adresse
+et colle-la dans ClipTV → Comptes → ligne TikTok → Valider. Le code n'est valable que quelques minutes.</p>
+<textarea class="url" id="url" readonly></textarea>
+<button class="btn alt" id="copy" type="button">📋 Copier l'adresse</button>
+</div>
+</div>
+<div id="ko" hidden><div class="card"><p id="reason"></p>
+<p class="muted">Retourne dans ClipTV → Comptes et clique à nouveau sur « Connecter ».</p></div></div>
+<p class="muted">Connecting ClipTV to TikTok: this page hands the authorization code back to the
+ClipTV app running on your computer. Nothing is stored here.</p>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  if (!q.get('code')) {
+    document.getElementById('ok').hidden = true;
+    document.getElementById('ko').hidden = false;
+    document.getElementById('reason').textContent = 'Connexion annulée ou refusée : ' +
+      (q.get('error_description') || q.get('error') || 'aucun code reçu');
+  }
+  document.getElementById('url').value = location.href;
+  document.getElementById('local').href = 'http://localhost:8000/tiktok/callback' + location.search;
+  document.getElementById('copy').onclick = function () {
+    const area = document.getElementById('url');
+    area.select();
+    (navigator.clipboard ? navigator.clipboard.writeText(area.value) : Promise.resolve(document.execCommand('copy')))
+      .then(() => { this.textContent = '✔ Copiée'; });
+  };
+</script>
+</body>
+</html>

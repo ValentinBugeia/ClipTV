@@ -35,6 +35,7 @@ class Options:
     platforms: list[str] = field(default_factory=list)  # vide = cfg.platforms
     mode: str = "draft"             # TikTok : draft | direct
     privacy: str = "SELF_ONLY"      # TikTok, publication directe
+    tiktok_options: dict = field(default_factory=dict)  # réglages choisis pour ce clip
 
 
 def template_caption(template: str, clip) -> str:
@@ -161,7 +162,8 @@ def publish_to(platform: str, path: Path, caption: str, cfg: Config, opts: Optio
         tiktok = TikTokClient(cfg.tiktok_client_key, cfg.tiktok_client_secret,
                               cfg.tiktok_token_path)
         publish_id = tiktok.publish(path, caption=caption, mode=opts.mode,
-                                    privacy_level=opts.privacy)
+                                    privacy_level=opts.privacy,
+                                    post_info=opts.tiktok_options or None)
         result = tiktok.wait(publish_id)
         log.info("TikTok : %s", result.get("status"))
         if result.get("status") == "FAILED":
@@ -210,7 +212,10 @@ def publish_clip(clip_id: str, cfg: Config, state: State, opts: Options) -> list
     """
     from dataclasses import replace
 
-    opts = replace(opts, mode=tiktok_mode(state, opts))
+    from .tiktok_post import SETTING as POST_OPTIONS
+
+    chosen = state.get_settings().get(POST_OPTIONS, {}).get(clip_id) or {}
+    opts = replace(opts, mode=tiktok_mode(state, opts), tiktok_options=chosen)
     clip = state.get(clip_id)
     path, caption = Path(clip["output_path"]), clip["caption"] or ""
     done = state.posts(clip_id)

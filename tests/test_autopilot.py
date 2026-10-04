@@ -124,3 +124,20 @@ def test_layout_setting_reaches_render_options(tmp_path):
     assert pilot._options(ap.load_settings(state, cfg)).layout == "auto"
     state.save_settings({"layout": "blur"})
     assert pilot._options(ap.load_settings(state, cfg)).layout == "blur"
+
+
+def test_direct_mode_keeps_clips_for_review(tmp_path):
+    from clipbot.autopilot import Autopilot, load_settings
+    from clipbot.config import Config
+    from clipbot.pipeline import TIKTOK_MODE, Options
+    from clipbot.state import State
+
+    cfg = Config()
+    cfg.data_dir = tmp_path
+    state = State(cfg.db_path)
+    state.save_settings({TIKTOK_MODE: "direct", "then": "schedule", "platforms": ["tiktok"]})
+    pilot = Autopilot(cfg, state, Options())
+    opts = pilot._options(load_settings(state, cfg))
+    assert not opts.schedule and not opts.publish
+    state.record("c1", "x", "rendered")
+    assert pilot._pending(load_settings(state, cfg)) == 1

@@ -629,6 +629,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         if url.path.startswith("/video/"):
             return self._send_video(url.path.removeprefix("/video/"))
+        if url.path.startswith("/tiktok/post/"):
+            return self._tiktok_post_page(urllib.parse.unquote(url.path.removeprefix("/tiktok/post/")))
         routes = {
             "/": self._clips_page,
             "/auto": self._auto_page,
@@ -694,9 +696,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect("Aucun changement.", to="/accounts")
         self.state.save_settings({TIKTOK_MODE: mode})
         if mode == "direct":
-            msg = ("Les vidéos seront publiées en privé sur ton profil. Sur developers.tiktok.com, "
-                   "active « Direct Post » dans Content Posting API et ajoute le scope "
-                   "video.publish, puis reconnecte TikTok (bouton « Reconnecter »).")
+            msg = ("Les vidéos seront publiées directement sur ton profil, avec les réglages que tu "
+                   "choisis pour chaque clip. Sur developers.tiktok.com, active « Direct Post » "
+                   "(scope video.publish), puis reconnecte TikTok. Tant que ton app n'est pas "
+                   "validée par TikTok, seuls « Moi uniquement » et un compte privé fonctionnent.")
         else:
             msg = "Les vidéos arriveront en brouillon dans l'app TikTok de ton téléphone."
         return self._redirect(msg, to="/accounts")
@@ -752,10 +755,8 @@ class Handler(BaseHTTPRequestHandler):
                             'ouvre cette page sur ton téléphone, copie la légende, puis colle-la '
                             'dans TikTok avant de publier.</div>')
             elif status == "published" and tiktok.get("status") == "ok":
-                actions += ('<div class="meta">🔒 Publié <strong>en privé</strong> sur ton profil : '
-                            'sur tiktok.com (PC) ou dans l\'app, ouvre la vidéo → ⋯ → '
-                            'Paramètres de confidentialité → « Tout le monde » pour la rendre '
-                            'publique.</div>')
+                actions += ('<div class="meta">✅ Publié sur ton profil TikTok avec la visibilité '
+                            'choisie (TikTok peut mettre quelques minutes à l\'afficher).</div>')
         if c["clip_id"] in self.app.redoing:
             player = ('<div class="when" style="padding:40px 0;text-align:center">'
                       '⏳ Remontage en cours…</div>')
@@ -978,13 +979,13 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                 elif keys:  # reconnexion : même étape de copier-coller qu'à la 1re connexion
                     detail += ("<br>Pour reconnecter : clique sur « Reconnecter », accepte sur "
                                "TikTok, puis copie l'adresse complète de la page de retour "
-                               "(example.com…) et colle-la ici :" + paste)
+                               "(ou clique « Terminer la connexion dans ClipTV ») et colle-la ici :" + paste)
                 if keys:
                     mode = self._tiktok_mode()
                     choices = "".join(
                         f'<option value="{v}"{" selected" if v == mode else ""}>{lab}</option>'
                         for v, lab in (("draft", "📥 en brouillon dans l'app TikTok du téléphone"),
-                                       ("direct", "🔒 en privé sur ton profil (visible sur PC)")))
+                                       ("direct", "🚀 publiées directement sur ton profil (tu choisis la visibilité)")))
                     detail += ("<br>⚠️ Tant que TikTok n'a pas validé ton app, les vidéos "
                                "n'arrivent que si ton compte TikTok est <strong>privé</strong>.")
                     detail += ('<form method="post" action="/tiktok/mode" class="row" '
@@ -1217,6 +1218,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         }
         if path in routes:
             return routes[path]()
+        if path.startswith("/tiktok/post/"):
+            return self._tiktok_post_submit(urllib.parse.unquote(path.removeprefix("/tiktok/post/")), one)
         parts = path.strip("/").split("/")
         if len(parts) == 2 and parts[0] in CLIP_ACTIONS:
             return self._clip_action(parts[0], urllib.parse.unquote(parts[1]), one)
@@ -1245,6 +1248,12 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record(clip_id, clip["channel"], "rejected", caption=caption)
             return self._redirect("Clip rejeté.")
+        if action in ("publish", "schedule") and self._needs_tiktok_choices(clip_id) \
+                and clip["status"] in ("rendered", "failed", "scheduled"):
+            # publication directe : TikTok exige que l'utilisateur choisisse les réglages
+            self.state.record(clip_id, clip["channel"], clip["status"], caption=caption)
+            return self._redirect_to(f"/tiktok/post/{urllib.parse.quote(clip_id, safe='')}"
+                                     f"?then={action}")
         if action == "schedule":
             when = schedule_clip(self.state, self.cfg, clip_id, caption)
             if not when:
@@ -1260,6 +1269,72 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         return self._redirect("Envoi lancé : le clip passera dans « Publiés » (ou « Erreurs ») "
                               "dès que TikTok aura confirmé, la page se mettra à jour.",
                               tab="publishing")
+
+    # ---------- écran « Publier sur TikTok » (publication directe) ----------
+    def _needs_tiktok_choices(self, clip_id: str) -> bool:
+        from .tiktok_post import SETTING
+
+        platforms = self.opts.platforms or self.cfg.platforms
+        return ("tiktok" in platforms and self._tiktok_mode() == "direct"
+                and clip_id not in self.state.get_settings().get(SETTING, {}))
+
+    def _creator_info(self) -> tuple[dict, str]:
+        from .errors import explain
+        from .tiktok import TikTokClient
+
+        try:
+            self.cfg.require("tiktok_client_key", "tiktok_client_secret")
+            return TikTokClient(self.cfg.tiktok_client_key, self.cfg.tiktok_client_secret,
+                                self.cfg.tiktok_token_path).creator_info(), ""
+        except (Exception, SystemExit) as exc:
+            return {}, explain(exc)
+
+    def _tiktok_post_page(self, clip_id: str, error: str = ""):
+        from . import tiktok_post
+        from .render import probe_duration
+
+        clip = self.state.get(clip_id)
+        if not clip:
+            return self._redirect("Ce clip n'existe plus → actualise la page.", err=True)
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        then = q.get("then", ["publish"])[0]
+        creator, problem = self._creator_info()
+        duration = None
+        try:
+            duration = probe_duration(Path(clip["output_path"]))
+        except Exception:
+            pass
+        body = tiktok_post.render(clip, creator, f"/video/{urllib.parse.quote(clip_id, safe='')}",
+                                  "schedule" if then == "schedule" else "publish",
+                                  duration=duration, error=problem)
+        if error:
+            body = f'<div class="flash err">⚠️ {e(error)}</div>' + body
+        self._page(body, "/", narrow=True)
+
+    def _tiktok_post_submit(self, clip_id: str, form: dict[str, str]):
+        from . import tiktok_post
+
+        clip = self.state.get(clip_id)
+        if not clip:
+            return self._redirect("Ce clip n'existe plus → actualise la page.", err=True)
+        creator, problem = self._creator_info()
+        if problem:
+            return self._redirect(problem, err=True)
+        options, error = tiktok_post.parse(form, creator)
+        then = "schedule" if form.get("then") == "schedule" else "publish"
+        if error:
+            return self._redirect_to(f"/tiktok/post/{urllib.parse.quote(clip_id, safe='')}"
+                                     f"?then={then}&" + urllib.parse.urlencode({"msg": error, "err": 1}))
+        saved = dict(self.state.get_settings().get(tiktok_post.SETTING, {}))
+        saved[clip_id] = options
+        self.state.save_settings({tiktok_post.SETTING: saved})
+        return self._clip_action(then, clip_id, {"caption": form.get("caption", "")})
+
+    def _redirect_to(self, location: str):
+        self.send_response(303)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _redo(self, clip: dict, form: dict[str, str]):
         """Remonte la vidéo (cadrage / sous-titres) à partir du clip déjà téléchargé."""

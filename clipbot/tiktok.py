@@ -238,7 +238,8 @@ class TikTokClient:
                 resp.raise_for_status()
 
     def publish(self, video: Path, *, caption: str, mode: str = "draft",
-                privacy_level: str = "SELF_ONLY") -> str:
+                privacy_level: str = "SELF_ONLY", post_info: dict | None = None) -> str:
+        """``post_info`` : réglages choisis par l'utilisateur (écran « Publier sur TikTok »)."""
         size = video.stat().st_size
         chunk_size, total = chunk_plan(size)
         source = {
@@ -257,6 +258,7 @@ class TikTokClient:
                     "disable_comment": False,
                     "disable_duet": False,
                     "disable_stitch": False,
+                    **(post_info or {}),
                 },
                 "source_info": source,
             }

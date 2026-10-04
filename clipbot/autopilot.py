@@ -134,10 +134,16 @@ class Autopilot:
         self.next_run = self.last_run + every
 
     def _options(self, settings: dict) -> Options:
+        from .pipeline import tiktok_mode
+
+        # publication directe : TikTok exige que l'utilisateur choisisse les réglages de
+        # chaque vidéo (écran « Publier sur TikTok ») → les clips restent « À valider »
+        direct = ("tiktok" in settings["platforms"]
+                  and tiktok_mode(self.state, self.base_opts) == "direct")
         return Options(**{**self.base_opts.__dict__,
                           "ai_caption": bool(settings["ai_caption"]),
-                          "publish": settings["then"] == "publish",
-                          "schedule": settings["then"] == "schedule",
+                          "publish": settings["then"] == "publish" and not direct,
+                          "schedule": settings["then"] == "schedule" and not direct,
                           "platforms": list(settings["platforms"]),
                           "layout": settings.get("layout", "auto"),
                           "subtitles": bool(settings.get("subtitles", True))})
@@ -207,7 +213,12 @@ class Autopilot:
 
     def _pending(self, settings: dict) -> int:
         """Clips en attente : programmés, ou prêts à publier à la main."""
-        return self.state.count("rendered" if settings["then"] == "manual" else "scheduled")
+        from .pipeline import tiktok_mode
+
+        review = settings["then"] == "manual" or (
+            "tiktok" in settings["platforms"]
+            and tiktok_mode(self.state, self.base_opts) == "direct")
+        return self.state.count("rendered" if review else "scheduled")
 
     def _discover(self, settings: dict, opts: Options, twitch, limit: int):
         from .discover import run_discovery

@@ -90,10 +90,16 @@ def refresh(cfg: Config, state: State) -> str:
         videos = client.list_videos()
         links = link_videos(state, videos, client)
     except (Exception, SystemExit) as exc:
-        msg = str(exc)
-        if "scope" in msg.lower() or "access_token_invalid" in msg or "permission" in msg:
-            msg = ("TikTok refuse l'accès aux statistiques : active-les dans Comptes puis "
-                   f"reconnecte TikTok ({msg[:160]})")
+        from .errors import explain
+
+        raw = str(exc)
+        if re.search(r"scope|permission", raw, re.IGNORECASE):
+            msg = ("TikTok refuse l'accès aux statistiques → ajoute le produit Display API "
+                   "(scopes user.info.stats et video.list) à ton app sur "
+                   "developers.tiktok.com, clique sur « Activer les statistiques », puis "
+                   "page Comptes → Reconnecter TikTok.")
+        else:
+            msg = f"Statistiques TikTok indisponibles : {explain(exc)}"
         state.save_settings({ERROR: msg, UPDATED: int(time.time())})
         log.warning("Statistiques TikTok indisponibles : %s", msg)
         return msg

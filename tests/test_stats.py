@@ -64,7 +64,8 @@ def test_refresh_error_is_reported(tmp_path, monkeypatch):
 
     monkeypatch.setattr(stats, "_client", lambda cfg: Refuse())
     msg = stats.refresh(cfg, st)
-    assert "active-les dans Comptes" in msg and st.get_settings()["stats_error"] == msg
+    assert "Display API" in msg and "Reconnecter TikTok" in msg
+    assert st.get_settings()["stats_error"] == msg
 
 
 def test_stats_scopes_only_when_enabled():

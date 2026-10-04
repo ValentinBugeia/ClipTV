@@ -188,15 +188,17 @@ class Autopilot:
                                            min_views=int(settings["min_views"]))
                 except Exception as exc:
                     log.exception("Recherche échouée pour %s", channel)
-                    errors.append(f"{channel} ({type(exc).__name__})")
+                    from .errors import explain
+
+                    errors.append(f"{channel} : {explain(exc)}")
                     continue
                 done += sum(ok for _, ok in results)
                 errors += [f"{channel} (clip {cid})" for cid, ok in results if not ok]
             verb = {"publish": "publié(s)", "manual": "prêt(s) à publier"}.get(
                 settings["then"], "programmé(s)")
             self.message = f"Dernière recherche : {done} nouveau(x) clip(s) {verb}"
-            if errors:  # visible sur la page, détail dans les logs / l'onglet Erreurs
-                self.message += " · ⚠️ échec sur " + ", ".join(errors[:3])
+            if errors:  # visible sur la page ; détail de chaque clip dans l'onglet Erreurs
+                self.message += " · ⚠️ " + " | ".join(errors[:2])
         except progress.Cancelled:  # bouton « Arrêter » : prochaine recherche à l'heure prévue
             self.message = "Recherche arrêtée"
         finally:
@@ -225,7 +227,9 @@ class Autopilot:
                                     favorites=settings["channels"])
         except Exception as exc:
             log.exception("Découverte échouée")
-            return 0, [f"découverte ({type(exc).__name__})"]
+            from .errors import explain
+
+            return 0, [f"recherche des temps forts : {explain(exc)}"]
         return (sum(ok for _, ok in results),
                 [f"clip {cid}" for cid, ok in results if not ok])
 

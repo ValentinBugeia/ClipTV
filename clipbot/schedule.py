@@ -23,9 +23,9 @@ def parse_slots(slots: list[str]) -> list[dtime]:
             h, m = s.split(":")
             parsed.append(dtime(int(h), int(m)))
         except ValueError:
-            raise SystemExit(f"Créneau invalide dans CLIPBOT_POST_SLOTS : {s!r} (format HH:MM)")
+            raise SystemExit(f"heure « {s} » invalide → écris-la au format HH:MM, par exemple 18:00")
     if not parsed:
-        raise SystemExit("CLIPBOT_POST_SLOTS est vide")
+        raise SystemExit("aucune heure de publication → indiques-en au moins une, par exemple 18:00")
     return sorted(set(parsed))
 
 

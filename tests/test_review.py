@@ -149,7 +149,7 @@ def test_search_from_browser(server, monkeypatch):
 def test_search_rejects_bad_channel(server):
     base, _ = server
     body = _post(base + "/search", b"channels=%3Cscript%3E").read().decode()
-    assert "noms de chaînes Twitch valides" in body
+    assert "Nom de chaîne invalide" in body
 
 
 def test_auto_settings_saved_and_validated(server):
@@ -252,7 +252,7 @@ def test_tiktok_expired_code_message(server, monkeypatch):
     _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s"
                           b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
     body = _post(base + "/connect/tiktok-code", b"code=abc").read().decode()
-    assert "a expiré ou a déjà servi" in body and "Reclique sur" in body
+    assert "a expiré ou a déjà servi" in body and "reclique sur" in body
 
 
 @pytest.mark.parametrize("raw,code", [

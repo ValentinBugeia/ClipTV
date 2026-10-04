@@ -365,16 +365,10 @@ def extract_oauth_code(raw: str) -> str:
 
 
 def _tiktok_error(exc: BaseException) -> str:
-    """Message compréhensible pour les échecs de connexion TikTok les plus fréquents."""
-    text = str(exc)
-    if "invalid_grant" in text or "expired" in text.lower():
-        return ("Connexion TikTok : le code a expiré ou a déjà servi (il n'est valable que "
-                "quelques instants et une seule fois). Reclique sur « Connecter », accepte, "
-                "puis colle tout de suite la nouvelle adresse et valide une seule fois.")
-    if "redirect_uri" in text:
-        return ("Connexion TikTok : la Redirect URI ne correspond pas. Elle doit être "
-                "identique, au caractère près, sur developers.tiktok.com et dans « Clés API ».")
-    return f"Connexion TikTok échouée : {text}"
+    """Échec de connexion TikTok : explication + action."""
+    from .errors import explain
+
+    return f"Connexion TikTok impossible : {explain(exc)}"
 
 
 def _options(items, selected) -> str:
@@ -410,7 +404,9 @@ class SearchJob:
             self.message = target(*args)
         except (Exception, SystemExit) as exc:
             log.exception("Recherche échouée")
-            self.message = f"Échec de la recherche : {exc}"
+            from .errors import explain
+
+            self.message = f"Recherche impossible : {explain(exc)}"
         finally:
             self.running = False
 
@@ -490,7 +486,9 @@ def publish_in_background(app, clip_id: str) -> None:
         except Exception as exc:  # ne jamais laisser un clip bloqué « en cours »
             log.exception("Publication échouée pour %s", clip_id)
             clip = app.state.get(clip_id)
-            app.state.record(clip_id, clip["channel"], "failed", error=str(exc))
+            from .errors import explain
+
+            app.state.record(clip_id, clip["channel"], "failed", error=explain(exc))
 
 
 def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
@@ -505,7 +503,9 @@ def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
         error = None
     except Exception as exc:
         log.exception("Remontage échoué pour %s", clip["clip_id"])
-        error = f"remontage échoué : {exc}"
+        from .errors import explain
+
+        error = f"Remontage impossible : {explain(exc)}"
     finally:
         app.redoing.discard(clip["clip_id"])
     # même statut (et même créneau) ; met à jour la date -> la page se rafraîchit
@@ -785,7 +785,7 @@ class Handler(BaseHTTPRequestHandler):
         from . import stats
 
         if not self.cfg.tiktok_token_path.exists():
-            return self._redirect("Connecte d'abord TikTok (page Comptes).", err=True,
+            return self._redirect("TikTok n'est pas connecté → page Comptes → Connecter TikTok.", err=True,
                                   to="/stats")
         msg = stats.refresh(self.cfg, self.state)
         err = bool(self.state.get_settings().get(stats.ERROR))
@@ -1058,7 +1058,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
 
         cfg = self.cfg
         if not (cfg.tiktok_client_key and cfg.tiktok_redirect_uri):
-            return self._redirect("TIKTOK_CLIENT_KEY / TIKTOK_REDIRECT_URI manquants dans .env",
+            return self._redirect("Il manque la Client key ou la Redirect URI TikTok → ajoute-les dans « Clés API » ci-dessous.",
                                   err=True, to="/accounts")
         self.send_response(302)
         from .tiktok import PKCE_SETTING, new_pkce
@@ -1173,14 +1173,14 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
     def _clip_action(self, action: str, clip_id: str, form: dict[str, str]):
         clip = self.state.get(clip_id)
         if not clip:
-            return self._redirect("Clip introuvable.", err=True)
+            return self._redirect("Ce clip n'existe plus → actualise la page.", err=True)
         caption = form.get("caption", clip["caption"] or "").strip()
 
         if action == "redo":
             return self._redo(clip, form)
         if action == "done":
             if clip["status"] not in ("rendered", "scheduled", "failed"):
-                return self._redirect("Clip déjà traité.", err=True)
+                return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record_post(clip_id, "manuel", "ok")
             self.state.record(clip_id, clip["channel"], "published")
             return self._redirect("Clip marqué comme publié ✔")
@@ -1190,18 +1190,18 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                                   err=not ok, tab="rendered")
         if action == "reject":
             if clip["status"] not in ("rendered", "failed"):
-                return self._redirect("Clip déjà traité.", err=True)
+                return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record(clip_id, clip["channel"], "rejected", caption=caption)
             return self._redirect("Clip rejeté.")
         if action == "schedule":
             when = schedule_clip(self.state, self.cfg, clip_id, caption)
             if not when:
-                return self._redirect("Clip déjà traité.", err=True)
+                return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             return self._redirect(
                 f"Programmé pour {format_when(int(when.timestamp()), self.cfg.timezone)} ✔")
 
         if not self.state.claim(clip_id, caption):
-            return self._redirect("Clip déjà publié ou en cours de publication.", err=True)
+            return self._redirect("Ce clip est déjà publié ou en cours d'envoi → regarde les onglets « Envoi en cours » et « Publiés ».", err=True)
         # l'envoi (upload + confirmation TikTok) peut prendre plusieurs minutes : en fond
         threading.Thread(target=publish_in_background, args=(self.app, clip_id),
                          daemon=True).start()
@@ -1213,10 +1213,10 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         """Remonte la vidéo (cadrage / sous-titres) à partir du clip déjà téléchargé."""
         src = self.cfg.downloads_dir / f"{clip['clip_id']}.mp4"
         if not src.exists() or not clip.get("output_path"):
-            return self._redirect("Vidéo d'origine introuvable : relance une recherche.",
+            return self._redirect("La vidéo d'origine a été supprimée → relance une recherche pour retrouver ce clip.",
                                   err=True)
         if clip["clip_id"] in self.app.redoing:
-            return self._redirect("Remontage déjà en cours.", err=True)
+            return self._redirect("Ce clip est déjà en cours de remontage → attends une minute, la page se mettra à jour.", err=True)
         layout = form.get("layout") if form.get("layout") in dict(LAYOUTS_REDO) else "auto"
         opts = Options(**{**self.opts.__dict__, "layout": layout,
                           "subtitles": form.get("subtitles") == "1"})
@@ -1229,12 +1229,12 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
     def _search(self, form: dict[str, str]):
         channels = _split_channels(form.get("channels", ""))
         if not all(CHANNEL_RE.fullmatch(c) for c in channels):
-            return self._redirect("Indique des noms de chaînes Twitch valides.", err=True)
+            return self._redirect("Nom de chaîne invalide → écris le nom tel qu'il apparaît dans l'adresse twitch.tv/nom (lettres, chiffres, _), ou laisse vide pour la découverte automatique.", err=True)
         try:
             hours = min(max(float(form.get("hours", 24)), 1), 24 * 30)
             top = min(max(int(form.get("top", 3)), 1), 20)
         except ValueError:
-            return self._redirect("Paramètres de recherche invalides.", err=True)
+            return self._redirect("Période ou nombre de clips invalide → choisis une valeur dans les menus.", err=True)
         then = form.get("then", "review")
         from .autopilot import load_settings
 
@@ -1247,7 +1247,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         first = channels[0] if channels else "temps forts du moment"
         if not job.start(f"Recherche en cours : {first}…", run_search, job, self.cfg,
                          self.state, opts, channels, hours, top):
-            return self._redirect("Une recherche est déjà en cours.", err=True)
+            return self._redirect("Une recherche est déjà en cours → attends la fin, ou clique sur « Arrêter » dans le panneau central.", err=True)
         return self._redirect("Recherche lancée : les clips apparaîtront ici au fur et à "
                               "mesure (téléchargement, sous-titres et rendu prennent "
                               "1 à 2 min par clip).")
@@ -1258,7 +1258,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         live = _split_channels(one.get("live_channels", ""))
         bad = [c for c in channels + live if not CHANNEL_RE.fullmatch(c)]
         if bad:
-            return self._redirect(f"Nom de chaîne invalide : {bad[0]}", err=True, to="/auto")
+            return self._redirect(f"Nom de chaîne invalide : « {bad[0]} » → écris le nom tel qu'il apparaît dans l'adresse twitch.tv/nom.", err=True, to="/auto")
         slots = [s for s in re.split(r"[\s,;]+", one.get("post_slots", "")) if s]
         try:
             parse_slots(slots)
@@ -1310,7 +1310,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
 
     def _run_auto(self):
         if self.app.autopilot is None:
-            return self._redirect("Pilote automatique indisponible.", err=True, to="/auto")
+            return self._redirect("Le pilote automatique ne tourne pas → relance l'app (fenêtre du terminal).", err=True, to="/auto")
         self.app.autopilot.run_now()
         return self._redirect("Recherche lancée ✔", to="/auto")
 
@@ -1347,7 +1347,10 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                                        cfg.youtube_token_path)
                 start_device_flow(self.app.pending, name, client, "verification_url")
         except (Exception, SystemExit) as exc:
-            return self._redirect(f"Connexion impossible : {exc}", err=True, to="/accounts")
+            from .errors import explain
+
+            return self._redirect(f"Connexion impossible : {explain(exc)}", err=True,
+                                  to="/accounts")
         return self._redirect("Entre le code affiché sur la page indiquée.", to="/accounts")
 
     def _tiktok_code(self, form: dict[str, str]):
@@ -1396,7 +1399,10 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             ig.save(form.get("token", "").strip(), cfg.instagram_user_id)
             name = ig.account().get("username", "?")
         except (Exception, SystemExit) as exc:
-            return self._redirect(f"Token Instagram refusé : {exc}", err=True, to="/accounts")
+            from .errors import explain
+
+            return self._redirect(f"Instagram refuse ce token : {explain(exc)}", err=True,
+                                  to="/accounts")
         return self._redirect(f"Instagram connecté (@{name}) ✔", to="/accounts")
 
     # ---------- utilitaires ----------

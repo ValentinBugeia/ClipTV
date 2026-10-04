@@ -119,9 +119,13 @@ def _online(label: str, fn) -> Check:
         detail = fn()
         return Check(OK, label, detail or "")
     except SystemExit as exc:  # config ou token manquant
-        return Check(FAIL, label, str(exc))
+        from .errors import explain
+
+        return Check(FAIL, label, explain(exc))
     except Exception as exc:
-        return Check(FAIL, label, f"{type(exc).__name__} : {str(exc)[:300]}")
+        from .errors import explain
+
+        return Check(FAIL, label, explain(exc))
 
 
 def check_online(cfg: Config, ai: bool = True) -> list[Check]:

@@ -135,6 +135,7 @@ def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
 
 
 PLATFORMS = ("tiktok", "youtube", "instagram")
+PLATFORM_LABELS = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram"}
 
 
 def publish_to(platform: str, path: Path, caption: str, cfg: Config, opts: Options) -> str:
@@ -190,8 +191,10 @@ def publish_clip(clip_id: str, cfg: Config, state: State, opts: Options) -> list
             post_id = publish_to(platform, path, caption, cfg, opts)
         except (Exception, SystemExit) as exc:  # SystemExit : config/token manquant
             log.exception("Publication %s échouée pour %s", platform, clip_id)
-            state.record_post(clip_id, platform, "failed", error=str(exc))
-            errors.append(f"{platform} : {exc}")
+            from .errors import explain
+
+            state.record_post(clip_id, platform, "failed", error=explain(exc))
+            errors.append(f"{PLATFORM_LABELS.get(platform, platform)} : {explain(exc)}")
             continue
         state.record_post(clip_id, platform, "ok", post_id=post_id)
         if platform == "tiktok":
@@ -245,7 +248,9 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
         raise
     except Exception as exc:  # on continue avec les autres clips
         log.exception("Échec pour %s", clip.id)
-        state.record(clip.id, channel, "failed", error=str(exc), **meta)
+        from .errors import explain
+
+        state.record(clip.id, channel, "failed", error=explain(exc), **meta)
         return False
     if opts.publish:
         state.claim(clip.id)

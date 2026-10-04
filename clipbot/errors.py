@@ -55,6 +55,9 @@ RULES: list[tuple[str, str]] = [
     (r"scope_not_authorized.*video\.publish|video\.publish",
      "TikTok refuse la publication sur le profil → active « Direct Post » (scope video.publish) "
      f"dans Content Posting API sur developers.tiktok.com, puis {RECONNECT_TIKTOK}."),
+    (r"too_many_pending_share",
+     "Trop de brouillons TikTok en attente (5 maximum par 24 h) → ouvre l'app TikTok, publie "
+     "ou supprime ceux de ta boîte de réception, puis réessaie."),
     (r"spam_risk|rate_limit|too_many",
      "TikTok limite le nombre d'envois pour le moment → réessaie plus tard (dans 1 h)."),
     (r"file_format_check_failed|duration_check_failed|picture_size|video_pull_failed",

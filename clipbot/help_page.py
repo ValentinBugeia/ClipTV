@@ -183,6 +183,12 @@ souvent, une clé a été mal copiée (espace en trop, caractère manquant) : re
 Le code dans l'adresse example.com ne dure que quelques instants et ne sert qu'une fois. Reclique
 sur <strong>Connecter</strong>, accepte, puis colle tout de suite la nouvelle adresse et clique
 une seule fois sur <strong>Valider</strong>.</div></details>
+<details class="faq"><summary>ClipTV dit « publié » mais rien n'arrive dans TikTok</summary><div>
+Tant que TikTok n'a pas <strong>validé ton app</strong> (elle est en Sandbox), TikTok accepte les
+vidéos mais ne les livre que si ton compte est <strong>privé</strong>. Avec un compte public, rien
+n'arrive, sans message d'erreur. Pour publier automatiquement sur un compte public, il faut faire
+valider l'app par TikTok (developers.tiktok.com → ton app → Production → envoi en validation).
+</div></details>
 <details class="faq"><summary>Je veux voir mes vidéos sur PC, pas seulement sur le téléphone</summary><div>
 Les brouillons TikTok ne s'ouvrent que dans l'app du téléphone. Pour tout gérer depuis le PC :
 <a href="/accounts">Comptes</a> → ligne TikTok → « Les vidéos arrivent <strong>en privé sur ton

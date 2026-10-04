@@ -980,6 +980,8 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                         f'<option value="{v}"{" selected" if v == mode else ""}>{lab}</option>'
                         for v, lab in (("draft", "📥 en brouillon dans l'app TikTok du téléphone"),
                                        ("direct", "🔒 en privé sur ton profil (visible sur PC)")))
+                    detail += ("<br>⚠️ Tant que TikTok n'a pas validé ton app, les vidéos "
+                               "n'arrivent que si ton compte TikTok est <strong>privé</strong>.")
                     detail += ('<form method="post" action="/tiktok/mode" class="row" '
                                'style="margin-top:8px">Les vidéos arrivent '
                                f'<select name="mode">{choices}</select>'

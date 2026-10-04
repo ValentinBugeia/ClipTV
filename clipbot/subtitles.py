@@ -149,7 +149,7 @@ def build_ass(
     font_size: int = 88,
     highlight: str = "#FFE600",
     uppercase: bool = True,
-    margin_v: int = 560,
+    margin_v: int = 720,
 ) -> str:
     out = [
         ASS_HEADER.format(

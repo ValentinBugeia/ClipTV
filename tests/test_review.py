@@ -468,3 +468,10 @@ def test_tiktok_mode_private_profile(server, monkeypatch):
                         lambda platform, path, caption, cfg, opts: seen.setdefault("mode", opts.mode))
     pipeline.publish_clip("abc", pipeline.Config(), state, pipeline.Options(platforms=["tiktok"]))
     assert seen["mode"] == "direct"
+
+
+def test_published_clip_has_copyable_caption(server):
+    base, state = server
+    state.record("abc", "kamet0", "published", caption="légende #fyp")
+    body = urllib.request.urlopen(base + "/?s=published").read().decode()
+    assert "légende #fyp</textarea>" in body and "copyCaption(this)" in body

@@ -741,11 +741,16 @@ class Handler(BaseHTTPRequestHandler):
         else:
             actions = f'<div class="meta">{e(c["caption"])}</div>'
             tiktok = self.state.posts(c["clip_id"]).get("tiktok", {})
+            if status == "published":  # légende prête à coller dans TikTok
+                actions = (f'<textarea readonly rows="3" aria-label="Légende">{e(c["caption"] or "")}'
+                           '</textarea><button type="button" class="small" '
+                           'onclick="copyCaption(this)">📋 Copier la légende</button>')
             if status == "published" and tiktok.get("status") == "ok" \
                     and self._tiktok_mode() == "draft":
                 actions += ('<div class="meta">📥 Envoyé dans ta <strong>boîte de réception '
-                            'TikTok</strong> : ouvre l\'app TikTok → notifications pour le '
-                            'publier sur ton profil.</div>')
+                            'TikTok</strong>. TikTok ne reprend pas la légende des brouillons : '
+                            'ouvre cette page sur ton téléphone, copie la légende, puis colle-la '
+                            'dans TikTok avant de publier.</div>')
             elif status == "published" and tiktok.get("status") == "ok":
                 actions += ('<div class="meta">🔒 Publié <strong>en privé</strong> sur ton profil : '
                             'sur tiktok.com (PC) ou dans l\'app, ouvre la vidéo → ⋯ → '

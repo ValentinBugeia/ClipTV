@@ -935,14 +935,18 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     detail = "Renseigne la Client key et le secret TikTok dans « Clés API » ci-dessous"
                 action = (f'<a class="btn small" href="/connect/tiktok">'
                           f'{"Reconnecter" if ok else "Connecter"}</a>') if keys else ""
+                paste = (
+                    '<form method="post" action="/connect/tiktok-code" class="row" '
+                    'style="margin-top:8px"><input name="code" required '
+                    'placeholder="https://…/callback?code=…" autocomplete="off">'
+                    '<button class="small">Valider</button></form>')
                 if keys and not ok:
-                    detail += (
-                        "<br>Si la page de retour ne s'ouvre pas (app lancée sur un PC), "
-                        "copie son adresse complète et colle-la ici :"
-                        '<form method="post" action="/connect/tiktok-code" class="row" '
-                        'style="margin-top:8px"><input name="code" required '
-                        'placeholder="https://…/callback?code=…" autocomplete="off">'
-                        '<button class="small">Valider</button></form>')
+                    detail += ("<br>Si la page de retour ne s'ouvre pas (app lancée sur un PC), "
+                               "copie son adresse complète et colle-la ici :" + paste)
+                elif keys:  # reconnexion : même étape de copier-coller qu'à la 1re connexion
+                    detail += ("<br>Pour reconnecter : clique sur « Reconnecter », accepte sur "
+                               "TikTok, puis copie l'adresse complète de la page de retour "
+                               "(example.com…) et colle-la ici :" + paste)
                 stats_on = bool(self._settings().get("tiktok_stats"))
                 if manual and not ok and not stats_on:  # pas de connexion nécessaire
                     detail = ("Pas nécessaire en mode « je publie moi-même » : télécharge "

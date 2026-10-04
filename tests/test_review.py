@@ -444,3 +444,12 @@ def test_help_page(server):
     _post(base + "/keys", b"TWITCH_CLIENT_ID=a&TWITCH_CLIENT_SECRET=b")
     body = urllib.request.urlopen(base + "/help").read().decode()
     assert "✅</div><div class=\"t\"><strong>1. Clés Twitch" in body
+
+
+def test_reconnect_tiktok_shows_paste_field(server, tmp_path):
+    base, state = server
+    _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s"
+                          b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
+    (tmp_path / "tiktok_token.json").write_text("{}")  # déjà connecté
+    body = urllib.request.urlopen(base + "/accounts").read().decode()
+    assert "Reconnecter</a>" in body and 'action="/connect/tiktok-code"' in body

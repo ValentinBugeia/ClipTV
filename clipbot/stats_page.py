@@ -182,7 +182,8 @@ def render(summary: dict, *, days: int, sort: str, tz: str) -> str:
             "</li></ol><form method='post' action='/stats/enable' class='row'>"
             "<button>Activer les statistiques</button></form></div>")
     if summary["error"]:
-        parts.append(f'<div class="flash err">⚠️ {e(summary["error"])}</div>')
+        parts.append(f'<div class="flash err">⚠️ {e(summary["error"])} '
+                     '<a href="/accounts">Aller dans Comptes</a></div>')
 
     t, acc = summary["totals"], summary["account"]
     tiles = [kpi("Vues", compact(t["views"]), f'{t["videos"]} vidéo(s) sur la période'),

@@ -49,17 +49,54 @@ SCHEMA = {
 }
 
 
-def format_caption(hook: str, hashtags: list[str], channel: str) -> str:
-    tags = []
-    for t in hashtags:
-        t = "#" + t.lstrip("#").replace(" ", "")
-        if t.lower() not in (x.lower() for x in tags):
-            tags.append(t)
+MAX_HASHTAGS = 8
+# toujours utiles pour un compte de clips Twitch francophone : niche FR + découverte
+DEFAULT_TAGS = ["twitchfr", "twitch", "streamerfr", "clip", "pourtoi", "fyp"]
+
+
+def clean_tag(text: str) -> str:
+    """« Just Chatting » → « justchatting », « Pokémon » → « pokemon » (format hashtag)."""
+    import re
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", text or "")
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9_]", "", text.lower())
+
+
+def base_hashtags(channel: str, category: str = "") -> list[str]:
+    """Hashtags cohérents pour un clip : streamer, jeu/catégorie, puis niche et découverte."""
+    from .twitch import is_non_gaming
+
+    tags = [channel]
+    if category:
+        tags.append(category)
+        tags += ["irl"] if is_non_gaming(category) else ["gaming"]
+    return tags + DEFAULT_TAGS
+
+
+def merge_hashtags(*groups: list[str], limit: int = MAX_HASHTAGS) -> list[str]:
+    out: list[str] = []
+    for group in groups:
+        for t in group:
+            t = clean_tag(t.lstrip("#"))
+            if t and t not in out:
+                out.append(t)
+    return ["#" + t for t in out[:limit]]
+
+
+def format_caption(hook: str, hashtags: list[str], channel: str, category: str = "") -> str:
+    """Accroche, crédit du streamer, puis jusqu'à 8 hashtags : ceux choisis pour le contenu
+    d'abord, complétés par le streamer, le jeu et les hashtags de niche."""
+    base = base_hashtags(channel, category)
+    # Claude en donne 4 à 6 : on garde la place du streamer et du jeu dans les 8
+    tags = merge_hashtags(hashtags[:6], [channel, category], base)
     credit = f"🎮 twitch.tv/{channel.lower()}"
     return f"{hook.strip()}\n{credit}\n{' '.join(tags)}"[:2200]
 
 
-def generate_caption(*, title: str, channel: str, transcript: str, model: str) -> str | None:
+def generate_caption(*, title: str, channel: str, transcript: str, model: str,
+                     category: str = "") -> str | None:
     try:
         import anthropic
     except ImportError:
@@ -69,7 +106,8 @@ def generate_caption(*, title: str, channel: str, transcript: str, model: str) -
     global last_error
     client = anthropic.Anthropic()
     prompt = (
-        f"Streamer : {channel}\nTitre du clip : {title}\n\n"
+        f"Streamer : {channel}\nTitre du clip : {title}\n"
+        f"Catégorie Twitch : {category or 'inconnue'}\n\n"
         f"Transcription :\n{transcript or '(pas de parole détectée)'}"
     )
     request = dict(model=model, max_tokens=2000, system=SYSTEM,
@@ -107,4 +145,4 @@ def generate_caption(*, title: str, channel: str, transcript: str, model: str) -
         return None
     text = next((b.text for b in response.content if b.type == "text"), "")
     data = json.loads(text)
-    return format_caption(data["hook"], data["hashtags"], channel)
+    return format_caption(data["hook"], data["hashtags"], channel, category)

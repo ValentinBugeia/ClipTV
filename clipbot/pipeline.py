@@ -28,7 +28,7 @@ class Options:
     fonts_dir: Path | None = None
     highlight: str = "#FFE600"
     max_duration: float = 60.0
-    caption_template: str = "{title} 🎮 @{channel_tag} sur Twitch #twitch #clip #fyp"
+    caption_template: str = "{title}\n🎮 twitch.tv/{channel_tag}"
     ai_caption: bool = False
     publish: bool = False           # publie tout de suite après le rendu
     schedule: bool = False          # programme sur le prochain créneau libre
@@ -43,12 +43,20 @@ class Options:
 
 
 def template_caption(template: str, clip) -> str:
-    return template.format(
+    """Légende sans IA. Le modèle par défaut est complété par les hashtags du clip
+    (streamer, jeu, niche) ; un modèle personnalisé avec ses propres # est laissé tel quel."""
+    text = template.format(
         title=clip.title,
         channel=clip.broadcaster_name,
         channel_tag=clip.broadcaster_name.lower().replace(" ", ""),
         clipper=clip.creator_name,
     )
+    if "#" in template:
+        return text
+    from .captions import base_hashtags, merge_hashtags
+
+    tags = merge_hashtags(base_hashtags(clip.broadcaster_name, getattr(clip, "category", "")))
+    return f"{text}\n{' '.join(tags)}"
 
 
 def whisper_language(code: str | None) -> str | None:
@@ -174,6 +182,7 @@ def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
             channel=clip.broadcaster_name,
             transcript=" ".join(w.text for w in words),
             model=cfg.llm_model,
+            category=getattr(clip, "category", ""),
         )
         if caption:
             return caption

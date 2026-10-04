@@ -23,7 +23,26 @@ def test_format_caption_dedup_and_credit():
     lines = cap.splitlines()
     assert lines[0] == "Il ne s'y attendait pas 😭"
     assert lines[1] == "🎮 twitch.tv/kamet0"
-    assert lines[2] == "#fyp #justchatting #kameto"
+    # tags du contenu d'abord, puis streamer, et complété jusqu'à 8 hashtags cohérents
+    assert lines[2] == "#fyp #justchatting #kameto #kamet0 #twitchfr #twitch #streamerfr #clip"
+
+
+def test_template_caption_hashtags():
+    from datetime import datetime, timezone
+
+    from clipbot.pipeline import Options, template_caption
+    from clipbot.twitch import Clip
+
+    clip = Clip(id="c", url="u", title="Billy se fait daronned", broadcaster_name="Nico_La",
+                creator_name="x", view_count=1, created_at=datetime.now(timezone.utc),
+                duration=30, category="Just Chatting")
+    lines = template_caption(Options().caption_template, clip).splitlines()
+    assert lines == ["Billy se fait daronned", "🎮 twitch.tv/nico_la",
+                     "#nico_la #justchatting #irl #twitchfr #twitch #streamerfr #clip #pourtoi"]
+    game = Clip(**{**clip.__dict__, "category": "Pokémon Légendes"})
+    assert "#pokemonlegendes #gaming" in template_caption(Options().caption_template, game)
+    # modèle personnalisé avec ses propres hashtags : laissé tel quel
+    assert template_caption("{title} #perso", clip) == "Billy se fait daronned #perso"
 
 
 def test_detect_face_never_raises(monkeypatch, tmp_path):

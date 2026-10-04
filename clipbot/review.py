@@ -142,7 +142,87 @@ setInterval(async () => {{
   }} catch (e) {{}}
 }}, 5000);
 </script>
+{progress_ui}
 </body></html>"""
+
+PROGRESS_UI = """<style>
+  #progress { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:20;
+              width:min(480px, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto;
+              background:#18181b; border:1px solid #3a3a3d; border-radius:16px; padding:18px;
+              box-shadow:0 20px 60px rgba(0,0,0,.6); display:none }
+  #progress h3 { margin:0 0 2px; font-size:18px }
+  #progress .pclip { color:#adadb8; font-size:13px; margin-bottom:12px; overflow-wrap:anywhere }
+  #progress ol { list-style:none; margin:0; padding:0 }
+  #progress li { display:flex; gap:10px; padding:7px 0; color:#6b6b73; align-items:flex-start }
+  #progress li.st-done { color:#adadb8 }
+  #progress li.st-now { color:#efeff1; font-weight:600; background:#26262b; border-radius:8px;
+                        margin:2px -8px; padding:8px }
+  #progress .ico { width:20px; flex:none; text-align:center }
+  #progress .help { font-weight:400; color:#adadb8; font-size:13px; margin-top:2px }
+  #progress .spin { display:inline-block; width:14px; height:14px; border:2px solid #9147ff;
+                    border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite }
+  @keyframes spin { to { transform:rotate(360deg) } }
+  @media (prefers-reduced-motion: reduce) { #progress .spin { animation:none } }
+  #progress .pfoot { display:flex; justify-content:space-between; align-items:center; margin-top:12px;
+                     color:#adadb8; font-size:13px; gap:8px }
+  #progress .pfoot button { flex:0 0 auto; min-height:34px; padding:4px 12px; background:#3a3a3d }
+  #progress .pdone { padding:10px 12px; border-radius:8px; background:#1f3a1f; margin-top:8px }
+</style>
+<div id="progress" role="status" aria-live="polite"></div>
+<script>
+// panneau de progression : étapes de la recherche en cours (textContent : données non fiables)
+(function () {
+  const box = document.getElementById('progress');
+  const key = 'cliptv-progress-hidden';
+  let hidden = null;
+  try { hidden = sessionStorage.getItem(key); } catch (e) {}
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  function fmt(s) { return Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s'; }
+  function render(p, steps) {
+    const recent = !p.active && p.ended && (Date.now() / 1000 - p.ended) < 12;
+    if (!(p.active || recent) || String(p.run) === hidden) { box.style.display = 'none'; return; }
+    box.replaceChildren();
+    box.append(el('h3', '', p.active ? '🔎 ' + (p.title || 'Recherche en cours') : '✅ Terminé'));
+    if (p.active) box.append(el('div', 'pclip', p.clip || 'Préparation…'));
+    const ol = el('ol');
+    const current = steps.findIndex(s => s[0] === p.step);
+    steps.forEach((s, i) => {
+      const state = !p.active || i < current ? 'st-done' : i === current ? 'st-now' : '';
+      const li = el('li', state);
+      const ico = el('span', 'ico');
+      if (state === 'st-now') ico.append(el('span', 'spin')); else ico.textContent = state ? '✓' : '○';
+      const txt = el('div', '', s[1]);
+      if (state === 'st-now') txt.append(el('div', 'help', p.detail ? p.detail + ' — ' + s[2] : s[2]));
+      li.append(ico, txt); ol.append(li);
+    });
+    box.append(ol);
+    if (!p.active && p.message) box.append(el('div', 'pdone', p.message));
+    const foot = el('div', 'pfoot');
+    foot.append(el('span', '', (p.active ? 'En cours depuis ' : 'Durée : ') + fmt(p.elapsed || 0)));
+    const btn = el('button', '', p.active ? 'Masquer' : 'Fermer');
+    btn.type = 'button';
+    btn.onclick = () => { hidden = String(p.run); try { sessionStorage.setItem(key, hidden); } catch (e) {}
+                          box.style.display = 'none'; };
+    foot.append(btn); box.append(foot);
+    box.style.display = 'block';
+  }
+  async function poll() {
+    let delay = 5000;
+    try {
+      const s = await (await fetch('/status', {credentials: 'same-origin'})).json();
+      if (s.progress) { render(s.progress, s.steps || []); if (s.progress.active) delay = 1500; }
+    } catch (e) {}
+    setTimeout(poll, delay);
+  }
+  poll();
+})();
+</script>"""
+
 
 FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 <rect width="100" height="100" rx="22" fill="#9147ff"/><path d="M38 28 L74 50 L38 72 Z" fill="#fff"/></svg>"""
@@ -297,12 +377,25 @@ class SearchJob:
 
 def run_search(job: SearchJob, cfg: Config, state: State, opts: Options, channels: list[str],
                hours: float, top: int) -> str:
-    from .pipeline import run_channels
+    from . import progress
     from .twitch import TwitchClient
 
     cfg.require("twitch_client_id", "twitch_client_secret")
     cfg.ensure_dirs()
     twitch = TwitchClient(cfg.twitch_client_id, cfg.twitch_client_secret)
+    progress.begin("Recherche ponctuelle")
+    try:
+        message = _run_search(job, cfg, state, opts, channels, hours, top, twitch)
+    except BaseException as exc:
+        progress.end(f"Échec : {exc}")
+        raise
+    progress.end(message)
+    return message
+
+
+def _run_search(job, cfg, state, opts, channels, hours, top, twitch) -> str:
+    from .pipeline import run_channels
+
     started = time.time()
     results: list[tuple[str, bool]] = []
     if not channels:  # découverte automatique des temps forts
@@ -481,7 +574,7 @@ class Handler(BaseHTTPRequestHandler):
                       for p, label in SECTIONS)
         status, active = self._status()
         page = PAGE.format(
-            version=e(self.state.version()), autoreload="true" if section == "/" else "false",
+            progress_ui=PROGRESS_UI, version=e(self.state.version()), autoreload="true" if section == "/" else "false",
             nav=nav, flash=flash, body=body, status=e(status),
             status_cls=" on" if active else "", wrap_cls=" narrow" if narrow else "",
             refresh=f'\n<meta http-equiv="refresh" content="{refresh}">' if refresh else "")
@@ -511,8 +604,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _status_json(self):
         message, active = self._status()
+        from . import progress
+
         self._send(200, json.dumps({"running": self.app.job.running, "active": active,
-                                    "message": message, "version": self.state.version()},
+                                    "message": message, "version": self.state.version(),
+                                    "progress": progress.snapshot(), "steps": progress.STEPS},
                                    ensure_ascii=False),
                    "application/json; charset=utf-8")
 

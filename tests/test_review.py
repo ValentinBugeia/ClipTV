@@ -378,3 +378,22 @@ def test_stats_page(server):
     assert "Activer les statistiques TikTok" in body and "Activité de cliptv" in body
     _post(base + "/stats/enable", b"")
     assert state.get_settings()["tiktok_stats"] is True
+
+
+def test_progress_in_status(server):
+    import json
+
+    from clipbot import progress
+
+    base, _ = server
+    progress.begin("Recherche ponctuelle")
+    progress.clip(1, 2, "Clip test")
+    progress.step("transcribe")
+    s = json.loads(urllib.request.urlopen(base + "/status").read())
+    assert s["progress"]["active"] and s["progress"]["step"] == "transcribe"
+    assert s["progress"]["clip"] == "Clip 1/2 : Clip test"
+    assert [k for k, _, _ in s["steps"]][:2] == ["search", "download"]
+    progress.end("Terminé")
+    s = json.loads(urllib.request.urlopen(base + "/status").read())
+    assert not s["progress"]["active"] and s["progress"]["message"] == "Terminé"
+    assert 'id="progress"' in urllib.request.urlopen(base + "/").read().decode()

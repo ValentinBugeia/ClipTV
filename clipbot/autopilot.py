@@ -161,7 +161,10 @@ class Autopilot:
         if not (self.cfg.twitch_client_id and self.cfg.twitch_client_secret):
             self.message = "Clés Twitch manquantes (TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET)"
             return
+        from . import progress
+
         self.searching = True
+        progress.begin("Pilote automatique")
         try:
             twitch = TwitchClient(self.cfg.twitch_client_id, self.cfg.twitch_client_secret)
             opts = self._options(settings)
@@ -196,6 +199,7 @@ class Autopilot:
                 self.message += " · ⚠️ échec sur " + ", ".join(errors[:3])
         finally:
             self.searching = False
+            progress.end(self.message)
 
     def _pending(self, settings: dict) -> int:
         """Clips en attente : programmés, ou prêts à publier à la main."""

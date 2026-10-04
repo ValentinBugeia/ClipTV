@@ -90,10 +90,16 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
 def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tuple[str, bool]]:
     from .pipeline import process_clip
 
+    from . import progress
+
     results = []
+    progress.step("search", f"Lives les plus regardés ({kwargs.get('language') or 'toutes langues'})")
     found = discover(twitch, state, max_duration=opts.max_duration, **kwargs)
+    if not found:
+        progress.step("search", "Aucun nouveau clip assez viral pour le moment")
     twitch.annotate_categories([clip for clip, _ in found])
-    for clip, login in found:
+    for i, (clip, login) in enumerate(found, 1):
+        progress.clip(i, len(found), f"{login} · {clip.title}")
         log.info("→ %s · %s (%d vues, %.0f vues/h) %s", login, clip.title, clip.view_count,
                  clip.virality(), clip.url)
         try:

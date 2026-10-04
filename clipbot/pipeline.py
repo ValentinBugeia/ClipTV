@@ -8,6 +8,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import progress
 from .config import Config
 from .state import State
 
@@ -61,6 +62,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         from .facecam import (CAMERA_MIN_HEIGHT, cam_crop_box, cam_zone_height, choose_layout,
                               detect_face, smooth_track)
 
+        progress.step("face")
         face = detect_face(src)
         if layout == "auto":
             layout = choose_layout(face, allow_split=allow_split)
@@ -77,6 +79,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
     words, subs = [], None
     if opts.subtitles:
         log.info("Transcription de %s (whisper %s)…", src.name, cfg.whisper_model)
+        progress.step("transcribe")
         words = transcribe(src, model_size=cfg.whisper_model, device=cfg.whisper_device,
                            language=opts.language)
         if words:
@@ -87,6 +90,8 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         else:
             log.info("Aucune parole détectée, pas de sous-titres.")
     log.info("Rendu vertical (%s) → %s", layout, dst)
+    progress.step("render", {"split": "facecam en haut, jeu en bas", "crop": "zoom plein écran",
+                             "blur": "fond flouté"}.get(layout, layout))
     render_vertical(src, dst, layout=layout, subtitles=subs, max_duration=opts.max_duration,
                     fonts_dir=opts.fonts_dir, cam_box=cam_box, crop_center=crop_center,
                     crop_track=crop_track, cam_height=cam_height)
@@ -185,6 +190,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options) -
     category = getattr(clip, "category", "")
     meta = dict(title=clip.title, url=clip.url, view_count=clip.view_count, category=category)
     try:
+        progress.step("download", f"{channel} · {clip.title}")
         src = download_clip(clip.url, cfg.downloads_dir, clip.id)
         dst = cfg.output_dir / f"{channel}_{clip.id}.mp4"
         if category:
@@ -192,6 +198,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options) -
         with _render_lock:
             _, words = render_video(src, dst, cfg, opts,
                                     allow_split=not is_non_gaming(category))
+        progress.step("caption")
         caption = make_caption(clip, words, cfg, opts)
         state.record(clip.id, channel, "rendered", output_path=str(dst), caption=caption, **meta)
     except Exception as exc:  # on continue avec les autres clips
@@ -217,6 +224,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
     results = []
     for channel in channels:
         log.info("== %s ==", channel)
+        progress.step("search", f"Clips de {channel}")
         broadcaster_id = twitch.get_broadcaster_id(channel)
         clips = twitch.get_clips(broadcaster_id, since_hours=hours)
         ranked = [c for c in rank_clips(clips, min_views=min_views,
@@ -224,7 +232,8 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
                   if not state.is_done(c.id)]
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         twitch.annotate_categories(ranked[:top])
-        for clip in ranked[:top]:
+        for i, clip in enumerate(ranked[:top], 1):
+            progress.clip(i, min(top, len(ranked)), clip.title)
             log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
                      clip.virality(), clip.url)
             try:

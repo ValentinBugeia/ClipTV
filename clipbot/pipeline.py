@@ -154,6 +154,15 @@ PLATFORM_LABELS = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Insta
 
 def publish_to(platform: str, path: Path, caption: str, cfg: Config, opts: Options) -> str:
     """Publie une vidéo sur une plateforme. Retourne l'identifiant du post."""
+    if platform == "tiktok" and opts.mode == "uploadpost":
+        import os
+
+        from .uploadpost import UploadPostClient
+
+        user = os.environ.get("UPLOADPOST_USER")
+        if not user:
+            raise SystemExit("Configuration manquante : UPLOADPOST_USER")
+        return UploadPostClient.from_env().upload_tiktok(path, caption=caption, user=user)
     if platform == "tiktok":
         from .tiktok import TikTokClient
 
@@ -196,10 +205,11 @@ def tiktok_mode(state: State, opts: Options) -> str:
 
     - ``draft`` : brouillon dans l'app TikTok du téléphone ;
     - ``direct`` : publiée en privé sur le profil (tant que l'app n'est pas validée),
-      visible et modifiable depuis tiktok.com sur PC.
+      visible et modifiable depuis tiktok.com sur PC ;
+    - ``uploadpost`` : publiée en public via Upload-Post (service validé par TikTok).
     """
     mode = state.get_settings().get(TIKTOK_MODE)
-    return mode if mode in ("draft", "direct") else opts.mode
+    return mode if mode in ("draft", "direct", "uploadpost") else opts.mode
 
 
 def publish_clip(clip_id: str, cfg: Config, state: State, opts: Options) -> list[str]:

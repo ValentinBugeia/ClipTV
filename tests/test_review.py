@@ -468,3 +468,14 @@ def test_tiktok_mode_private_profile(server, monkeypatch):
                         lambda platform, path, caption, cfg, opts: seen.setdefault("mode", opts.mode))
     pipeline.publish_clip("abc", pipeline.Config(), state, pipeline.Options(platforms=["tiktok"]))
     assert seen["mode"] == "direct"
+
+
+def test_tiktok_mode_uploadpost(server, monkeypatch):
+    monkeypatch.delenv("UPLOADPOST_API_KEY", raising=False)
+    base, state = server
+    body = _post(base + "/tiktok/mode", b"mode=uploadpost").read().decode()
+    assert '<option value="uploadpost" selected>' in body and "Upload-Post" in body
+    body = _post(base + "/keys", b"UPLOADPOST_API_KEY=k&UPLOADPOST_USER=cetaitenlive").read().decode()
+    assert "Publication <strong>en public</strong> via Upload-Post" in body
+    help_body = urllib.request.urlopen(base + "/help").read().decode()
+    assert 'id="uploadpost"' in help_body and "TikTok en public via Upload-Post" in help_body

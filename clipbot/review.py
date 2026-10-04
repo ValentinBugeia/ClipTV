@@ -688,12 +688,15 @@ class Handler(BaseHTTPRequestHandler):
         from .pipeline import TIKTOK_MODE
 
         mode = form.get("mode")
-        if mode not in ("draft", "direct"):
+        if mode not in ("draft", "direct", "uploadpost"):
             return self._redirect("Choix inconnu.", err=True, to="/accounts")
         if mode == self._tiktok_mode():
             return self._redirect("Aucun changement.", to="/accounts")
         self.state.save_settings({TIKTOK_MODE: mode})
-        if mode == "direct":
+        if mode == "uploadpost":
+            msg = ("Les vidéos seront publiées en public via Upload-Post. Renseigne la clé API "
+                   "et le nom du profil Upload-Post dans « Clés API », puis « Tout vérifier ».")
+        elif mode == "direct":
             msg = ("Les vidéos seront publiées en privé sur ton profil. Sur developers.tiktok.com, "
                    "active « Direct Post » dans Content Posting API et ajoute le scope "
                    "video.publish, puis reconnecte TikTok (bouton « Reconnecter »).")
@@ -746,6 +749,10 @@ class Handler(BaseHTTPRequestHandler):
                 actions += ('<div class="meta">📥 Envoyé dans ta <strong>boîte de réception '
                             'TikTok</strong> : ouvre l\'app TikTok → notifications pour le '
                             'publier sur ton profil.</div>')
+            elif status == "published" and tiktok.get("status") == "ok" \
+                    and self._tiktok_mode() == "uploadpost":
+                actions += ('<div class="meta">🌍 Publié <strong>en public</strong> sur ton '
+                            'TikTok via Upload-Post.</div>')
             elif status == "published" and tiktok.get("status") == "ok":
                 actions += ('<div class="meta">🔒 Publié <strong>en privé</strong> sur ton profil : '
                             'sur tiktok.com (PC) ou dans l\'app, ouvre la vidéo → ⋯ → '
@@ -783,6 +790,9 @@ class Handler(BaseHTTPRequestHandler):
             "claude": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "autopilot": bool(settings.get("enabled")),
         }
+        if self._tiktok_mode() == "uploadpost":
+            status["uploadpost"] = bool(os.environ.get("UPLOADPOST_API_KEY")
+                                        and os.environ.get("UPLOADPOST_USER"))
         from .captions import last_error
         if status["claude"] and last_error:  # clé présente mais Claude refuse
             status["claude"], status["claude_error"] = False, last_error
@@ -974,20 +984,34 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     detail += ("<br>Pour reconnecter : clique sur « Reconnecter », accepte sur "
                                "TikTok, puis copie l'adresse complète de la page de retour "
                                "(example.com…) et colle-la ici :" + paste)
-                if keys:
-                    mode = self._tiktok_mode()
-                    choices = "".join(
-                        f'<option value="{v}"{" selected" if v == mode else ""}>{lab}</option>'
-                        for v, lab in (("draft", "📥 en brouillon dans l'app TikTok du téléphone"),
-                                       ("direct", "🔒 en privé sur ton profil (visible sur PC)")))
+                mode = self._tiktok_mode()
+                if mode == "uploadpost":
+                    up_ok = bool(os.environ.get("UPLOADPOST_API_KEY")
+                                 and os.environ.get("UPLOADPOST_USER"))
+                    ok = up_ok
+                    detail = ("🌍 Publication <strong>en public</strong> via Upload-Post "
+                              f"(profil « {e(os.environ.get('UPLOADPOST_USER', ''))} »). "
+                              "Clique « Tout vérifier » pour tester la connexion."
+                              if up_ok else
+                              "Renseigne la clé API et le nom du profil Upload-Post dans "
+                              "« Clés API » ci-dessous (voir l'onglet <a href=\"/help#uploadpost\">"
+                              "Aide</a>).")
+                    action = ""
+                elif keys:
                     detail += ("<br>⚠️ Tant que TikTok n'a pas validé ton app, les vidéos "
-                               "n'arrivent que si ton compte TikTok est <strong>privé</strong>.")
-                    detail += ('<form method="post" action="/tiktok/mode" class="row" '
-                               'style="margin-top:8px">Les vidéos arrivent '
-                               f'<select name="mode">{choices}</select>'
-                               '<button class="small">OK</button></form>')
+                               "n'arrivent que si ton compte TikTok est <strong>privé</strong> "
+                               "→ pour un compte public, choisis « via Upload-Post ».")
+                choices = "".join(
+                    f'<option value="{v}"{" selected" if v == mode else ""}>{lab}</option>'
+                    for v, lab in (("uploadpost", "🌍 en public, via Upload-Post"),
+                                   ("draft", "📥 en brouillon dans l'app TikTok du téléphone"),
+                                   ("direct", "🔒 en privé sur ton profil (visible sur PC)")))
+                detail += ('<form method="post" action="/tiktok/mode" class="row" '
+                           'style="margin-top:8px">Les vidéos arrivent '
+                           f'<select name="mode">{choices}</select>'
+                           '<button class="small">OK</button></form>')
                 stats_on = bool(self._settings().get("tiktok_stats"))
-                if manual and not ok and not stats_on:  # pas de connexion nécessaire
+                if manual and not ok and not stats_on and mode != "uploadpost":
                     detail = ("Pas nécessaire en mode « je publie moi-même » : télécharge "
                               "chaque clip depuis l'onglet Clips. (La publication "
                               "automatique demande le produit Content Posting API avec le "

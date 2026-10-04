@@ -19,6 +19,8 @@ LABELS = {
     "YOUTUBE_CLIENT_ID": "le Client ID YouTube",
     "YOUTUBE_CLIENT_SECRET": "le Client secret YouTube",
     "ANTHROPIC_API_KEY": "la clé Claude",
+    "UPLOADPOST_API_KEY": "la clé API Upload-Post",
+    "UPLOADPOST_USER": "le nom du profil Upload-Post",
 }
 
 KEYS = "Comptes → Clés API"
@@ -35,6 +37,21 @@ RULES: list[tuple[str, str]] = [
     (r"Pas de token YouTube", "YouTube n'est pas connecté → page Comptes → Connecter YouTube."),
     (r"Pas de token Instagram|INSTAGRAM_USER_ID",
      "Instagram n'est pas connecté → page Comptes → colle ton token Instagram."),
+    # --- Upload-Post (TikTok en public) ---
+    (r"Upload-Post \((?:401|403)\)",
+     f"Upload-Post refuse ta clé API → recopie-la depuis upload-post.com (API Keys) dans {KEYS}."),
+    (r"profil « (.+?) » introuvable sur Upload-Post",
+     "Le profil « {0} » n'existe pas sur Upload-Post → recopie le nom exact du profil "
+     f"(upload-post.com → Profiles) dans {KEYS}."),
+    (r"aucun compte TikTok relié au profil",
+     "Aucun TikTok n'est relié à ton profil Upload-Post → upload-post.com → Profiles → "
+     "connecte TikTok."),
+    (r"tiktok_privacy_unavailable",
+     "TikTok refuse la publication en public : ton compte TikTok est privé → passe-le en "
+     "public (app TikTok → Profil → ☰ → Confidentialité → décoche Compte privé)."),
+    (r"Upload-Post \((?:402|429)\)|Upload-Post.*(?:limit|quota)",
+     "Limite de ton forfait Upload-Post atteinte → attends le mois prochain ou change de "
+     "forfait sur upload-post.com."),
     # --- TikTok ---
     (r"invalid_grant|Authorization code is expired",
      "Le code de connexion TikTok a expiré ou a déjà servi → reclique sur « Connecter », "

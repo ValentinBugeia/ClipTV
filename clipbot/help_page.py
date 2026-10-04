@@ -48,10 +48,13 @@ def render(status: dict) -> str:
     checklist = "".join([
         _check(s["twitch"], "1. Clés Twitch",
                "Pour trouver les clips. Obligatoire.", "#twitch", "Comment faire"),
-        _check(s["tiktok_keys"], "2. Clés TikTok",
-               "Pour envoyer les vidéos sur ton compte.", "#tiktok", "Comment faire"),
-        _check(s["tiktok_connected"], "3. Compte TikTok connecté",
-               "Page Comptes → Connecter.", "/accounts", "Aller dans Comptes"),
+        *([_check(s["uploadpost"], "2-3. TikTok en public via Upload-Post",
+                  "Clé API et nom du profil Upload-Post, avec ton TikTok relié.",
+                  "#uploadpost", "Comment faire")] if "uploadpost" in s else [
+            _check(s["tiktok_keys"], "2. Clés TikTok",
+                   "Pour envoyer les vidéos sur ton compte.", "#tiktok", "Comment faire"),
+            _check(s["tiktok_connected"], "3. Compte TikTok connecté",
+                   "Page Comptes → Connecter.", "/accounts", "Aller dans Comptes")]),
         _check(s["claude"], "4. Clé Claude (facultatif)",
                html.escape(s["claude_error"]) if s.get("claude_error") else
                "Pour des légendes et hashtags écrits par l'IA. Sans elle : légende standard.",
@@ -63,7 +66,7 @@ def render(status: dict) -> str:
     return f"""{STYLE}<div class="help">
 <nav class="toc" aria-label="Sommaire">
   <a href="#config">Ta configuration</a><a href="#fonctionnement">Comment ça marche</a>
-  <a href="#twitch">Clés Twitch</a><a href="#tiktok">Clés TikTok</a><a href="#claude">Clé Claude</a>
+  <a href="#twitch">Clés Twitch</a><a href="#uploadpost">TikTok en public</a><a href="#tiktok">Clés TikTok</a><a href="#claude">Clé Claude</a>
   <a href="#utiliser">Utiliser l'app</a><a href="#problemes">Problèmes fréquents</a>
 </nav>
 
@@ -104,7 +107,26 @@ ouverte et le PC allumé pendant que l'app travaille.</p></div>
   → <strong>Enregistrer les clés</strong>.</li>
 </ol></div>
 
-<div class="panel" id="tiktok"><h2>Créer les clés TikTok (15 min, gratuit)</h2>
+<div class="panel" id="uploadpost"><h2>Publier en public sur TikTok (Upload-Post)</h2>
+<p class="info">Tant que TikTok n'a pas validé ta propre app, il ne livre les vidéos qu'aux comptes
+privés. <strong>Upload-Post</strong> est un service déjà validé par TikTok : cliptv lui envoie
+chaque clip et il le publie <strong>en public</strong> sur ton compte. Service payant au-delà
+d'un certain volume : regarde leurs tarifs.</p>
+<ol>
+  <li>Crée un compte sur <a href="https://www.upload-post.com" target="_blank" rel="noopener">upload-post.com</a>.</li>
+  <li><strong>Profiles</strong> → crée un profil (par exemple <code>cetaitenlive</code>) →
+  <strong>Connect TikTok</strong> et connecte ton compte TikTok (il doit être <strong>public</strong>).</li>
+  <li><strong>API Keys</strong> → crée une clé et copie-la.</li>
+  <li>Dans cliptv : <a href="/accounts">Comptes</a> → <strong>Clés API</strong> → colle la clé
+  dans « Upload-Post — clé API » et le nom exact du profil dans « Upload-Post — nom du profil »
+  → <strong>Enregistrer les clés</strong>.</li>
+  <li>Toujours dans Comptes, ligne TikTok : « Les vidéos arrivent » →
+  <strong>🌍 en public, via Upload-Post</strong> → OK, puis <strong>Tout vérifier</strong>.</li>
+</ol>
+<div class="note">Les clés TikTok ci-dessous restent utiles pour l'onglet Statistiques, mais ne
+servent plus à publier.</div></div>
+
+<div class="panel" id="tiktok"><h2>Créer les clés TikTok (15 min, gratuit, facultatif avec Upload-Post)</h2>
 <ol>
   <li>Ouvre <a href="https://developers.tiktok.com/apps" target="_blank" rel="noopener">developers.tiktok.com</a>
   et connecte-toi avec le compte TikTok sur lequel tu veux publier.</li>

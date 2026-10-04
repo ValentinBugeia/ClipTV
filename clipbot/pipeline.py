@@ -119,10 +119,10 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
     subs = None
     if opts.subtitles:
         if words:
-            # au-dessus de la zone basse de TikTok (description, hashtags, son) :
-            # le bas des sous-titres reste à ~62 % de la hauteur
+            # en split, la jonction facecam/jeu est vers 40 % de la hauteur : on descend un peu
             subs = write_ass(words, dst.with_suffix(".ass"), font=opts.font,
-                             highlight=opts.highlight, margin_v=SUBTITLE_MARGIN_V)
+                             highlight=opts.highlight,
+                             margin_v=420 if layout == "split" else 560)
         else:
             log.info("Aucune parole détectée, pas de sous-titres.")
     log.info("Rendu vertical (%s) → %s", layout, dst)
@@ -150,9 +150,6 @@ def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
 
 
 PLATFORMS = ("tiktok", "youtube", "instagram")
-# marge basse des sous-titres (sur 1920 px) : l'interface TikTok (description de la vidéo,
-# hashtags, nom du son) recouvre environ le tiers inférieur de l'écran
-SUBTITLE_MARGIN_V = 720
 PLATFORM_LABELS = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram"}
 
 

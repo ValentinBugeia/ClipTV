@@ -265,7 +265,7 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 <rect width="100" height="100" rx="22" fill="#9147ff"/><path d="M38 28 L74 50 L38 72 Z" fill="#fff"/></svg>"""
 
 SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/stats", "Statistiques"),
-            ("/accounts", "Comptes")]
+            ("/accounts", "Comptes"), ("/help", "Aide")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),
         ("published", "Publiés"), ("rejected", "Rejetés"), ("failed", "Erreurs")]
 CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo")
@@ -634,6 +634,7 @@ class Handler(BaseHTTPRequestHandler):
             "/auto": self._auto_page,
             "/accounts": self._accounts_page,
             "/stats": self._stats_page,
+            "/help": self._help_page,
             "/status": self._status_json,
             "/favicon.svg": lambda: self._send(200, FAVICON, "image/svg+xml"),
             "/connect/tiktok": self._tiktok_redirect,
@@ -741,6 +742,21 @@ class Handler(BaseHTTPRequestHandler):
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
+
+    # ---------- page Aide ----------
+    def _help_page(self):
+        from . import help_page
+
+        cfg, settings = self.cfg, self._settings()
+        status = {
+            "twitch": bool(cfg.twitch_client_id and cfg.twitch_client_secret),
+            "tiktok_keys": bool(cfg.tiktok_client_key and cfg.tiktok_client_secret
+                                and cfg.tiktok_redirect_uri),
+            "tiktok_connected": cfg.tiktok_token_path.exists(),
+            "claude": bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "autopilot": bool(settings.get("enabled")),
+        }
+        self._page(help_page.render(status), "/help", narrow=True)
 
     # ---------- page Statistiques ----------
     def _stats_page(self):

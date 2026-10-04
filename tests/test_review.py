@@ -433,3 +433,14 @@ def test_apply_recommended_slots(server):
     assert "Affluence TikTok par heure" in body
     _post(base + "/auto/slots", b"slots=12%3A00%2C+18%3A00%2C+21%3A00")
     assert state.get_settings()["post_slots"] == ["12:00", "18:00", "21:00"]
+
+
+def test_help_page(server):
+    base, state = server
+    body = urllib.request.urlopen(base + "/help").read().decode()
+    assert "Ta configuration" in body and "dev.twitch.tv/console/apps" in body
+    assert "developers.tiktok.com" in body and "Problèmes fréquents" in body
+    assert body.count("⬜") >= 3   # rien n'est configuré dans le serveur de test
+    _post(base + "/keys", b"TWITCH_CLIENT_ID=a&TWITCH_CLIENT_SECRET=b")
+    body = urllib.request.urlopen(base + "/help").read().decode()
+    assert "✅</div><div class=\"t\"><strong>1. Clés Twitch" in body

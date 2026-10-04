@@ -425,3 +425,11 @@ def test_stop_search(server, monkeypatch):
             break
         time.sleep(0.05)
     assert progress.snapshot()["message"] == "Recherche arrêtée"
+
+
+def test_apply_recommended_slots(server):
+    base, state = server
+    body = urllib.request.urlopen(base + "/auto").read().decode()
+    assert "Affluence TikTok par heure" in body
+    _post(base + "/auto/slots", b"slots=12%3A00%2C+18%3A00%2C+21%3A00")
+    assert state.get_settings()["post_slots"] == ["12:00", "18:00", "21:00"]

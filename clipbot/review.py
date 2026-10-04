@@ -754,6 +754,7 @@ class Handler(BaseHTTPRequestHandler):
         sort = q.get("sort", ["views"])[0]
         since = time.time() - days * 86400 if days else 0
         summary = stats.summary(self.state, since=since, tz=self.cfg.timezone)
+        summary["slots"] = list(self.cfg.post_slots)
         self._page(stats_page.render(summary, days=days, sort=sort, tz=self.cfg.timezone),
                    "/stats")
 
@@ -816,6 +817,10 @@ class Handler(BaseHTTPRequestHandler):
             f'<label class="check"><input type="checkbox" name="platforms" value="{p}"'
             f'{" checked" if p in s["platforms"] else ""}> {PLATFORM_NAMES[p]}</label>'
             for p in PLATFORMS)
+        from .audience import heatmap
+
+        audience = heatmap(s["post_slots"], self.state.videos(0), self.cfg.timezone,
+                           apply_button=True)
         then = _options([("schedule", "Programmer sur les créneaux"),
                          ("publish", "Publier dès que c'est prêt"),
                          ("manual", "Le garder : je publie moi-même")], s["then"])
@@ -828,6 +833,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 (ou annuler un clip) dans l'onglet Clips.</p>
 {status}<div style="margin-top:12px">{toggle}</div></div>
 
+{audience}
 <form method="post" action="/auto" class="panel"><h2>Réglages</h2>
 <div class="grid">
   <label class="full">Où chercher les clips <select name="source">{_options(SOURCES, s.get('source', 'discover'))}</select></label>
@@ -1129,6 +1135,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             "/auto": lambda: self._save_auto(form),
             "/auto/toggle": lambda: self._toggle_auto(one),
             "/auto/run": self._run_auto,
+            "/auto/slots": lambda: self._apply_slots(one),
             "/accounts/check": self._run_checks,
             "/stats/refresh": self._stats_refresh,
             "/stop": self._stop,
@@ -1267,6 +1274,16 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         self.state.save_settings(values)
         self._settings_changed()
         return self._redirect("Réglages enregistrés ✔", to="/auto")
+
+    def _apply_slots(self, form: dict[str, str]):
+        slots = [s for s in re.split(r"[\s,;]+", form.get("slots", "")) if s]
+        try:
+            parse_slots(slots)
+        except SystemExit as exc:
+            return self._redirect(f"Créneaux invalides : {exc}", err=True, to="/auto")
+        self.state.save_settings({"post_slots": slots})
+        self._settings_changed()
+        return self._redirect(f"Créneaux mis à jour : {', '.join(slots)} ✔", to="/auto")
 
     def _toggle_auto(self, form: dict[str, str]):
         enabled = form.get("enabled") == "1"

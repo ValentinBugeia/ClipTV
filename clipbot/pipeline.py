@@ -36,6 +36,10 @@ class Options:
     mode: str = "draft"             # TikTok : draft | direct
     privacy: str = "SELF_ONLY"      # TikTok, publication directe
     tiktok_options: dict = field(default_factory=dict)  # réglages choisis pour ce clip
+    hook_title: bool = True         # titre d'accroche en haut pendant les 3 premières secondes
+    trim_start: bool = True         # coupe le début mou (silence, attente)
+    normalize_audio: bool = True    # volume égalisé (-14 LUFS)
+    skip_burned_subs: bool = True   # pas de sous-titres en double si le stream en a déjà
 
 
 def template_caption(template: str, clip) -> str:
@@ -62,7 +66,8 @@ def whisper_language(code: str | None) -> str | None:
 
 
 def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
-                 allow_split: bool = True, language: str | None = None, on_words=None) -> tuple[Path, list]:
+                 allow_split: bool = True, language: str | None = None, on_words=None,
+                 title: str = "") -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
 
     ``allow_split=False`` (catégories IRL, Just Chatting…) : jamais de découpage
@@ -78,13 +83,17 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
 
     layout, cam_box, crop_center, crop_track = opts.layout, None, None, None
     cam_height = None
-    pool = ThreadPoolExecutor(max_workers=1)
-    face_job = None
+    pool = ThreadPoolExecutor(max_workers=2)
+    face_job = burned_job = None
     if layout in ("auto", "crop"):
         from .facecam import detect_face
 
         progress.step("face")
         face_job = pool.submit(detect_face, src)
+    if opts.subtitles and opts.skip_burned_subs:
+        from .enhance import has_burned_subtitles
+
+        burned_job = pool.submit(has_burned_subtitles, src)
 
     words = []
     try:
@@ -95,6 +104,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
             words = transcribe(src, model_size=cfg.whisper_model, device=cfg.whisper_device,
                                language=opts.language or language)
         face = face_job.result() if face_job else None
+        burned = bool(burned_job.result()) if burned_job else False
     finally:
         pool.shutdown(wait=True)
     if on_words is not None:
@@ -116,21 +126,42 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         log.info("Cadrage : %s%s%s", layout, f" (visage {face.w}x{face.h})" if face else "",
                  " avec suivi du visage" if crop_track and len(crop_track) > 1 else "")
 
+    from .enhance import find_start, hook_text
+    from .subtitles import SAMPLE_RATE, Word, load_audio
+
+    start = 0.0
+    if opts.trim_start:
+        try:
+            start = find_start(load_audio(src), SAMPLE_RATE, words)
+        except Exception:
+            log.warning("Analyse du début impossible : clip gardé en entier", exc_info=True)
+        if start:
+            log.info("Début coupé : %.1f s de mise en route retirées", start)
+    shown = [Word(w.text, w.start - start, w.end - start) for w in words if w.end > start]
+    if burned:
+        log.info("Sous-titres déjà présents dans le stream : pas de sous-titres ajoutés.")
+        shown = []
+    hook = hook_text(title) if opts.hook_title else ""
+
     subs = None
-    if opts.subtitles:
-        if words:
-            # en split, la jonction facecam/jeu est vers 40 % de la hauteur : on descend un peu
-            subs = write_ass(words, dst.with_suffix(".ass"), font=opts.font,
-                             highlight=opts.highlight,
-                             margin_v=420 if layout == "split" else 560)
-        else:
+    if (opts.subtitles and shown) or hook:
+        if opts.subtitles and not shown and not burned:
             log.info("Aucune parole détectée, pas de sous-titres.")
+        # en split, la jonction facecam/jeu est vers 40 % de la hauteur : on descend un peu ;
+        # l'accroche se place en haut de l'image, ou en haut du jeu (sous la facecam)
+        subs = write_ass(shown if opts.subtitles else [], dst.with_suffix(".ass"),
+                         font=opts.font, highlight=opts.highlight,
+                         margin_v=420 if layout == "split" else 560, hook=hook,
+                         hook_margin=((cam_height or 768) + 40) if layout == "split" else 260)
+    elif opts.subtitles:
+        log.info("Aucune parole détectée, pas de sous-titres.")
     log.info("Rendu vertical (%s) → %s", layout, dst)
     progress.step("render", {"split": "facecam en haut, jeu en bas", "crop": "zoom plein écran",
                              "blur": "fond flouté"}.get(layout, layout))
     render_vertical(src, dst, layout=layout, subtitles=subs, max_duration=opts.max_duration,
                     fonts_dir=opts.fonts_dir, cam_box=cam_box, crop_center=crop_center,
-                    crop_track=crop_track, cam_height=cam_height)
+                    crop_track=crop_track, cam_height=cam_height, start=start,
+                    normalize_audio=opts.normalize_audio)
     return dst, words
 
 
@@ -274,6 +305,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
         with _render_lock:
             render_video(src, dst, cfg, opts, allow_split=not is_non_gaming(category),
                          language=whisper_language(getattr(clip, "language", "")),
+                         title=clip.title,
                          on_words=write_caption)
         progress.step("caption")
         if "thread" in caption_job:

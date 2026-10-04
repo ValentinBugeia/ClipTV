@@ -46,6 +46,24 @@ def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
     return channels
 
 
+def standout_score(clips: list[Clip]):
+    """Score d'un clip : vues par heure × à quel point il dépasse les clips habituels de
+    son streamer. Un petit streamer dont un clip explose passe devant un gros streamer
+    dont le clip fait un score moyen pour lui."""
+    from statistics import median
+
+    by_channel: dict[str, list[int]] = {}
+    for c in clips:
+        by_channel.setdefault(c.broadcaster_name.lower(), []).append(c.view_count)
+    typical = {k: median(v) for k, v in by_channel.items() if len(v) >= 3}
+
+    def score(clip: Clip) -> float:
+        base = typical.get(clip.broadcaster_name.lower())
+        ratio = (clip.view_count / max(base, 1)) ** 0.5 if base else 1.0
+        return clip.virality() * min(max(ratio, 0.5), 4.0)
+    return score
+
+
 def pick_clips(clips: list[Clip], *, top: int, per_channel: int = 1, min_views: int = 0,
                max_duration: float = 60, language: str | None = None,
                is_done=lambda cid: False) -> list[Clip]:
@@ -53,7 +71,8 @@ def pick_clips(clips: list[Clip], *, top: int, per_channel: int = 1, min_views: 
     if language:
         clips = [c for c in clips if not c.language or c.language.startswith(language)]
     picked, per = [], {}
-    for clip in rank_clips(clips, min_views=min_views, max_duration=max_duration):
+    for clip in sorted(rank_clips(clips, min_views=min_views, max_duration=max_duration),
+                       key=standout_score(clips), reverse=True):
         key = clip.broadcaster_name.lower()
         if is_done(clip.id) or per.get(key, 0) >= per_channel:
             continue

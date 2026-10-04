@@ -96,14 +96,25 @@ def render_vertical(
     crop_center: float | None = None,
     crop_track: list[tuple[float, float]] | None = None,
     cam_height: int | None = None,
+    start: float = 0.0,
+    normalize_audio: bool = True,
 ) -> Path:
+    """``start`` : secondes coupées au début ; ``normalize_audio`` : volume égalisé
+    (-14 LUFS, le niveau des vidéos TikTok) pour qu'aucun clip ne soit trop faible ou saturé."""
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if start and crop_track:  # la vidéo démarre plus tard : la trajectoire aussi
+        later = [(t - start, c) for t, c in crop_track if t >= start]
+        before = [c for t, c in crop_track if t < start]
+        crop_track = ([(0.0, before[-1])] if before else []) + later or crop_track[-1:]
     graph = build_filter(layout, str(subtitles.resolve()) if subtitles else None,
                          cam_box=cam_box, crop_center=crop_center, crop_track=crop_track,
                          cam_height=cam_height)
     if subtitles and fonts_dir:
         graph = graph.replace("ass=", f"ass=fontsdir={_escape_filter_path(str(fonts_dir.resolve()))}:filename=", 1)
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src)]
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    if start:
+        cmd += ["-ss", f"{start:.2f}"]
+    cmd += ["-i", str(src)]
     if max_duration:
         cmd += ["-t", str(max_duration)]
     cmd += [
@@ -112,6 +123,7 @@ def render_vertical(
         # veryfast : ~40 % plus rapide que medium, TikTok réencode de toute façon
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-r", "30",
+        *(["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"] if normalize_audio else []),
         "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
         "-movflags", "+faststart",
         str(dst),

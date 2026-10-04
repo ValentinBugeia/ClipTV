@@ -113,7 +113,11 @@ def _watch_live(channel, cfg, state, opts, twitch, auth, broadcaster_id, params:
 
             progress.begin(f"Clip du live de {channel}")
             try:
-                ok = process_clip(clip, channel, cfg, state, opts)
+                # un clip créé pendant le live porte le titre du stream (« !discord »…) :
+                # pas d'accroche tirée de ce titre
+                from dataclasses import replace
+
+                ok = process_clip(clip, channel, cfg, state, replace(opts, hook_title=False))
             except progress.Cancelled:  # arrêt de ce clip ; la surveillance continue
                 ok = False
                 progress.end("Clip du live arrêté")

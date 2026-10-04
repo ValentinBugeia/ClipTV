@@ -134,6 +134,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,{font},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline},3,2,60,60,{margin_v},1
+Style: Hook,{font},{hook_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,18,0,8,90,90,{hook_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -150,7 +151,11 @@ def build_ass(
     highlight: str = "#FFE600",
     uppercase: bool = True,
     margin_v: int = 560,
+    hook: str = "",
+    hook_seconds: float = 3.0,
+    hook_margin: int = 260,
 ) -> str:
+    """``hook`` : titre d'accroche affiché en haut pendant ``hook_seconds`` secondes."""
     out = [
         ASS_HEADER.format(
             width=width,
@@ -159,8 +164,13 @@ def build_ass(
             size=font_size,
             outline=max(font_size // 14, 4),
             margin_v=margin_v,
+            hook_size=round(font_size * 0.82),
+            hook_margin=hook_margin,
         )
     ]
+    if hook:  # bandeau noir, texte blanc : lisible sur n'importe quelle image
+        out.append(f"Dialogue: 1,{_ts(0)},{_ts(hook_seconds)},Hook,,0,0,0,,"
+                   f"{{\\fad(0,250)}}{_escape(hook)}\n")
     hl = _ass_color(highlight)
     for group in group_words(words):
         texts = [_escape(w.text.upper() if uppercase else w.text) for w in group]

@@ -499,7 +499,8 @@ def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
             from .twitch import is_non_gaming
 
             render_video(src, Path(clip["output_path"]), app.cfg, opts,
-                         allow_split=not is_non_gaming(clip.get("category") or ""))
+                         allow_split=not is_non_gaming(clip.get("category") or ""),
+                         title=clip.get("title") or "")
         error = None
     except Exception as exc:
         log.exception("Remontage échoué pour %s", clip["clip_id"])

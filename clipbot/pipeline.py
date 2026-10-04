@@ -188,12 +188,29 @@ def publish_to(platform: str, path: Path, caption: str, cfg: Config, opts: Optio
     raise ValueError(f"Plateforme inconnue : {platform} (choix : {', '.join(PLATFORMS)})")
 
 
+TIKTOK_MODE = "tiktok_mode"  # réglage de l'interface : draft | direct
+
+
+def tiktok_mode(state: State, opts: Options) -> str:
+    """Mode d'envoi TikTok : réglage de la page Comptes, sinon option de lancement.
+
+    - ``draft`` : brouillon dans l'app TikTok du téléphone ;
+    - ``direct`` : publiée en privé sur le profil (tant que l'app n'est pas validée),
+      visible et modifiable depuis tiktok.com sur PC.
+    """
+    mode = state.get_settings().get(TIKTOK_MODE)
+    return mode if mode in ("draft", "direct") else opts.mode
+
+
 def publish_clip(clip_id: str, cfg: Config, state: State, opts: Options) -> list[str]:
     """Publie un clip déjà réservé (``state.claim``) sur toutes les plateformes.
 
     Les plateformes déjà réussies lors d'une tentative précédente sont sautées.
     Retourne la liste des erreurs (vide si tout est publié).
     """
+    from dataclasses import replace
+
+    opts = replace(opts, mode=tiktok_mode(state, opts))
     clip = state.get(clip_id)
     path, caption = Path(clip["output_path"]), clip["caption"] or ""
     done = state.posts(clip_id)

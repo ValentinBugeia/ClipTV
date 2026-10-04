@@ -49,8 +49,12 @@ RULES: list[tuple[str, str]] = [
     (r"invalid_client",
      f"TikTok refuse tes clés → vérifie la Client key et le Client secret du Sandbox dans {KEYS}."),
     (r"unaudited_client|private_account",
-     "Ton app TikTok n'est pas encore validée : la publication directe n'est possible qu'en "
-     "privé → garde le mode brouillon (par défaut) et publie depuis l'app TikTok."),
+     "Ton app TikTok n'est pas encore validée : la publication sur le profil ne marche que si "
+     "ton compte TikTok est privé → app TikTok → Profil → ☰ → Paramètres et confidentialité → "
+     "Confidentialité → Compte privé, ou repasse en mode « brouillon » (page Comptes)."),
+    (r"scope_not_authorized.*video\.publish|video\.publish",
+     "TikTok refuse la publication sur le profil → active « Direct Post » (scope video.publish) "
+     f"dans Content Posting API sur developers.tiktok.com, puis {RECONNECT_TIKTOK}."),
     (r"spam_risk|rate_limit|too_many",
      "TikTok limite le nombre d'envois pour le moment → réessaie plus tard (dans 1 h)."),
     (r"file_format_check_failed|duration_check_failed|picture_size|video_pull_failed",

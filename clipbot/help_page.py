@@ -183,6 +183,14 @@ souvent, une clé a été mal copiée (espace en trop, caractère manquant) : re
 Le code dans l'adresse example.com ne dure que quelques instants et ne sert qu'une fois. Reclique
 sur <strong>Connecter</strong>, accepte, puis colle tout de suite la nouvelle adresse et clique
 une seule fois sur <strong>Valider</strong>.</div></details>
+<details class="faq"><summary>Je veux voir mes vidéos sur PC, pas seulement sur le téléphone</summary><div>
+Les brouillons TikTok ne s'ouvrent que dans l'app du téléphone. Pour tout gérer depuis le PC :
+<a href="/accounts">Comptes</a> → ligne TikTok → « Les vidéos arrivent <strong>en privé sur ton
+profil</strong> » → OK. Ensuite : sur developers.tiktok.com, dans Content Posting API, active
+<strong>Direct Post</strong> (scope <code>video.publish</code>) ; passe ton compte TikTok en
+<strong>privé</strong> (obligatoire tant que TikTok n'a pas validé ton app) ; puis
+<strong>Reconnecter</strong> TikTok. Les vidéos apparaissent alors en privé sur ton profil, sur
+tiktok.com : ouvre-en une → ⋯ → Paramètres de confidentialité pour la rendre publique.</div></details>
 <details class="faq"><summary>J'ai publié mais je ne vois pas la vidéo sur mon profil TikTok</summary><div>
 C'est normal en mode brouillon : la vidéo est dans les <strong>notifications de l'app TikTok</strong>
 sur ton téléphone. Ouvre-la et publie-la d'un tap.</div></details>

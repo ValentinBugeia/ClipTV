@@ -679,6 +679,28 @@ class Handler(BaseHTTPRequestHandler):
         return SEARCH.format(channels=e(channels), hours=_options(HOURS, 24),
                              disabled=" disabled" if self.app.job.running else "")
 
+    def _tiktok_mode(self) -> str:
+        from .pipeline import tiktok_mode
+
+        return tiktok_mode(self.state, self.opts)
+
+    def _set_tiktok_mode(self, form: dict[str, str]):
+        from .pipeline import TIKTOK_MODE
+
+        mode = form.get("mode")
+        if mode not in ("draft", "direct"):
+            return self._redirect("Choix inconnu.", err=True, to="/accounts")
+        if mode == self._tiktok_mode():
+            return self._redirect("Aucun changement.", to="/accounts")
+        self.state.save_settings({TIKTOK_MODE: mode})
+        if mode == "direct":
+            msg = ("Les vidéos seront publiées en privé sur ton profil. Sur developers.tiktok.com, "
+                   "active « Direct Post » dans Content Posting API et ajoute le scope "
+                   "video.publish, puis reconnecte TikTok (bouton « Reconnecter »).")
+        else:
+            msg = "Les vidéos arriveront en brouillon dans l'app TikTok de ton téléphone."
+        return self._redirect(msg, to="/accounts")
+
     def _settings(self) -> dict:
         from .autopilot import load_settings
 
@@ -720,10 +742,15 @@ class Handler(BaseHTTPRequestHandler):
             actions = f'<div class="meta">{e(c["caption"])}</div>'
             tiktok = self.state.posts(c["clip_id"]).get("tiktok", {})
             if status == "published" and tiktok.get("status") == "ok" \
-                    and self.opts.mode == "draft":
+                    and self._tiktok_mode() == "draft":
                 actions += ('<div class="meta">📥 Envoyé dans ta <strong>boîte de réception '
                             'TikTok</strong> : ouvre l\'app TikTok → notifications pour le '
                             'publier sur ton profil.</div>')
+            elif status == "published" and tiktok.get("status") == "ok":
+                actions += ('<div class="meta">🔒 Publié <strong>en privé</strong> sur ton profil : '
+                            'sur tiktok.com (PC) ou dans l\'app, ouvre la vidéo → ⋯ → '
+                            'Paramètres de confidentialité → « Tout le monde » pour la rendre '
+                            'publique.</div>')
         if c["clip_id"] in self.app.redoing:
             player = ('<div class="when" style="padding:40px 0;text-align:center">'
                       '⏳ Remontage en cours…</div>')
@@ -947,6 +974,16 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     detail += ("<br>Pour reconnecter : clique sur « Reconnecter », accepte sur "
                                "TikTok, puis copie l'adresse complète de la page de retour "
                                "(example.com…) et colle-la ici :" + paste)
+                if keys:
+                    mode = self._tiktok_mode()
+                    choices = "".join(
+                        f'<option value="{v}"{" selected" if v == mode else ""}>{lab}</option>'
+                        for v, lab in (("draft", "📥 en brouillon dans l'app TikTok du téléphone"),
+                                       ("direct", "🔒 en privé sur ton profil (visible sur PC)")))
+                    detail += ('<form method="post" action="/tiktok/mode" class="row" '
+                               'style="margin-top:8px">Les vidéos arrivent '
+                               f'<select name="mode">{choices}</select>'
+                               '<button class="small">OK</button></form>')
                 stats_on = bool(self._settings().get("tiktok_stats"))
                 if manual and not ok and not stats_on:  # pas de connexion nécessaire
                     detail = ("Pas nécessaire en mode « je publie moi-même » : télécharge "
@@ -1075,7 +1112,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         self.send_header("Location", authorize_url(cfg.tiktok_client_key,
                                                    cfg.tiktok_redirect_uri,
                                                    state=self.app.oauth_state,
-                                                   direct=self.opts.mode == "direct",
+                                                   direct=self._tiktok_mode() == "direct",
                                                    code_challenge=challenge,
                                                    stats=bool(self._settings().get(
                                                        "tiktok_stats"))))
@@ -1163,6 +1200,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             "/stats/refresh": self._stats_refresh,
             "/stop": self._stop,
             "/stats/enable": self._stats_enable,
+            "/tiktok/mode": lambda: self._set_tiktok_mode(one),
             "/connect/twitch": lambda: self._connect_device("twitch"),
             "/connect/youtube": lambda: self._connect_device("youtube"),
             "/connect/instagram": lambda: self._connect_instagram(one),

@@ -453,3 +453,18 @@ def test_reconnect_tiktok_shows_paste_field(server, tmp_path):
     (tmp_path / "tiktok_token.json").write_text("{}")  # déjà connecté
     body = urllib.request.urlopen(base + "/accounts").read().decode()
     assert "target=\"_blank\"" in body and "Reconnecter</a>" in body and 'action="/connect/tiktok-code"' in body
+
+
+def test_tiktok_mode_private_profile(server, monkeypatch):
+    from clipbot import pipeline
+
+    base, state = server
+    _post(base + "/keys", b"TIKTOK_CLIENT_KEY=k&TIKTOK_CLIENT_SECRET=s"
+                          b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
+    body = _post(base + "/tiktok/mode", b"mode=direct").read().decode()
+    assert "video.publish" in body and '<option value="direct" selected>' in body
+    seen = {}
+    monkeypatch.setattr(pipeline, "publish_to",
+                        lambda platform, path, caption, cfg, opts: seen.setdefault("mode", opts.mode))
+    pipeline.publish_clip("abc", pipeline.Config(), state, pipeline.Options(platforms=["tiktok"]))
+    assert seen["mode"] == "direct"

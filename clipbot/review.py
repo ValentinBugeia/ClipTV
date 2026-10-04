@@ -933,7 +933,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                           f"<code>{e(callback)}</code> (TIKTOK_REDIRECT_URI)")
                 if not keys:
                     detail = "Renseigne la Client key et le secret TikTok dans « Clés API » ci-dessous"
-                action = (f'<a class="btn small" href="/connect/tiktok">'
+                action = (f'<a class="btn small" href="/connect/tiktok" target="_blank" rel="noopener">'
                           f'{"Reconnecter" if ok else "Connecter"}</a>') if keys else ""
                 paste = (
                     '<form method="post" action="/connect/tiktok-code" class="row" '

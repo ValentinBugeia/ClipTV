@@ -452,4 +452,4 @@ def test_reconnect_tiktok_shows_paste_field(server, tmp_path):
                           b"&TIKTOK_REDIRECT_URI=https%3A%2F%2Fex.com%2Fcb")
     (tmp_path / "tiktok_token.json").write_text("{}")  # déjà connecté
     body = urllib.request.urlopen(base + "/accounts").read().decode()
-    assert "Reconnecter</a>" in body and 'action="/connect/tiktok-code"' in body
+    assert "target=\"_blank\"" in body and "Reconnecter</a>" in body and 'action="/connect/tiktok-code"' in body

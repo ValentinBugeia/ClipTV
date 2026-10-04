@@ -18,7 +18,8 @@ from zoneinfo import ZoneInfo
 
 DAYS = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"]
 LEVELS = {0: "faible", 1: "moyenne", 2: "forte"}
-COLORS = {0: "#184f95", 1: "#3987e5", 2: "#9ec5f4"}  # rampe ordinale validée (fond sombre)
+# violet de l'app : pâle = faible, vif = fort (contraste ≥ 3:1 sur le fond #18181b)
+COLORS = {0: "#d9cbfb", 1: "#a985f9", 2: "#7b2ff7"}
 MIN_VIDEOS = 8  # vidéos nécessaires avant de se fier aux données du compte
 
 # estimation générale, heure par heure (0 = faible, 1 = moyenne, 2 = forte)
@@ -89,7 +90,7 @@ STYLE = """<style>
   .aud .lab { color:#adadb8; font-size:11px }
   .aud .hh { color:#adadb8; font-size:10px; text-align:left; white-space:nowrap }
   .aud .c { height:22px; border-radius:3px; cursor:default }
-  .aud .c.slot { box-shadow:inset 0 0 0 2px #efeff1 }
+  .aud .c.slot { box-shadow:inset 0 0 0 2px #efeff1, inset 0 0 0 4px #0e0e10 }
   .aud .c.none { background:#2a2a2d }
   .aud .c:hover, .aud .c:focus { outline:2px solid #efeff1; outline-offset:1px }
   .aud .legend { display:flex; gap:14px; flex-wrap:wrap; margin:10px 0 4px; color:#adadb8; font-size:12px;
@@ -193,7 +194,7 @@ def heatmap(slots: list[str], videos: list[dict], tz: str, *, apply_button: bool
 chiffres). {mine_note} Les cases entourées sont tes créneaux actuels
 ({html.escape(", ".join(slots) or "aucun")}).</p>
 <div class="grid">{"".join(head)}{"".join(rows)}{mine}</div>
-<div class="legend">{legend}<span><span class="sw" style="box-shadow:inset 0 0 0 2px #efeff1"></span>Tes créneaux</span></div>
+<div class="legend">{legend}<span><span class="sw" style="box-shadow:inset 0 0 0 2px #efeff1, inset 0 0 0 4px #0e0e10"></span>Tes créneaux</span></div>
 <p class="info">Conseillé d'après {source} : <strong>{html.escape(", ".join(best))}</strong></p>
 <details class="tv"><summary class="meta" style="cursor:pointer">Voir en texte</summary>
 <table class="vtable"><tr><th>Jour</th><th>Affluence forte (estimation)</th></tr>{table}</table></details>

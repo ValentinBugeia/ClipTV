@@ -20,7 +20,7 @@ SORTS = [("views", "Vues"), ("likes", "J'aime"), ("engagement", "Engagement"),
          ("recent", "Plus récentes")]
 
 STYLE = """<style>
-  .viz { --bar:#3987e5; --grid:#2a2a2d; --t1:#efeff1; --t2:#adadb8; }
+  .viz { --bar:#9147ff; --grid:#2a2a2d; --t1:#efeff1; --t2:#adadb8; }
   .filters { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px }
   .chip { color:var(--t2); background:var(--card); border-radius:999px; padding:6px 12px; text-decoration:none; font-size:14px }
   .chip.on { color:#fff; background:#5c16c5 }

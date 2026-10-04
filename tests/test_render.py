@@ -17,7 +17,7 @@ def test_filter_ends_with_v(layout):
 
 def test_filter_custom_crops():
     assert "crop=320:228:1600:0," in build_filter("split", cam_box=(320, 228, 1600, 0))
-    assert "'min(max((0.2500)*iw-540,0),iw-1080)'" in build_filter("crop", crop_center=0.25)
+    assert "'min(max((0.2500)*iw-ow/2,0),iw-ow)'" in build_filter("crop", crop_center=0.25)
 
 
 @needs_ffmpeg
@@ -87,3 +87,13 @@ def test_stop_interrupts_render(tmp_path):
     assert time.time() - t < 5 and not out.exists()   # coupé vite, pas de fichier partiel
     progress.end("arrêté")
     assert not progress.cancel()                        # plus rien en cours
+
+
+def test_whisper_language():
+    pytest = __import__("pytest")
+    pytest.importorskip("faster_whisper")
+    from clipbot.pipeline import whisper_language
+
+    assert whisper_language("fr") == "fr"
+    assert whisper_language("zh-hant") == "zh"
+    assert whisper_language("other") is None and whisper_language("") is None

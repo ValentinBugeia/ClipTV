@@ -28,11 +28,15 @@ def build_filter(
     ``crop_center`` = position horizontale relative (0-1) à centrer en mode ``crop`` ;
     ``crop_track`` = [(secondes, position relative)] : le zoom suit le visage dans le temps.
     """
+    # fps=30 en premier : les sources Twitch sont souvent en 60 i/s, on ne traite que les
+    # images gardées. Partout on recadre AVANT d'agrandir : même image finale, mais
+    # ffmpeg ne calcule plus une image géante (3413x1920) dont il jette les deux tiers.
     if layout == "blur":
         graph = (
-            f"[0:v]split=2[bg][fg];"
-            f"[bg]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-            f"crop={WIDTH}:{HEIGHT},boxblur=20:2,eq=brightness=-0.08[bgb];"
+            f"[0:v]fps=30,split=2[bg][fg];"
+            # fond flou calculé en petit (il est flou de toute façon) puis agrandi
+            f"[bg]crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale={WIDTH // 4}:{HEIGHT // 4},"
+            f"boxblur=5:2,eq=brightness=-0.08,scale={WIDTH}:{HEIGHT}[bgb];"
             f"[fg]scale={WIDTH}:-2[fgs];"
             f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[v]"
         )
@@ -42,17 +46,18 @@ def build_filter(
             f"{crop_center:.4f}" if crop_center is not None else
             f"{crop_track[0][1]:.4f}" if crop_track else None)
         if center is not None:
-            x = f":'min(max(({center})*iw-{WIDTH // 2},0),iw-{WIDTH})':0"
-        graph = f"[0:v]scale=-2:{HEIGHT},crop={WIDTH}:{HEIGHT}{x},setsar=1[v]"
+            x = f":'min(max(({center})*iw-ow/2,0),iw-ow)':0"
+        graph = (f"[0:v]fps=30,crop='min(iw,ih*9/16)':ih{x},"
+                 f"scale={WIDTH}:{HEIGHT},setsar=1[v]")
     elif layout == "split":
         cam_h = cam_height or HEIGHT * 2 // 5
         game_h = HEIGHT - cam_h
         cam = "{}:{}:{}:{}".format(*cam_box) if cam_box else "iw/4:ih/4:iw*3/4:0"
         graph = (
-            f"[0:v]split=2[a][b];"
+            f"[0:v]fps=30,split=2[a][b];"
             f"[a]crop={cam},scale={WIDTH}:{cam_h}:force_original_aspect_ratio=increase,"
             f"crop={WIDTH}:{cam_h}[cam];"
-            f"[b]scale=-2:{game_h},crop={WIDTH}:{game_h}[game];"
+            f"[b]crop='min(iw,ih*{WIDTH}/{game_h})':ih,scale={WIDTH}:{game_h}[game];"
             f"[cam][game]vstack,setsar=1[v]"
         )
     else:

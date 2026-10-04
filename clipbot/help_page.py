@@ -53,6 +53,7 @@ def render(status: dict) -> str:
         _check(s["tiktok_connected"], "3. Compte TikTok connecté",
                "Page Comptes → Connecter.", "/accounts", "Aller dans Comptes"),
         _check(s["claude"], "4. Clé Claude (facultatif)",
+               html.escape(s["claude_error"]) if s.get("claude_error") else
                "Pour des légendes et hashtags écrits par l'IA. Sans elle : légende standard.",
                "#claude", "Comment faire", optional=True),
         _check(s["autopilot"], "5. Pilote automatique activé",

@@ -46,8 +46,22 @@ def template_caption(template: str, clip) -> str:
     )
 
 
+def whisper_language(code: str | None) -> str | None:
+    """Langue Twitch (« fr », « en », « zh-hant »…) → code Whisper, si Whisper la connaît.
+
+    Donner la langue à Whisper lui évite une passe de détection (≈ 15 % du temps de
+    transcription) ; les clips viennent de streams filtrés par langue.
+    """
+    base = (code or "").lower().split("-")[0]
+    try:
+        from faster_whisper.tokenizer import _LANGUAGE_CODES
+    except ImportError:
+        return None
+    return base if base in _LANGUAGE_CODES else None
+
+
 def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
-                 allow_split: bool = True, on_words=None) -> tuple[Path, list]:
+                 allow_split: bool = True, language: str | None = None, on_words=None) -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
 
     ``allow_split=False`` (catégories IRL, Just Chatting…) : jamais de découpage
@@ -78,7 +92,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
             progress.step("transcribe", "en parallèle de la détection du visage"
                           if face_job else "")
             words = transcribe(src, model_size=cfg.whisper_model, device=cfg.whisper_device,
-                               language=opts.language)
+                               language=opts.language or language)
         face = face_job.result() if face_job else None
     finally:
         pool.shutdown(wait=True)
@@ -237,6 +251,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
 
         with _render_lock:
             render_video(src, dst, cfg, opts, allow_split=not is_non_gaming(category),
+                         language=whisper_language(getattr(clip, "language", "")),
                          on_words=write_caption)
         progress.step("caption")
         if "thread" in caption_job:

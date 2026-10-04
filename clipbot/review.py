@@ -756,6 +756,9 @@ class Handler(BaseHTTPRequestHandler):
             "claude": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "autopilot": bool(settings.get("enabled")),
         }
+        from .captions import last_error
+        if status["claude"] and last_error:  # clé présente mais Claude refuse
+            status["claude"], status["claude_error"] = False, last_error
         self._page(help_page.render(status), "/help", narrow=True)
 
     # ---------- page Statistiques ----------

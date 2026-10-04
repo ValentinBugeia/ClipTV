@@ -24,7 +24,7 @@ def options_from_args(args) -> Options:
         fonts_dir=fonts_dir,
         highlight=args.highlight,
         max_duration=args.max_duration,
-        caption_template=getattr(args, "caption", Options.caption_template),
+        caption_template=getattr(args, "caption", None) or Options.caption_template,
         ai_caption=getattr(args, "ai_caption", False),
         publish=getattr(args, "publish", False),
         schedule=getattr(args, "schedule", False),
@@ -279,8 +279,8 @@ def _add_publish_opts(p: argparse.ArgumentParser, *, with_publish_flag: bool = T
         when.add_argument("--schedule", action="store_true",
                           help="programme sur le prochain créneau libre (CLIPBOT_POST_SLOTS)")
         p.add_argument("--caption",
-                       default="{title} 🎮 @{channel_tag} sur Twitch #twitch #clip #fyp",
-                       help="modèle de légende : {title} {channel} {channel_tag} {clipper}")
+                       default=None,
+                       help="modèle de légende : {title} {channel} {channel_tag} {clipper} {mood} {icon}")
         p.add_argument("--ai-caption", action="store_true",
                        help="génère accroche + hashtags avec Claude")
     p.add_argument("--mode", choices=["draft", "direct"], default="draft",

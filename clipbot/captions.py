@@ -49,6 +49,46 @@ SCHEMA = {
 }
 
 
+MOODS = [  # (mots du titre, emoji) : le premier qui correspond l'emporte
+    (r"mdr|ptdr|lol|rire|drôle|marrant|blague|xd", "😂"),
+    (r"peur|flipp|horreur|jumpscare|cri|hurl", "😱"),
+    (r"rage|énerv|insult|clash|embrouille|vénère|tilt", "😡"),
+    (r"fail|raté|rate |chute|tomb|bug|glitch", "💀"),
+    (r"maman|daron|mère|père|famille|pleur|triste", "😭"),
+    (r"clutch|ace|victoire|win|gagn|incroyable|monstre|insane|record|top ?1", "🔥"),
+    (r"love|bisou|crush|cœur|coeur|mignon", "🥰"),
+    (r"argent|€|euros|thune|riche", "💸"),
+]
+FALLBACK_MOODS = ["🔥", "😂", "😱", "💀", "😭", "👀"]
+
+
+def mood_emoji(title: str, seed: str = "") -> str:
+    """Emoji qui colle au titre du clip ; sinon un emoji varié (stable pour un même clip).
+    Rien si le titre contient déjà un emoji."""
+    import re
+    import unicodedata
+    from zlib import crc32
+
+    if any(unicodedata.category(c) == "So" for c in title or ""):
+        return ""
+    low = (title or "").lower()
+    for pattern, emoji in MOODS:
+        if re.search(pattern, low):
+            return emoji
+    return FALLBACK_MOODS[crc32((seed or title or "").encode()) % len(FALLBACK_MOODS)]
+
+
+def credit_emoji(category: str = "") -> str:
+    """Emoji du crédit selon la catégorie Twitch."""
+    c = (category or "").lower()
+    for keys, emoji in ((("music", "dj", "dance"), "🎵"), (("sports",), "⚽"),
+                        (("art", "makers"), "🎨"), (("food",), "🍔"),
+                        (("just chatting", "irl", "talk", "travel", "asmr"), "🎙️")):
+        if any(k in c for k in keys):
+            return emoji
+    return "🎮"
+
+
 MAX_HASHTAGS = 8
 # toujours utiles pour un compte de clips Twitch francophone : niche FR + découverte
 DEFAULT_TAGS = ["twitchfr", "twitch", "streamerfr", "clip", "pourtoi", "fyp"]
@@ -91,7 +131,7 @@ def format_caption(hook: str, hashtags: list[str], channel: str, category: str =
     base = base_hashtags(channel, category)
     # Claude en donne 4 à 6 : on garde la place du streamer et du jeu dans les 8
     tags = merge_hashtags(hashtags[:6], [channel, category], base)
-    credit = f"🎮 twitch.tv/{channel.lower()}"
+    credit = f"{credit_emoji(category)} twitch.tv/{channel.lower()}"
     return f"{hook.strip()}\n{credit}\n{' '.join(tags)}"[:2200]
 
 

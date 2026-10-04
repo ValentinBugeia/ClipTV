@@ -22,7 +22,7 @@ def test_format_caption_dedup_and_credit():
                          "Kamet0")
     lines = cap.splitlines()
     assert lines[0] == "Il ne s'y attendait pas 😭"
-    assert lines[1] == "🎮 twitch.tv/kamet0"
+    assert lines[1] == "🎮 twitch.tv/kamet0"  # catégorie inconnue : manette
     # tags du contenu d'abord, puis streamer, et complété jusqu'à 8 hashtags cohérents
     assert lines[2] == "#fyp #justchatting #kameto #kamet0 #twitchfr #twitch #streamerfr #clip"
 
@@ -37,10 +37,11 @@ def test_template_caption_hashtags():
                 creator_name="x", view_count=1, created_at=datetime.now(timezone.utc),
                 duration=30, category="Just Chatting")
     lines = template_caption(Options().caption_template, clip).splitlines()
-    assert lines == ["Billy se fait daronned", "🎮 twitch.tv/nico_la",
+    assert lines == ["Billy se fait daronned 😭", "🎙️ twitch.tv/nico_la",
                      "#nico_la #justchatting #irl #twitchfr #twitch #streamerfr #clip #pourtoi"]
     game = Clip(**{**clip.__dict__, "category": "Pokémon Légendes"})
-    assert "#pokemonlegendes #gaming" in template_caption(Options().caption_template, game)
+    text = template_caption(Options().caption_template, game)
+    assert "#pokemonlegendes #gaming" in text and "🎮 twitch.tv/nico_la" in text
     # modèle personnalisé avec ses propres hashtags : laissé tel quel
     assert template_caption("{title} #perso", clip) == "Billy se fait daronned #perso"
 
@@ -123,3 +124,13 @@ def test_static_photo_is_not_the_streamer():
     assert best and best[0][1][0] == 1700
     only_photo = [(t, [b for b in boxes if b[0] == 100]) for t, boxes in frames]
     assert _best_track(only_photo) == []  # une photo seule n'est pas une facecam
+
+
+def test_mood_emoji_varies():
+    from clipbot.captions import mood_emoji
+
+    assert mood_emoji("il hurle de peur") == "😱"
+    assert mood_emoji("le clutch de fou") == "🔥"
+    assert mood_emoji("déjà un emoji 😂") == ""
+    picks = {mood_emoji("un titre neutre", f"clip{i}") for i in range(30)}
+    assert len(picks) >= 4  # pas toujours le même

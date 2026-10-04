@@ -28,7 +28,7 @@ class Options:
     fonts_dir: Path | None = None
     highlight: str = "#FFE600"
     max_duration: float = 60.0
-    caption_template: str = "{title}\n🎮 twitch.tv/{channel_tag}"
+    caption_template: str = "{title} {mood}\n{icon} twitch.tv/{channel_tag}"
     ai_caption: bool = False
     publish: bool = False           # publie tout de suite après le rendu
     schedule: bool = False          # programme sur le prochain créneau libre
@@ -45,17 +45,21 @@ class Options:
 def template_caption(template: str, clip) -> str:
     """Légende sans IA. Le modèle par défaut est complété par les hashtags du clip
     (streamer, jeu, niche) ; un modèle personnalisé avec ses propres # est laissé tel quel."""
+    from .captions import base_hashtags, credit_emoji, merge_hashtags, mood_emoji
+
+    category = getattr(clip, "category", "")
     text = template.format(
         title=clip.title,
         channel=clip.broadcaster_name,
         channel_tag=clip.broadcaster_name.lower().replace(" ", ""),
         clipper=clip.creator_name,
-    )
+        mood=mood_emoji(clip.title, clip.id),
+        icon=credit_emoji(category),
+    ).replace(" \n", "\n")
     if "#" in template:
         return text
-    from .captions import base_hashtags, merge_hashtags
 
-    tags = merge_hashtags(base_hashtags(clip.broadcaster_name, getattr(clip, "category", "")))
+    tags = merge_hashtags(base_hashtags(clip.broadcaster_name, category))
     return f"{text}\n{' '.join(tags)}"
 
 

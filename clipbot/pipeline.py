@@ -334,8 +334,11 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
             vph = round(clip.virality(), 1)
         except Exception:
             vph = None
+        audio = getattr(clip, "audio", None) or {}
         meta["signals"] = json.dumps({**info, "vph": vph,
-                                      "standout": getattr(clip, "standout", None)})
+                                      "standout": getattr(clip, "standout", None),
+                                      "reaction": audio.get("reaction"),
+                                      "peak_at": audio.get("peak_at")})
         progress.step("caption")
         if "thread" in caption_job:
             caption_job["thread"].join()
@@ -379,11 +382,17 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
                                         max_duration=opts.max_duration)
                   if not state.is_done(c.id) and not on_tiktok(c)]
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
-        twitch.annotate_categories(ranked[:top])
-        prefetch = Prefetcher(cfg, ranked[:top])
+        from . import selection
+
+        shortlist = ranked[:selection.shortlist_size(top)]
+        twitch.annotate_categories(shortlist)
+        prefetch = Prefetcher(cfg, shortlist)
         try:
-            for i, clip in enumerate(ranked[:top], 1):
-                progress.clip(i, min(top, len(ranked)), clip.title)
+            chosen = [c for c, _ in selection.pick_best(
+                [(c, channel) for c in shortlist],
+                {c.id: prefetch.source(c) for c in shortlist}, top)]
+            for i, clip in enumerate(chosen, 1):
+                progress.clip(i, len(chosen), clip.title)
                 log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
                          clip.virality(), clip.url)
                 results.append((clip.id, _process(clip, channel, cfg, state, opts, prefetch)))

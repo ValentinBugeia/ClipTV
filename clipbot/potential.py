@@ -113,6 +113,10 @@ def score(clip: dict, hist: dict) -> dict:
             factor *= min(max(standout, 0.5), 4) ** 0.25
             if standout >= 2:
                 reasons.append(f"Clip ×{standout:.1f} au-dessus des clips habituels du streamer")
+        if (sig.get("reaction") or 0) >= 4 and (sig.get("peak_at") or 99) <= 8:
+            factor *= 1.15
+            reasons.append(f"Grosse réaction (son ×{sig['reaction']:.0f}) dès "
+                           f"{sig['peak_at']:.0f} s")
         dur = float(sig.get("duration") or 0)
         if dur > 50:
             factor *= 0.8

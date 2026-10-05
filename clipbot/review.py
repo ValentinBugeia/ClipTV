@@ -110,17 +110,18 @@ PAGE = """<!doctype html>
   .badges {{ display:flex; gap:6px; flex-wrap:wrap }}
   .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
   .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
-  .pot {{ --r:#9d9d9d; flex-basis:100% }}
+  .card {{ position:relative }}
+  .pot {{ --r:#9d9d9d; position:absolute; top:18px; right:18px; z-index:2 }}
   .pot.r-uncommon {{ --r:#3ddc4a }} .pot.r-rare {{ --r:#4da3ff }} .pot.r-epic {{ --r:#b964ff }}
   .pot.r-legendary {{ --r:#ff9a1f }}
-  .pot summary {{ cursor:pointer; list-style:none; display:inline-flex; align-items:baseline; gap:6px;
-    padding:4px 10px; border-radius:8px; border:1px solid var(--r);
-    background:color-mix(in srgb, var(--r) 14%, transparent) }}
+  .pot summary {{ cursor:pointer; list-style:none; min-width:44px; text-align:center;
+    padding:3px 8px; border-radius:8px; border:2px solid var(--r); background:#0e0e10e6;
+    color:var(--r); font-size:18px; font-weight:800 }}
   .pot summary::-webkit-details-marker {{ display:none }}
-  .pot .note {{ color:var(--r); font-size:22px; font-weight:800; line-height:1 }}
-  .pot .max {{ color:var(--muted); font-size:12px }}
-  .pot .rar {{ color:var(--r); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em }}
-  .pot.r-legendary summary {{ box-shadow:0 0 12px color-mix(in srgb, var(--r) 45%, transparent) }}
+  .pot.r-legendary summary {{ box-shadow:0 0 12px var(--r) }}
+  .pot .why {{ position:absolute; right:0; margin-top:6px; width:240px; background:var(--card);
+    border:1px solid var(--r); border-radius:10px; padding:8px 10px; font-size:12px }}
+  .pot .why strong {{ color:var(--r) }}
   .pot ul {{ margin:6px 0 0; padding-left:18px; color:var(--muted); font-size:12px }}
   .flash {{ padding:10px 12px; border-radius:8px; background:#1f3a1f; margin-bottom:16px }}
   .flash.err {{ background:#3a1f1f }}
@@ -300,7 +301,7 @@ PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube Shorts", "instagram": 
                   "manuel": "Publié à la main"}
 CHANNEL_RE = re.compile(r"\w{2,25}")
 
-CARD = """<div class="card">
+CARD = """<div class="card">{corner}
   {player}
   <div><strong>{title}</strong></div>
   <div class="meta">{channel} · {views} vues · <a href="{url}" target="_blank" rel="noopener">clip Twitch</a>{error}</div>
@@ -854,11 +855,11 @@ class Handler(BaseHTTPRequestHandler):
             badges += ('<span class="badge failed" title="Une vidéo de ton compte TikTok a le '
                        'même titre ou les mêmes mots-clés et le même streamer">⚠️ Déjà sur ton '
                        'TikTok</span>')
-        if c.get("signals") and status in ("rendered", "scheduled", "failed"):
-            badges += self._potential_badge(c)
+        corner = (self._potential_badge(c) if status in ("rendered", "scheduled", "failed")
+                  else "")
         badges = f'<div class="badges">{badges}</div>' if badges else ""
         error = f" · ⚠️ {e(c['error'])}" if c.get("error") else ""
-        return CARD.format(player=player,
+        return CARD.format(player=player, corner=corner,
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
@@ -899,11 +900,10 @@ class Handler(BaseHTTPRequestHandler):
             self._pot_hist = potential.history(self.state)
         p = potential.score(c, self._pot_hist)
         reasons = "".join(f"<li>{e(r)}</li>" for r in p["reasons"])
-        return (f'<details class="pot r-{p["rarity"]}"><summary title="Potentiel de vues '
-                f'(estimation, pas une garantie) : clique pour le détail">'
-                f'<span class="note">{p["note"]:.1f}</span><span class="max">/10</span>'
-                f'<span class="rar">{e(p["rarity_label"])}</span></summary>'
-                f'<ul>{reasons}</ul></details>')
+        tip = e(f"{p['rarity_label']} · " + " · ".join(p["reasons"]))
+        return (f'<details class="pot r-{p["rarity"]}"><summary title="{tip}">'
+                f'{p["note"]:.1f}</summary><div class="why"><strong>{e(p["rarity_label"])} · '
+                f'{p["note"]:.1f}/10</strong><ul>{reasons}</ul></div></details>')
 
     # ---------- page Aide ----------
     def _help_page(self):

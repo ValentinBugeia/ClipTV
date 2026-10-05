@@ -20,32 +20,38 @@ def sig(**kw):
     return json.dumps({"vph": 50, "duration": 25, "speech": True, "hook": True, **kw})
 
 
-def test_score_levels_without_history(tmp_path):
+def test_start_score_without_history(tmp_path):
     state = make_state(tmp_path)
     hist = potential.history(state)
     strong = potential.score({"channel": "a", "signals": sig(vph=2000, standout=4)}, hist)
     weak = potential.score({"channel": "a", "signals": sig(vph=2, duration=58, speech=False,
                                                             hook=False, standout=0.4)}, hist)
-    assert strong["level"] == "fort" and weak["level"] == "faible"
-    assert any("Pas encore assez" in r for r in strong["reasons"])
+    assert strong["note"] >= 8 and weak["note"] < 4 and weak["rarity"] == "common"
+    assert any("Estimation de départ" in r for r in strong["reasons"])
 
 
-def test_score_uses_account_history(tmp_path):
+def add_videos(state, items):
+    state.save_videos([{"video_id": f"v{i}", "title": "", "description": desc,
+                        "create_time": 1, "cover": None, "share_url": None, "views": views,
+                        "likes": 0, "comments": 0, "shares": 0, "duration": 20, "clip_id": None}
+                       for i, (desc, views) in enumerate(items)])
+
+
+def test_score_from_account_history(tmp_path):
     state = make_state(tmp_path)
-    videos = []
-    for i in range(6):  # streamer « star » : ses clips font 10x plus de vues chez toi
-        channel = "star" if i < 3 else "autre"
-        state.record(f"c{i}", channel, "published", category="Valorant")
-        videos.append({"video_id": f"v{i}", "title": "", "description": "", "create_time": 1,
-                       "cover": None, "share_url": None, "views": 5000 if i < 3 else 500,
-                       "likes": 0, "comments": 0, "shares": 0, "duration": 20,
-                       "clip_id": f"c{i}"})
-    state.save_videos(videos)
+    # nico_la : ~4000 vues ; autres : ~500 vues (reconnus par le lien twitch.tv/…)
+    add_videos(state, [("a 🎙️ twitch.tv/nico_la #justchatting", 4000),
+                       ("b twitch.tv/nico_la", 3800), ("c twitch.tv/nico_la", 4200),
+                       ("d twitch.tv/autre", 500), ("e twitch.tv/autre", 450),
+                       ("f twitch.tv/autre", 520), ("g twitch.tv/zz", 600)])
     hist = potential.history(state)
-    star = potential.score({"channel": "star", "signals": sig()}, hist)
+    star = potential.score({"channel": "nico_la", "signals": sig()}, hist)
     other = potential.score({"channel": "autre", "signals": sig()}, hist)
-    assert star["score"] > other["score"]
-    assert any("marchent bien" in r for r in star["reasons"])
+    new = potential.score({"channel": "inconnu", "signals": sig()}, hist)
+    assert star["note"] > new["note"] > other["note"]
+    assert 4.5 <= new["note"] <= 5.5  # streamer jamais publié : « comme d'habitude »
+    assert any("Tes 3 TikTok de nico_la" in r for r in star["reasons"])
+    assert any("Vues attendues" in r for r in star["reasons"])
 
 
 def test_on_tiktok_detects_existing_video(tmp_path):

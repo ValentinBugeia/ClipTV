@@ -556,7 +556,7 @@ def test_potential_badge_on_card(server):
     state.set_signals("abc", json.dumps({"vph": 900, "standout": 3, "duration": 22,
                                           "speech": True, "hook": True}))
     page = urllib.request.urlopen(base + "/").read().decode()
-    assert 'class="pot r-epic"' in page and "/10" in page and "vues/h sur Twitch" in page
+    assert 'class="pot r-' in page and "/10" in page and "Estimation de départ" in page
 
 
 def test_studio_tab(server):

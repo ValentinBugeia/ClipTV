@@ -1,44 +1,65 @@
-"""Indicateur « potentiel de vues » d'un clip, avant publication.
+"""Note sur 10 « ce clip va-t-il marcher sur TON compte ? », pour choisir quoi publier.
 
-Score sur 100 en trois parts :
-- **Élan sur Twitch** (40) : vues par heure du clip et combien il dépasse les clips
-  habituels du streamer (un vrai moment fort, pas juste une grosse chaîne) ;
-- **Format TikTok** (25) : durée (15-35 s idéal), paroles (sous-titres), accroche ;
-- **Ton audience** (35) : vues moyennes de TES vidéos TikTok du même streamer et de la
-  même catégorie, comparées à ta moyenne. Tant que le compte a moins de 5 vidéos
-  reliées à des clips, cette part reste neutre (moitié des points).
+Basée d'abord sur tes anciens TikToks : une vidéo du même streamer ou de la même
+catégorie fait-elle d'habitude plus ou moins de vues que ta moyenne ? 5/10 = un clip
+« comme d'habitude » sur ton compte, 7,5 = environ 2× plus de vues attendues, 10 = 4×,
+2,5 = 2× moins. L'élan du clip sur Twitch et son format ajustent un peu la note.
 
-Ce n'est pas une prédiction exacte : TikTok reste imprévisible. C'est une aide pour
-choisir quels clips publier en premier.
+Tant que le compte a moins de 5 vidéos avec des vues, la note vient seulement de l'élan
+Twitch et du format (estimation de départ).
 """
 
 from __future__ import annotations
 
 import json
 import math
+import re
 from statistics import median
 
 MIN_HISTORY = 5   # vidéos TikTok reliées avant de se fier à l'historique du compte
-LEVELS = ((65, "fort", "🔥 Fort potentiel"), (40, "moyen", "👍 Potentiel moyen"),
-          (0, "faible", "💤 Potentiel faible"))
 # note sur 10, couleur de rareté façon objets de jeu vidéo
 RARITIES = ((9, "legendary", "Légendaire"), (8, "epic", "Épique"), (6, "rare", "Rare"),
             (4, "uncommon", "Peu commun"), (0, "common", "Commun"))
 
 
 def history(state) -> dict:
-    """Vues de tes vidéos TikTok reliées à un clip, regroupées par streamer et catégorie."""
+    """Vues de tes vidéos TikTok, par streamer et par catégorie. Une vidéo est rattachée à
+    un streamer par son clip d'origine, sinon par le lien twitch.tv/… de sa description."""
+    from .captions import clean_tag
+
     with state.lock:
         rows = state.conn.execute(
-            """SELECT v.views, c.channel, c.category FROM tiktok_videos v
-               JOIN clips c ON c.clip_id = v.clip_id WHERE v.views IS NOT NULL""").fetchall()
+            """SELECT v.views, v.description, v.title, c.channel, c.category
+               FROM tiktok_videos v LEFT JOIN clips c ON c.clip_id = v.clip_id
+               WHERE v.views IS NOT NULL""").fetchall()
+        known = [r[0] for r in state.conn.execute(
+            "SELECT DISTINCT category FROM clips WHERE category IS NOT NULL")]
+    cat_tags = {clean_tag(k): k.lower() for k in known if k}
     out = {"all": [], "channel": {}, "category": {}}
-    for views, channel, category in rows:
+    for views, desc, title, channel, category in rows:
+        text = f"{title or ''} {desc or ''}".lower()
+        if not channel:
+            m = re.search(r"twitch\.tv/(\w+)", text)
+            channel = m.group(1) if m else ""
+        if not category:
+            tags = set(re.findall(r"#(\w+)", text))
+            category = next((cat_tags[t] for t in tags if t in cat_tags), "")
         out["all"].append(views)
-        out["channel"].setdefault((channel or "").lower(), []).append(views)
+        if channel:
+            out["channel"].setdefault(channel.lower(), []).append(views)
         if category:
             out["category"].setdefault(category.lower(), []).append(views)
     return out
+
+
+def _group_factor(values: list[int], overall: float) -> float | None:
+    """Combien ce groupe fait de vues par rapport à ta moyenne (×), prudent quand il y a
+    peu de vidéos : 1 vidéo compte peu, 5 vidéos comptent beaucoup."""
+    if not values or overall <= 0:
+        return None
+    log_ratio = sum(math.log(max(v, 1) / overall) for v in values) / len(values)
+    weight = len(values) / (len(values) + 2)
+    return math.exp(log_ratio * weight)
 
 
 def _ratio_points(values: list[int], overall: float, max_points: float) -> float | None:
@@ -50,69 +71,64 @@ def _ratio_points(values: list[int], overall: float, max_points: float) -> float
     return max_points * min(max((math.log(ratio, 4) + 1) / 2, 0), 1)
 
 
+def _start_score(sig: dict, reasons: list[str]) -> float:
+    """Note sur 10 sans historique : élan Twitch (vues/h, clip hors norme) + format."""
+    vph = float(sig.get("vph") or 0)
+    pts = 30 * min(math.log10(max(vph, 1)) / 3, 1)
+    standout = sig.get("standout")
+    pts += 10 * min(max((standout - 0.5) / 2.5, 0), 1) if standout else 5
+    dur = float(sig.get("duration") or 0)
+    pts += 15 if 12 <= dur <= 35 else 10 if 35 < dur <= 50 else 4 if dur > 50 else 8
+    pts += 5 if sig.get("speech") else 0
+    pts += 5 if sig.get("hook") else 0
+    return pts / 6.5  # sur 65 points → /10 (l'audience n'est pas encore connue)
+
+
 def score(clip: dict, hist: dict) -> dict:
-    """{score, level, label, reasons} pour une ligne de la table clips."""
+    """{note, rarity, rarity_label, reasons} pour une ligne de la table clips."""
     try:
         sig = json.loads(clip.get("signals") or "{}")
     except ValueError:
         sig = {}
     reasons: list[str] = []
-
-    # --- élan sur Twitch (40) ---
-    vph = float(sig.get("vph") or 0)
-    momentum = 30 * min(math.log10(max(vph, 1)) / 3, 1)  # 1000 vues/h → 30
-    standout = sig.get("standout")
-    if standout:
-        momentum += 10 * min(max((standout - 0.5) / 2.5, 0), 1)  # ×3 son habitude → 10
-        if standout >= 2:
-            reasons.append(f"Clip ×{standout:.1f} au-dessus des clips habituels du streamer")
-    else:
-        momentum += 5
-    reasons.append(f"{vph:.0f} vues/h sur Twitch" if vph else "Vues Twitch inconnues")
-
-    # --- format TikTok (25) ---
-    dur = float(sig.get("duration") or 0)
-    if 12 <= dur <= 35:
-        fmt = 15
-        reasons.append(f"Durée idéale ({dur:.0f} s)")
-    elif 35 < dur <= 50:
-        fmt = 10
-    elif dur > 50:
-        fmt = 4
-        reasons.append(f"Long ({dur:.0f} s) : moins regardé jusqu'au bout")
-    else:
-        fmt = 7 if dur else 9
-    if sig.get("speech"):
-        fmt += 5
-    else:
-        reasons.append("Peu ou pas de paroles")
-    if sig.get("hook"):
-        fmt += 5
-
-    # --- ton audience (35) ---
+    channel = (clip.get("channel") or "").lower()
+    category = (clip.get("category") or "").lower()
     overall = median(hist["all"]) if len(hist["all"]) >= MIN_HISTORY else 0
-    if overall:
-        ch = _ratio_points(hist["channel"].get((clip.get("channel") or "").lower(), []),
-                           overall, 20)
-        cat = _ratio_points(hist["category"].get((clip.get("category") or "").lower(), []),
-                            overall, 15)
-        audience = (ch if ch is not None else 10) + (cat if cat is not None else 7.5)
-        if ch is not None and ch >= 14:
-            reasons.append(f"Les clips de {clip.get('channel')} marchent bien sur ton compte")
-        elif ch is not None and ch <= 6:
-            reasons.append(f"Les clips de {clip.get('channel')} font peu de vues chez toi")
-        if cat is not None and cat >= 11:
-            reasons.append(f"La catégorie {clip.get('category')} marche bien chez toi")
-    else:
-        audience = 17.5
-        reasons.append("Pas encore assez de vidéos publiées pour juger ton audience")
 
-    total = round(min(momentum, 40) + min(fmt, 25) + min(audience, 35))
-    level, label = next((lv, lb) for th, lv, lb in LEVELS if total >= th)
-    note = round(total / 10, 1)
+    if overall:
+        factor = 1.0
+        ch = _group_factor(hist["channel"].get(channel, []), overall)
+        if ch is not None:
+            factor *= ch
+            n = len(hist["channel"][channel])
+            reasons.append(f"Tes {n} TikTok de {clip.get('channel')} : ×{ch:.1f} ta moyenne")
+        else:
+            reasons.append(f"Jamais publié de clip de {clip.get('channel')}")
+        cat = _group_factor(hist["category"].get(category, []), overall) if category else None
+        if cat is not None:
+            factor *= cat ** 0.6  # la catégorie compte un peu moins que le streamer
+            reasons.append(f"Catégorie {clip.get('category')} : ×{cat:.1f} ta moyenne")
+        standout = sig.get("standout")
+        if standout:  # un moment vraiment hors norme sur Twitch
+            factor *= min(max(standout, 0.5), 4) ** 0.25
+            if standout >= 2:
+                reasons.append(f"Clip ×{standout:.1f} au-dessus des clips habituels du streamer")
+        dur = float(sig.get("duration") or 0)
+        if dur > 50:
+            factor *= 0.8
+            reasons.append(f"Long ({dur:.0f} s) : moins regardé jusqu'au bout")
+        if sig and not sig.get("speech"):
+            factor *= 0.9
+        note = 5 + 2.5 * math.log2(max(factor, 1e-3))
+        reasons.insert(0, f"Vues attendues : ~{overall * factor:,.0f} (ta moyenne : "
+                          f"{overall:,.0f})".replace(",", " "))
+    else:
+        note = _start_score(sig, reasons)
+        reasons.append("Estimation de départ (élan Twitch + format) : moins de "
+                       f"{MIN_HISTORY} TikToks avec des vues pour comparer")
+    note = round(min(max(note, 0), 10), 1)
     rarity, rarity_label = next((r, lb) for th, r, lb in RARITIES if note >= th)
-    return {"score": total, "level": level, "label": label, "reasons": reasons,
-            "note": note, "rarity": rarity, "rarity_label": rarity_label}
+    return {"note": note, "rarity": rarity, "rarity_label": rarity_label, "reasons": reasons}
 
 
 def backfill(cfg, state) -> int:

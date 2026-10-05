@@ -21,6 +21,9 @@ from statistics import median
 MIN_HISTORY = 5   # vidéos TikTok reliées avant de se fier à l'historique du compte
 LEVELS = ((65, "fort", "🔥 Fort potentiel"), (40, "moyen", "👍 Potentiel moyen"),
           (0, "faible", "💤 Potentiel faible"))
+# note sur 10, couleur de rareté façon objets de jeu vidéo
+RARITIES = ((9, "legendary", "Légendaire"), (8, "epic", "Épique"), (6, "rare", "Rare"),
+            (4, "uncommon", "Peu commun"), (0, "common", "Commun"))
 
 
 def history(state) -> dict:
@@ -106,7 +109,10 @@ def score(clip: dict, hist: dict) -> dict:
 
     total = round(min(momentum, 40) + min(fmt, 25) + min(audience, 35))
     level, label = next((lv, lb) for th, lv, lb in LEVELS if total >= th)
-    return {"score": total, "level": level, "label": label, "reasons": reasons}
+    note = round(total / 10, 1)
+    rarity, rarity_label = next((r, lb) for th, r, lb in RARITIES if note >= th)
+    return {"score": total, "level": level, "label": label, "reasons": reasons,
+            "note": note, "rarity": rarity, "rarity_label": rarity_label}
 
 
 def backfill(cfg, state) -> int:

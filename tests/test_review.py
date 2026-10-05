@@ -556,7 +556,7 @@ def test_potential_badge_on_card(server):
     state.set_signals("abc", json.dumps({"vph": 900, "standout": 3, "duration": 22,
                                           "speech": True, "hook": True}))
     page = urllib.request.urlopen(base + "/").read().decode()
-    assert "Fort potentiel" in page and "vues/h sur Twitch" in page
+    assert 'class="pot r-epic"' in page and "/10" in page and "vues/h sur Twitch" in page
 
 
 def test_studio_tab(server):
@@ -571,3 +571,16 @@ def test_studio_tab(server):
     assert "s=studio" in resp.url
     clip = state.get("abc")
     assert clip["status"] == "published" and clip["caption"] == "ma description finale"
+
+
+def test_card_warns_when_already_on_tiktok(server):
+    base, state = server
+    state.record("def", "kamet0", "rendered", title="Le clutch de malade en finale",
+                 output_path=state.get("abc")["output_path"])
+    state.save_videos([{"video_id": "v1", "title": "", "description":
+                        "Le clutch de malade en finale 🔥 twitch.tv/kamet0 #kamet0",
+                        "create_time": 1, "cover": None, "share_url": None, "views": 1,
+                        "likes": 0, "comments": 0, "shares": 0, "duration": 30,
+                        "clip_id": None}])
+    page = urllib.request.urlopen(base + "/?s=studio").read().decode()
+    assert "Déjà sur ton" in page

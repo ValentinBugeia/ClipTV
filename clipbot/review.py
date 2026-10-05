@@ -110,8 +110,17 @@ PAGE = """<!doctype html>
   .badges {{ display:flex; gap:6px; flex-wrap:wrap }}
   .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
   .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
-  .pot summary {{ cursor:pointer; list-style:none }} .pot summary::-webkit-details-marker {{ display:none }}
-  .badge.pot-fort {{ background:#3b1d6e; color:#e3d1ff }} .badge.pot-moyen {{ background:#2a2a2d; color:var(--fg) }}
+  .pot {{ --r:#9d9d9d; flex-basis:100% }}
+  .pot.r-uncommon {{ --r:#3ddc4a }} .pot.r-rare {{ --r:#4da3ff }} .pot.r-epic {{ --r:#b964ff }}
+  .pot.r-legendary {{ --r:#ff9a1f }}
+  .pot summary {{ cursor:pointer; list-style:none; display:inline-flex; align-items:baseline; gap:6px;
+    padding:4px 10px; border-radius:8px; border:1px solid var(--r);
+    background:color-mix(in srgb, var(--r) 14%, transparent) }}
+  .pot summary::-webkit-details-marker {{ display:none }}
+  .pot .note {{ color:var(--r); font-size:22px; font-weight:800; line-height:1 }}
+  .pot .max {{ color:var(--muted); font-size:12px }}
+  .pot .rar {{ color:var(--r); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em }}
+  .pot.r-legendary summary {{ box-shadow:0 0 12px color-mix(in srgb, var(--r) 45%, transparent) }}
   .pot ul {{ margin:6px 0 0; padding-left:18px; color:var(--muted); font-size:12px }}
   .flash {{ padding:10px 12px; border-radius:8px; background:#1f3a1f; margin-bottom:16px }}
   .flash.err {{ background:#3a1f1f }}
@@ -713,10 +722,19 @@ class Handler(BaseHTTPRequestHandler):
         info = e(f"Publication : {', '.join(PLATFORM_NAMES.get(p, p) for p in self.platforms)}"
                  f" · créneaux {', '.join(self.cfg.post_slots)} ({self.cfg.timezone})")
         if manual:
+            from . import stats as _stats
+
+            checked = bool(self.state.get_settings().get(_stats.ENABLED))
             info = ('✋ Les clips prêts, à publier toi-même : <strong>⬇ Vidéo</strong> → <strong>📋 Description'
                     '</strong> → <a href="https://www.tiktok.com/tiktokstudio/upload" '
                     'target="_blank" rel="noopener">TikTok Studio ↗</a> (glisse la vidéo, colle '
                     'la description, publie) → <strong>✔ Publié</strong>')
+            if checked:  # liste des vidéos du compte rafraîchie en fond (15 min max)
+                threading.Thread(target=_stats.refresh_before_search,
+                                 args=(self.cfg, self.state), daemon=True).start()
+            else:
+                info += ('<br>⚠️ Impossible de vérifier si un clip est déjà sur ton TikTok : '
+                         'active les statistiques (onglet <a href="/stats">Statistiques</a>).')
         body = (f'<nav class="sub">{tabs}</nav>{self._search_panel()}'
                 f'<p class="info">{info}</p><main>{cards}</main>')
         self._page(body, "/")
@@ -832,6 +850,10 @@ class Handler(BaseHTTPRequestHandler):
             f'<span class="badge {e(p["status"])}" title="{e(p.get("error") or p.get("post_id"))}">'
             f'{e(PLATFORM_NAMES.get(name, name))} {"✔" if p["status"] == "ok" else "✖"}</span>'
             for name, p in posts.items())
+        if status in ("rendered", "scheduled", "failed") and self._on_tiktok(c):
+            badges += ('<span class="badge failed" title="Une vidéo de ton compte TikTok a le '
+                       'même titre ou les mêmes mots-clés et le même streamer">⚠️ Déjà sur ton '
+                       'TikTok</span>')
         if c.get("signals") and status in ("rendered", "scheduled", "failed"):
             badges += self._potential_badge(c)
         badges = f'<div class="badges">{badges}</div>' if badges else ""
@@ -840,6 +862,18 @@ class Handler(BaseHTTPRequestHandler):
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
+
+    def _on_tiktok(self, c: dict) -> bool:
+        """Ce clip est-il déjà sur le compte TikTok ? (liste des vidéos des statistiques)"""
+        from types import SimpleNamespace
+
+        from . import stats
+
+        if not hasattr(self, "_tiktok_check"):  # une seule lecture par page
+            self._tiktok_check = stats.on_tiktok(self.state)
+        clip = SimpleNamespace(id=c["clip_id"], title=c.get("title") or "",
+                               broadcaster_name=c.get("channel") or "")
+        return self._tiktok_check(clip)
 
     def _start_backfill(self) -> None:
         """Indicateur de potentiel pour les clips préparés avant cette fonction (une fois)."""
@@ -865,9 +899,11 @@ class Handler(BaseHTTPRequestHandler):
             self._pot_hist = potential.history(self.state)
         p = potential.score(c, self._pot_hist)
         reasons = "".join(f"<li>{e(r)}</li>" for r in p["reasons"])
-        return (f'<details class="pot"><summary class="badge pot-{p["level"]}" '
-                f'title="Estimation, pas une garantie">{e(p["label"])} · {p["score"]}/100'
-                f'</summary><ul>{reasons}</ul></details>')
+        return (f'<details class="pot r-{p["rarity"]}"><summary title="Potentiel de vues '
+                f'(estimation, pas une garantie) : clique pour le détail">'
+                f'<span class="note">{p["note"]:.1f}</span><span class="max">/10</span>'
+                f'<span class="rar">{e(p["rarity_label"])}</span></summary>'
+                f'<ul>{reasons}</ul></details>')
 
     # ---------- page Aide ----------
     def _help_page(self):

@@ -272,7 +272,7 @@ def test_manual_publishing(server):
     body = urllib.request.urlopen(base + "/").read().decode()
     assert "Télécharger" in body and "Copier la légende" in body
     resp = urllib.request.urlopen(base + "/video/abc?dl=1")
-    assert resp.headers["Content-Disposition"] == 'attachment; filename="v.mp4"'
+    assert resp.headers["Content-Disposition"] == 'attachment; filename="kamet0-b-Enorme-b.mp4"'
     _post(base + "/done/abc", b"")
     assert state.get("abc")["status"] == "published"
     assert state.posts("abc")["manuel"]["status"] == "ok"
@@ -557,3 +557,17 @@ def test_potential_badge_on_card(server):
                                           "speech": True, "hook": True}))
     page = urllib.request.urlopen(base + "/").read().decode()
     assert "Fort potentiel" in page and "vues/h sur Twitch" in page
+
+
+def test_studio_tab(server):
+    base, state = server
+    page = urllib.request.urlopen(base + "/?s=studio").read().decode()
+    assert "✋ TikTok Studio (1)" in page
+    assert "⬇ Vidéo" in page and "📋 Description" in page and "✔ Publié" in page
+    assert "tiktokstudio/upload" in page and "⏰ Programmer" not in page
+    # les autres onglets gardent la programmation
+    assert "⏰ Programmer" in urllib.request.urlopen(base + "/").read().decode()
+    resp = _post(base + "/done/abc", "caption=ma description finale&back=studio".encode())
+    assert "s=studio" in resp.url
+    clip = state.get("abc")
+    assert clip["status"] == "published" and clip["caption"] == "ma description finale"

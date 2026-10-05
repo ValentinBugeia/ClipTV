@@ -142,7 +142,8 @@ document.addEventListener('click', ev => {{
 function copyCaption(btn) {{
   const area = btn.closest('.card').querySelector('textarea');
   const text = area ? area.value : '';
-  const done = () => {{ btn.textContent = '✔ Copiée'; setTimeout(() => btn.textContent = '📋 Copier la légende', 2000); }};
+  const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  const done = () => {{ btn.textContent = '✔ Copiée'; setTimeout(() => btn.textContent = label, 2000); }};
   if (navigator.clipboard && window.isSecureContext) {{
     navigator.clipboard.writeText(text).then(done);
   }} else if (area) {{
@@ -269,6 +270,7 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 
 SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/stats", "Statistiques"),
             ("/accounts", "Comptes"), ("/help", "Aide")]
+STUDIO = "studio"  # onglet « TikTok Studio » : clips prêts, à publier soi-même
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),
         ("published", "Publiés"), ("rejected", "Rejetés"), ("failed", "Erreurs")]
 CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo", "restore")
@@ -307,6 +309,31 @@ ACTIONS = """<form method="post" action="/schedule/{id}" class="act">
     {menu}
   </div>
 </form>"""
+
+# mode « je publie moi-même » (TikTok Studio) : télécharger, copier, marquer publié
+MANUAL_ACTIONS = """<form method="post" action="/done/{id}" class="act">
+  <input type="hidden" name="back" value="studio">
+  <textarea name="caption" rows="4" aria-label="Description">{caption}</textarea>
+  <div class="bar">
+    <a class="btn" href="{download}" download title="Enregistre la vidéo sur ton PC">⬇ Vidéo</a>
+    <button type="button" onclick="copyCaption(this)" title="Copie la description (modifiable ci-dessus)">📋 Description</button>
+    <button class="now" type="submit" title="À cliquer une fois publié sur TikTok">✔ Publié</button>
+    {menu}
+  </div>
+</form>"""
+
+MANUAL_MENU = """<details class="more"><summary class="iconbtn" title="Plus d'actions" aria-label="Plus d'actions">⋯</summary>
+  <div class="menu">
+    <a href="https://www.tiktok.com/tiktokstudio/upload" target="_blank" rel="noopener">↗ Ouvrir TikTok Studio</a>
+    <div class="redo">
+      <span>🎬 Refaire le montage</span>
+      <select name="layout" aria-label="Cadrage">{layouts}</select>
+      <label class="check"><input type="checkbox" name="subtitles" value="1"{subs_checked}> Sous-titres</label>
+      <button type="submit" formaction="/redo/{id}">Refaire</button>
+    </div>
+    {reject}
+  </div>
+</details>"""
 
 SCHEDULED = """<div class="when">⏰ {when}</div>
 <form method="post" action="/publish/{id}" class="act">
@@ -674,13 +701,21 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         tab = q.get("s", ["rendered"])[0]
         counts = {s: self.state.count(s) for s, _ in TABS}
+        counts[STUDIO] = counts["rendered"]
+        manual = tab == STUDIO  # onglet « TikTok Studio » : publier soi-même
         tabs = "".join(
             f'<a class="{"on" if s == tab else ""}" href="/?s={s}">{label} ({counts[s]})</a>'
-            for s, label in TABS)
-        cards = "".join(self._card(c) for c in self.state.list(tab)) or \
+            for s, label in TABS + [(STUDIO, "✋ TikTok Studio")])
+        cards = "".join(self._card(c, manual=manual)
+                        for c in self.state.list("rendered" if manual else tab)) or \
             '<p class="empty">Rien ici pour le moment.</p>'
         info = e(f"Publication : {', '.join(PLATFORM_NAMES.get(p, p) for p in self.platforms)}"
                  f" · créneaux {', '.join(self.cfg.post_slots)} ({self.cfg.timezone})")
+        if manual:
+            info = ('✋ Les clips prêts, à publier toi-même : <strong>⬇ Vidéo</strong> → <strong>📋 Description'
+                    '</strong> → <a href="https://www.tiktok.com/tiktokstudio/upload" '
+                    'target="_blank" rel="noopener">TikTok Studio ↗</a> (glisse la vidéo, colle '
+                    'la description, publie) → <strong>✔ Publié</strong>')
         body = (f'<nav class="sub">{tabs}</nav>{self._search_panel()}'
                 f'<p class="info">{info}</p><main>{cards}</main>')
         self._page(body, "/")
@@ -732,7 +767,8 @@ class Handler(BaseHTTPRequestHandler):
             self.app.audio_cache[key] = has_audio(p)
         return self.app.audio_cache[key]
 
-    def _card(self, c: dict) -> str:
+    def _card(self, c: dict, manual: bool = False) -> str:
+        """``manual`` : boutons de l'onglet TikTok Studio (télécharger, copier, publié)."""
         cid, status = e(c["clip_id"]), c["status"]
         base = f'/video/{urllib.parse.quote(c["clip_id"], safe="")}'
         video = e(f"{base}?v={c['updated_at']}")  # nouvelle URL après un remontage (cache)
@@ -744,7 +780,17 @@ class Handler(BaseHTTPRequestHandler):
             menu = MENU.format(download=e(f"{base}?dl=1"), id=cid, reject=reject,
                                layouts=_options(LAYOUTS_REDO, settings.get("layout", "auto")),
                                subs_checked=" checked" if settings.get("subtitles", True) else "")
-        if status == "rendered" or (status == "failed" and c.get("output_path")):
+        if manual and (status in ("rendered", "scheduled")
+                       or (status == "failed" and c.get("output_path"))):
+            settings = self._settings()
+            reject = ('<button type="submit" class="danger" formaction="/reject/{id}">'
+                      '🗑 Rejeter</button>'.format(id=cid))
+            menu = MANUAL_MENU.format(id=cid, reject=reject,
+                                      layouts=_options(LAYOUTS_REDO, settings.get("layout", "auto")),
+                                      subs_checked=" checked" if settings.get("subtitles", True) else "")
+            actions = MANUAL_ACTIONS.format(id=cid, caption=e(c["caption"]), menu=menu,
+                                            download=e(f"{base}?dl=1"))
+        elif status == "rendered" or (status == "failed" and c.get("output_path")):
             label = "Réessayer" if status == "failed" else "Publier"
             actions = ACTIONS.format(id=cid, caption=e(c["caption"]), now_label=label, menu=menu)
         elif status == "publishing":
@@ -1198,7 +1244,13 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         self.send_response(206 if rng else 200)
         self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "video/mp4")
         if "dl=1" in urllib.parse.urlparse(self.path).query:  # bouton « Télécharger »
-            self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+            import re as _re
+            import unicodedata as _ud
+
+            slug = _ud.normalize("NFKD", f"{clip['channel']} {clip.get('title') or ''}")
+            slug = _re.sub(r"[^A-Za-z0-9]+", "-", slug.encode("ascii", "ignore").decode())
+            name = (slug.strip("-")[:60] or path.stem) + ".mp4"
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
         if rng:
@@ -1269,8 +1321,9 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             if clip["status"] not in ("rendered", "scheduled", "failed"):
                 return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record_post(clip_id, "manuel", "ok")
-            self.state.record(clip_id, clip["channel"], "published")
-            return self._redirect("Clip marqué comme publié ✔")
+            self.state.record(clip_id, clip["channel"], "published", caption=caption or None)
+            return self._redirect("Clip marqué comme publié ✔",
+                                  tab=STUDIO if form.get("back") == STUDIO else None)
         if action == "unschedule":
             ok = self.state.unschedule(clip_id)
             return self._redirect("Programmation annulée." if ok else "Clip déjà parti.",
@@ -1279,7 +1332,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             if clip["status"] not in ("rendered", "failed"):
                 return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record(clip_id, clip["channel"], "rejected", caption=caption)
-            return self._redirect("Clip rejeté.")
+            return self._redirect("Clip rejeté.",
+                                  tab=STUDIO if form.get("back") == STUDIO else None)
         if action == "restore":
             if clip["status"] != "rejected" or not clip.get("output_path") \
                     or not Path(clip["output_path"]).exists():

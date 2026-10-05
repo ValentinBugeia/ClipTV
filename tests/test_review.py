@@ -547,3 +547,13 @@ def test_retry_failed_shows_tiktok_screen_again(server, monkeypatch):
     resp = _post(base + "/publish/abc")
     assert "/tiktok/post/abc?then=publish" in resp.url
     assert state.get("abc")["status"] == "failed"
+
+
+def test_potential_badge_on_card(server):
+    import json
+
+    base, state = server
+    state.set_signals("abc", json.dumps({"vph": 900, "standout": 3, "duration": 22,
+                                          "speech": True, "hook": True}))
+    page = urllib.request.urlopen(base + "/").read().decode()
+    assert "Fort potentiel" in page and "vues/h sur Twitch" in page

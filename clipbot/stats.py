@@ -116,6 +116,49 @@ def refresh(cfg: Config, state: State) -> str:
     return f"{len(videos)} vidéo(s) TikTok mises à jour"
 
 
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"\w+", (text or "").lower(), flags=re.UNICODE) if len(w) > 3}
+
+
+def on_tiktok(state: State):
+    """Fonction clip -> True si ce clip est déjà sur le compte TikTok (publié depuis ce PC,
+    un autre PC ou à la main). Se base sur la liste des vidéos du compte (statistiques)."""
+    with state.lock:
+        rows = state.conn.execute(
+            "SELECT clip_id, title, description FROM tiktok_videos").fetchall()
+    linked = {r[0] for r in rows if r[0]}
+    texts = [f"{r[1] or ''} {r[2] or ''}" for r in rows]
+    norms = [re.sub(r"\W+", "", t.lower(), flags=re.UNICODE) for t in texts]
+    words = [_words(t) for t in texts]
+
+    def check(clip) -> bool:
+        if clip.id in linked:
+            return True
+        title = re.sub(r"\W+", "", (clip.title or "").lower(), flags=re.UNICODE)
+        if len(title) >= 12 and any(title[:30] in n for n in norms):
+            return True
+        # légende réécrite (Claude) : même streamer + la plupart des mots du titre
+        tw = _words(clip.title)
+        channel = clip.broadcaster_name.lower().replace(" ", "")
+        return len(tw) >= 3 and any(
+            channel in n and len(tw & w) >= 0.7 * len(tw) for n, w in zip(norms, words))
+    return check
+
+
+def refresh_before_search(cfg: Config, state: State, max_age: float = 900) -> None:
+    """Avant une recherche : liste des vidéos du compte à jour (moins de 15 min), pour ne
+    pas reproposer un clip déjà publié. Silencieux si les statistiques ne sont pas actives."""
+    s = state.get_settings()
+    if not s.get(ENABLED) or not cfg.tiktok_token_path.exists():
+        return
+    if time.time() - (s.get(UPDATED) or 0) < max_age:
+        return
+    try:
+        refresh(cfg, state)
+    except Exception:
+        log.warning("Liste des vidéos TikTok non rafraîchie", exc_info=True)
+
+
 def due(state: State) -> bool:
     s = state.get_settings()
     return bool(s.get(ENABLED)) and time.time() - (s.get(UPDATED) or 0) >= REFRESH_EVERY

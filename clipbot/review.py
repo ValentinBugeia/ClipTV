@@ -110,6 +110,9 @@ PAGE = """<!doctype html>
   .badges {{ display:flex; gap:6px; flex-wrap:wrap }}
   .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
   .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
+  .pot summary {{ cursor:pointer; list-style:none }} .pot summary::-webkit-details-marker {{ display:none }}
+  .badge.pot-fort {{ background:#3b1d6e; color:#e3d1ff }} .badge.pot-moyen {{ background:#2a2a2d; color:var(--fg) }}
+  .pot ul {{ margin:6px 0 0; padding-left:18px; color:var(--muted); font-size:12px }}
   .flash {{ padding:10px 12px; border-radius:8px; background:#1f3a1f; margin-bottom:16px }}
   .flash.err {{ background:#3a1f1f }}
   .acc {{ display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;
@@ -498,9 +501,17 @@ def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
         with _render_lock:
             from .twitch import is_non_gaming
 
+            info: dict = {}
             render_video(src, Path(clip["output_path"]), app.cfg, opts,
                          allow_split=not is_non_gaming(clip.get("category") or ""),
-                         title=clip.get("title") or "")
+                         title=clip.get("title") or "", info=info)
+            import json
+
+            try:  # garde les indices Twitch, met à jour ceux du montage
+                old = json.loads(clip.get("signals") or "{}")
+            except ValueError:
+                old = {}
+            app.state.set_signals(clip["clip_id"], json.dumps({**old, **info}))
         error = None
     except Exception as exc:
         log.exception("Remontage échoué pour %s", clip["clip_id"])
@@ -774,12 +785,26 @@ class Handler(BaseHTTPRequestHandler):
             f'<span class="badge {e(p["status"])}" title="{e(p.get("error") or p.get("post_id"))}">'
             f'{e(PLATFORM_NAMES.get(name, name))} {"✔" if p["status"] == "ok" else "✖"}</span>'
             for name, p in posts.items())
+        if c.get("signals") and status in ("rendered", "scheduled", "failed"):
+            badges += self._potential_badge(c)
         badges = f'<div class="badges">{badges}</div>' if badges else ""
         error = f" · ⚠️ {e(c['error'])}" if c.get("error") else ""
         return CARD.format(player=player,
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
+
+    def _potential_badge(self, c: dict) -> str:
+        """Indicateur « potentiel de vues » (détail au clic : raisons du score)."""
+        from . import potential
+
+        if not hasattr(self, "_pot_hist"):  # une seule lecture des stats par page
+            self._pot_hist = potential.history(self.state)
+        p = potential.score(c, self._pot_hist)
+        reasons = "".join(f"<li>{e(r)}</li>" for r in p["reasons"])
+        return (f'<details class="pot"><summary class="badge pot-{p["level"]}" '
+                f'title="Estimation, pas une garantie">{e(p["label"])} · {p["score"]}/100'
+                f'</summary><ul>{reasons}</ul></details>')
 
     # ---------- page Aide ----------
     def _help_page(self):

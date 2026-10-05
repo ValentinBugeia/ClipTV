@@ -57,16 +57,26 @@ def standout_score(clips: list[Clip]):
         by_channel.setdefault(c.broadcaster_name.lower(), []).append(c.view_count)
     typical = {k: median(v) for k, v in by_channel.items() if len(v) >= 3}
 
-    def score(clip: Clip) -> float:
+    for clip in clips:  # gardé sur le clip pour l'indicateur de potentiel
         base = typical.get(clip.broadcaster_name.lower())
-        ratio = (clip.view_count / max(base, 1)) ** 0.5 if base else 1.0
+        clip.standout = round(clip.view_count / max(base, 1), 2) if base else None
+
+    def score(clip: Clip) -> float:
+        ratio = clip.standout ** 0.5 if clip.standout else 1.0
         return clip.virality() * min(max(ratio, 0.5), 4.0)
     return score
 
 
+def tiktok_check(state):
+    """Vérifie les vidéos déjà sur le compte TikTok (liste rafraîchie si besoin)."""
+    from . import stats
+
+    return stats.on_tiktok(state)
+
+
 def pick_clips(clips: list[Clip], *, top: int, per_channel: int = 1, min_views: int = 0,
                max_duration: float = 60, language: str | None = None,
-               is_done=lambda cid: False) -> list[Clip]:
+               is_done=lambda cid: False, on_tiktok=lambda clip: False) -> list[Clip]:
     """Meilleurs clips tous streamers confondus, en limitant le nombre par streamer."""
     if language:
         clips = [c for c in clips if not c.language or c.language.startswith(language)]
@@ -75,6 +85,9 @@ def pick_clips(clips: list[Clip], *, top: int, per_channel: int = 1, min_views: 
                        key=standout_score(clips), reverse=True):
         key = clip.broadcaster_name.lower()
         if is_done(clip.id) or per.get(key, 0) >= per_channel:
+            continue
+        if on_tiktok(clip):  # déjà sur le compte (autre PC, publication à la main…)
+            log.info("Déjà sur TikTok, ignoré : %s · %s", clip.broadcaster_name, clip.title)
             continue
         picked.append(clip)
         per[key] = per.get(key, 0) + 1
@@ -108,7 +121,8 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
                 owner[c.id] = login
             clips += found
     picked = pick_clips(clips, top=top, per_channel=per_channel, min_views=min_views,
-                        max_duration=max_duration, language=language, is_done=state.is_done)
+                        max_duration=max_duration, language=language, is_done=state.is_done,
+                        on_tiktok=tiktok_check(state))
     log.info("%d clips trouvés, %d retenus", len(clips), len(picked))
     return [(c, owner[c.id]) for c in picked]
 
@@ -117,8 +131,11 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
     from . import progress
     from .pipeline import Prefetcher, process_clip
 
+    from . import stats
+
     results = []
     progress.step("search", f"Lives les plus regardés ({kwargs.get('language') or 'toutes langues'})")
+    stats.refresh_before_search(cfg, state)  # pour écarter les clips déjà sur TikTok
     found = discover(twitch, state, max_duration=opts.max_duration, **kwargs)
     if not found:
         progress.step("search", "Aucun nouveau clip assez viral pour le moment")

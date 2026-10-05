@@ -79,7 +79,7 @@ def whisper_language(code: str | None) -> str | None:
 
 def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                  allow_split: bool = True, language: str | None = None, on_words=None,
-                 title: str = "") -> tuple[Path, list]:
+                 title: str = "", info: dict | None = None) -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
 
     ``allow_split=False`` (catégories IRL, Just Chatting…) : jamais de découpage
@@ -174,6 +174,14 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                     fonts_dir=opts.fonts_dir, cam_box=cam_box, crop_center=crop_center,
                     crop_track=crop_track, cam_height=cam_height, start=start,
                     normalize_audio=opts.normalize_audio)
+    if info is not None:  # indices pour l'indicateur de potentiel
+        from .render import probe_duration
+
+        try:
+            info["duration"] = round(probe_duration(dst), 1)
+        except Exception:
+            pass
+        info.update(speech=len(words) >= 3, hook=bool(hook), burned=burned)
     return dst, words
 
 
@@ -315,11 +323,19 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
             caption_job["thread"] = threading.Thread(target=run, daemon=True)
             caption_job["thread"].start()
 
+        info: dict = {}
         with _render_lock:
             render_video(src, dst, cfg, opts, allow_split=not is_non_gaming(category),
                          language=whisper_language(getattr(clip, "language", "")),
-                         title=clip.title,
-                         on_words=write_caption)
+                         title=clip.title, on_words=write_caption, info=info)
+        import json
+
+        try:
+            vph = round(clip.virality(), 1)
+        except Exception:
+            vph = None
+        meta["signals"] = json.dumps({**info, "vph": vph,
+                                      "standout": getattr(clip, "standout", None)})
         progress.step("caption")
         if "thread" in caption_job:
             caption_job["thread"].join()
@@ -348,8 +364,11 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
 def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, twitch, *,
                  hours: float = 24, top: int = 3, min_views: int = 50) -> list[tuple[str, bool]]:
     """Traite les clips les plus viraux de chaque chaîne. Retourne [(clip_id, succès)]."""
+    from . import stats
     from .twitch import rank_clips
 
+    stats.refresh_before_search(cfg, state)
+    on_tiktok = stats.on_tiktok(state)  # clips déjà sur le compte TikTok : ignorés
     results = []
     for channel in channels:
         log.info("== %s ==", channel)
@@ -358,7 +377,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         clips = twitch.get_clips(broadcaster_id, since_hours=hours)
         ranked = [c for c in rank_clips(clips, min_views=min_views,
                                         max_duration=opts.max_duration)
-                  if not state.is_done(c.id)]
+                  if not state.is_done(c.id) and not on_tiktok(c)]
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         twitch.annotate_categories(ranked[:top])
         prefetch = Prefetcher(cfg, ranked[:top])

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS clips (
     error        TEXT,
     scheduled_at INTEGER,
     category     TEXT,
+    signals      TEXT,              -- JSON : indices de potentiel (vues Twitch, durée…)
     updated_at   INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS posts (
@@ -79,7 +80,7 @@ class State:
         self.conn.executescript(SCHEMA)
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(clips)")}
         for col, typ in (("caption", "TEXT"), ("scheduled_at", "INTEGER"),
-                         ("category", "TEXT")):  # bases créées par d'anciennes versions
+                         ("category", "TEXT"), ("signals", "TEXT")):  # anciennes bases
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE clips ADD COLUMN {col} {typ}")
         self.conn.commit()
@@ -129,12 +130,12 @@ class State:
     def record(self, clip_id: str, channel: str, status: str, **fields) -> None:
         cols = {"title": None, "url": None, "view_count": None, "output_path": None,
                 "caption": None, "publish_id": None, "error": None, "scheduled_at": None,
-                "category": None, **fields}
+                "category": None, "signals": None, **fields}
         self._write(
             """INSERT INTO clips (clip_id, channel, title, url, view_count, status,
                                   output_path, caption, publish_id, error, scheduled_at,
-                                  category, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                  category, signals, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(clip_id) DO UPDATE SET
                  status=excluded.status,
                  output_path=COALESCE(excluded.output_path, clips.output_path),
@@ -143,11 +144,16 @@ class State:
                  error=excluded.error,
                  scheduled_at=excluded.scheduled_at,
                  category=COALESCE(excluded.category, clips.category),
+                 signals=COALESCE(excluded.signals, clips.signals),
                  updated_at=excluded.updated_at""",
             (clip_id, channel, cols["title"], cols["url"], cols["view_count"], status,
              cols["output_path"], cols["caption"], cols["publish_id"], cols["error"],
-             cols["scheduled_at"], cols["category"], int(time.time())),
+             cols["scheduled_at"], cols["category"], cols["signals"], int(time.time())),
         )
+
+    def set_signals(self, clip_id: str, signals: str) -> None:
+        """Met à jour les indices de potentiel sans toucher au statut ni à la programmation."""
+        self._write("UPDATE clips SET signals=? WHERE clip_id=?", (signals, clip_id))
 
     # ---------- programmation ----------
     def schedule(self, clip_id: str, when: int, caption: str | None = None) -> bool:

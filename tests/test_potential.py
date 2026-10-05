@@ -73,3 +73,21 @@ def test_on_tiktok_detects_existing_video(tmp_path):
     check = stats.on_tiktok(state)
     assert check(clip("x3", "Billy daronned maman Ilhan"))
     assert not check(clip("x4", "Billy daronned maman Ilhan", "autre_streamer"))
+
+
+def test_backfill_old_clips(tmp_path):
+    import subprocess
+
+    cfg = Config()
+    cfg.data_dir = tmp_path
+    cfg.twitch_client_id = cfg.twitch_client_secret = None
+    state = State(cfg.db_path)
+    video = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc2=size=320x240:duration=4", "-pix_fmt", "yuv420p", str(video)],
+                   check=True)
+    state.record("old", "nico_la", "rendered", output_path=str(video))
+    assert potential.backfill(cfg, state) == 1
+    sig = json.loads(state.get("old")["signals"])
+    assert 3.5 <= sig["duration"] <= 4.5
+    assert potential.backfill(cfg, state) == 0  # déjà fait

@@ -107,3 +107,46 @@ def score(clip: dict, hist: dict) -> dict:
     total = round(min(momentum, 40) + min(fmt, 25) + min(audience, 35))
     level, label = next((lv, lb) for th, lv, lb in LEVELS if total >= th)
     return {"score": total, "level": level, "label": label, "reasons": reasons}
+
+
+def backfill(cfg, state) -> int:
+    """Calcule les indices des clips prêts qui n'en ont pas (préparés avant l'indicateur) :
+    durée de la vidéo, paroles (d'après la légende), vues/heure Twitch. Retourne le nombre
+    de clips complétés."""
+    import logging
+    import time
+    from pathlib import Path
+
+    from .render import probe_duration
+
+    log = logging.getLogger("clipbot.potential")
+    twitch = None
+    if cfg.twitch_client_id and cfg.twitch_client_secret:
+        from .twitch import TwitchClient
+
+        twitch = TwitchClient(cfg.twitch_client_id, cfg.twitch_client_secret)
+    done = 0
+    for status in ("rendered", "scheduled", "failed"):
+        for clip in state.list(status):
+            if clip.get("signals") or not clip.get("output_path"):
+                continue
+            sig: dict = {"hook": False, "speech": True}
+            try:
+                sig["duration"] = round(probe_duration(Path(clip["output_path"])), 1)
+            except Exception:
+                pass
+            if twitch is not None:
+                try:
+                    from .twitch import get_clip
+
+                    found = get_clip(twitch, clip["clip_id"])
+                    if found:
+                        sig["vph"] = round(found.virality(), 1)
+                except Exception:
+                    log.debug("Vues Twitch indisponibles pour %s", clip["clip_id"])
+            state.set_signals(clip["clip_id"], json.dumps(sig))
+            # la page se met à jour toute seule (même mécanisme qu'un nouveau clip)
+            state._write("UPDATE clips SET updated_at=? WHERE clip_id=?",
+                         (int(time.time()), clip["clip_id"]))
+            done += 1
+    return done

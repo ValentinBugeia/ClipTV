@@ -700,6 +700,7 @@ class Handler(BaseHTTPRequestHandler):
     def _clips_page(self):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         tab = q.get("s", ["rendered"])[0]
+        self._start_backfill()
         counts = {s: self.state.count(s) for s, _ in TABS}
         counts[STUDIO] = counts["rendered"]
         manual = tab == STUDIO  # onglet « TikTok Studio » : publier soi-même
@@ -839,6 +840,22 @@ class Handler(BaseHTTPRequestHandler):
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
+
+    def _start_backfill(self) -> None:
+        """Indicateur de potentiel pour les clips préparés avant cette fonction (une fois)."""
+        if getattr(self.app, "backfill_started", False):
+            return
+        self.app.backfill_started = True
+        from . import potential
+
+        def run():
+            try:
+                n = potential.backfill(self.cfg, self.state)
+                if n:
+                    log.info("Potentiel calculé pour %d clip(s) déjà prêts", n)
+            except Exception:
+                log.exception("Calcul du potentiel des anciens clips impossible")
+        threading.Thread(target=run, daemon=True).start()
 
     def _potential_badge(self, c: dict) -> str:
         """Indicateur « potentiel de vues » (détail au clic : raisons du score)."""

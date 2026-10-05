@@ -23,6 +23,29 @@ MEMORY_DAYS = 3        # durée pendant laquelle un streamer repéré reste scan
 MEMORY_KEY = "discovered"
 
 
+def proven_channels(state, limit: int = 10) -> tuple[list[str], list[str]]:
+    """(streamers qui marchent sur ton compte, streamers à éviter)."""
+    from statistics import median
+
+    from . import potential, selection
+
+    hist = potential.history(state)
+    prefs = selection.preferences(state)
+    good, bad = [], []
+    if len(hist["all"]) >= potential.MIN_HISTORY:
+        overall = median(hist["all"])
+        for login, views in hist["channel"].items():
+            factor = potential._group_factor(views, overall) or 1
+            if len(views) >= 2 and factor >= 1.2:
+                good.append((factor, login))
+            elif len(views) >= 3 and factor < 0.5:
+                bad.append(login)
+    for login, score in prefs["channel"].items():
+        if score <= -3:
+            bad.append(login)
+    return [g for _, g in sorted(good, reverse=True)[:limit]], bad
+
+
 def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
                        streamers: int, favorites: list[str] = ()) -> dict[str, str]:
     """{login: broadcaster_id} des chaînes à scanner."""
@@ -37,6 +60,18 @@ def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
     memory = dict(keep)
     state.save_settings({MEMORY_KEY: memory})
     channels = {login: v["id"] for login, v in memory.items()}
+    # streamers qui marchent sur ton compte : toujours scannés ; ceux qui ne marchent pas
+    # (ou que tu rejettes souvent) : écartés, sauf s'ils sont dans tes favoris
+    good, bad = proven_channels(state)
+    for login in bad:
+        if login not in favorites:
+            channels.pop(login, None)
+    for login in good:
+        if login not in channels:
+            try:
+                channels[login] = twitch.get_broadcaster_id(login)
+            except Exception:
+                log.debug("Chaîne %s introuvable", login)
     for login in favorites:
         if login not in channels:
             try:
@@ -68,12 +103,17 @@ def standout_score(clips: list[Clip]):
 
 
 def preselection_boost(state):
-    """Durée adaptée à TikTok × résultats de tes anciens TikToks pour ce streamer."""
+    """Durée adaptée à TikTok × tes anciens TikToks × tes choix (publiés / rejetés) ×
+    titre qui annonce une réaction × pic du chat au moment du clip."""
     from . import potential, selection
 
     hist = potential.history(state)
+    prefs = selection.preferences(state)
     return lambda clip: (selection.duration_factor(clip.duration)
-                         * selection.history_factor(clip, hist))
+                         * selection.history_factor(clip, hist)
+                         * selection.preference_factor(clip, prefs)
+                         * selection.title_factor(clip.title)
+                         * selection.chat_factor(state, clip))
 
 
 def tiktok_check(state):

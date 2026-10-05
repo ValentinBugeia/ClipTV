@@ -81,7 +81,13 @@ def _start_score(sig: dict, reasons: list[str]) -> float:
     pts += 15 if 12 <= dur <= 35 else 10 if 35 < dur <= 50 else 4 if dur > 50 else 8
     pts += 5 if sig.get("speech") else 0
     pts += 5 if sig.get("hook") else 0
-    return pts / 6.5  # sur 65 points → /10 (l'audience n'est pas encore connue)
+    if (sig.get("chat_spike") or 0) >= 3:
+        pts += 6
+        reasons.append(f"Le chat a explosé au moment du clip (×{sig['chat_spike']:.0f})")
+    if (sig.get("reaction") or 0) >= 4 and (sig.get("peak_at") or 99) <= 8:
+        pts += 4
+        reasons.append(f"Grosse réaction dès {sig['peak_at']:.0f} s")
+    return min(pts / 6.5, 10)  # sur 65 points → /10 (l'audience n'est pas encore connue)
 
 
 def score(clip: dict, hist: dict) -> dict:
@@ -113,6 +119,12 @@ def score(clip: dict, hist: dict) -> dict:
             factor *= min(max(standout, 0.5), 4) ** 0.25
             if standout >= 2:
                 reasons.append(f"Clip ×{standout:.1f} au-dessus des clips habituels du streamer")
+        if (sig.get("chat_spike") or 0) >= 3:
+            factor *= 1.2
+            reasons.append(f"Le chat a explosé au moment du clip (×{sig['chat_spike']:.0f})")
+        if (sig.get("talk_rate") or 0) >= 2.5 or (sig.get("hype_words") or 0) >= 3:
+            factor *= 1.1
+            reasons.append("Ça parle vite et fort (réactions dans les paroles)")
         if (sig.get("reaction") or 0) >= 4 and (sig.get("peak_at") or 99) <= 8:
             factor *= 1.15
             reasons.append(f"Grosse réaction (son ×{sig['reaction']:.0f}) dès "

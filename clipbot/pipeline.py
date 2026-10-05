@@ -181,7 +181,10 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
             info["duration"] = round(probe_duration(dst), 1)
         except Exception:
             pass
-        info.update(speech=len(words) >= 3, hook=bool(hook), burned=burned)
+        from .enhance import speech_energy
+
+        info.update(speech=len(words) >= 3, hook=bool(hook), burned=burned,
+                    **speech_energy(words))
     return dst, words
 
 
@@ -338,7 +341,8 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
         meta["signals"] = json.dumps({**info, "vph": vph,
                                       "standout": getattr(clip, "standout", None),
                                       "reaction": audio.get("reaction"),
-                                      "peak_at": audio.get("peak_at")})
+                                      "peak_at": audio.get("peak_at"),
+                                      "chat_spike": getattr(clip, "chat_spike", None)})
         progress.step("caption")
         if "thread" in caption_job:
             caption_job["thread"].join()
@@ -381,6 +385,10 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         ranked = [c for c in rank_clips(clips, min_views=min_views,
                                         max_duration=opts.max_duration)
                   if not state.is_done(c.id) and not on_tiktok(c)]
+        from .discover import preselection_boost
+
+        boost = preselection_boost(state)  # tes TikToks, tes choix, titre, chat
+        ranked.sort(key=lambda c: c.virality() * boost(c), reverse=True)
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         from . import selection
 

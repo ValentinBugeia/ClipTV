@@ -113,3 +113,22 @@ def has_burned_subtitles(video: Path, samples: int = 16) -> bool:
     if changing:
         log.info("Sous-titres déjà présents dans le stream (%d/%d images)", lines, samples)
     return changing
+
+
+def speech_energy(words: list) -> dict:
+    """Ce qui se dit dans le clip : débit (mots/s) et mots de réaction (mdr, non mais,
+    wtf, cris…). Un clip où ça parle vite et fort retient mieux qu'un gameplay silencieux."""
+    import re as _re
+
+    from .captions import MOODS
+    from .live import HYPE_TOKENS, LAUGH_RE
+
+    if not words:
+        return {"talk_rate": 0.0, "hype_words": 0}
+    span = max(words[-1].end - words[0].start, 1.0)
+    text = " ".join(w.text.lower() for w in words)
+    tokens = _re.findall(r"[\w+]+", text)
+    hype = sum(1 for t in tokens if t in HYPE_TOKENS or LAUGH_RE.match(t))
+    hype += sum(len(_re.findall(p, text)) for p, _ in MOODS)
+    hype += len(_re.findall(r"non mais|c'est pas possible|attends|oh non|t'es sérieux", text))
+    return {"talk_rate": round(len(words) / span, 2), "hype_words": hype}

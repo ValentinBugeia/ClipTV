@@ -60,6 +60,66 @@ def history_factor(clip, hist: dict) -> float:
     return min(max(factor, 0.25), 4.0)
 
 
+PREF_DAYS = 60
+
+
+def preferences(state) -> dict:
+    """Ce que tu as gardé ou rejeté ces 60 derniers jours, par streamer et par catégorie :
+    publié / programmé = +1, rejeté = -1."""
+    import time
+
+    since = int(time.time() - PREF_DAYS * 86400)
+    with state.lock:
+        rows = state.conn.execute(
+            "SELECT channel, category, status FROM clips WHERE updated_at >= ?",
+            (since,)).fetchall()
+    out: dict = {"channel": {}, "category": {}}
+    for channel, category, status in rows:
+        delta = {"published": 1, "scheduled": 1, "publishing": 1, "rejected": -1}.get(status)
+        if not delta:
+            continue
+        for kind, key in (("channel", channel), ("category", category)):
+            if key:
+                out[kind][key.lower()] = out[kind].get(key.lower(), 0) + delta
+    return out
+
+
+def preference_factor(clip, prefs: dict) -> float:
+    """Plus de clips des streamers / catégories que tu publies, moins de ceux que tu rejettes."""
+    ch = prefs["channel"].get(clip.broadcaster_name.lower(), 0)
+    cat = prefs["category"].get((getattr(clip, "category", "") or "").lower(), 0)
+    return math.exp(0.12 * min(max(ch, -5), 5) + 0.08 * min(max(cat, -5), 5))
+
+
+def title_factor(title: str) -> float:
+    """Titre qui annonce une réaction (fou rire, rage, cri, clutch…) : petit bonus."""
+    import re
+
+    from .captions import MOODS
+    from .live import HYPE_TOKENS, LAUGH_RE
+
+    low = (title or "").lower()
+    tokens = re.findall(r"[\w+]+", low)
+    if any(re.search(p, low) for p, _ in MOODS) or any(
+            t in HYPE_TOKENS or LAUGH_RE.match(t) for t in tokens):
+        return 1.15
+    return 1.0
+
+
+def chat_factor(state, clip) -> float:
+    """Le chat a-t-il explosé au moment du clip ? (seulement si le chat était écouté)"""
+    from .live import chat_spike
+
+    try:
+        spike = chat_spike(state, clip.broadcaster_name, clip.created_at.timestamp())
+    except Exception:
+        spike = None
+    clip.chat_spike = spike
+    if spike is None:
+        return 1.0
+    return min(max(spike ** 0.35, 0.7), 2.0)
+
+
 def audio_profile(video: Path) -> dict:
     """{reaction, peak_at, duration} : force du pic de son (× le niveau habituel du clip)
     et seconde où il arrive."""

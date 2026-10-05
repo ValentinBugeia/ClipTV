@@ -53,6 +53,7 @@ def default_settings(cfg: Config) -> dict:
         "platforms": list(cfg.platforms),
         "post_slots": list(cfg.post_slots),
         "max_queue": 0,          # clips programmés max (0 = 2 jours de créneaux)
+        "smart_timing": True,    # cherche plus souvent le soir (lives), moins la nuit
     }
 
 
@@ -72,6 +73,20 @@ def max_queue(settings: dict) -> int:
     return int(settings.get("max_queue") or 2 * max(len(settings.get("post_slots") or []), 1))
 
 
+def timing_factor(tz: str, now: float | None = None) -> float:
+    """Le soir (18 h - 2 h), les gros lives produisent des clips frais : on cherche 2× plus
+    souvent. La nuit et le matin (3 h - 12 h), peu de nouveaux clips : 3× moins souvent."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    hour = datetime.fromtimestamp(now or time.time(), ZoneInfo(tz)).hour
+    if hour >= 18 or hour < 2:
+        return 0.5
+    if 3 <= hour < 12:
+        return 3.0
+    return 1.0
+
+
 class Autopilot:
     def __init__(self, cfg: Config, state: State, base_opts: Options, tick: float = 30):
         self.cfg, self.state, self.base_opts, self.tick = cfg, state, base_opts, tick
@@ -84,6 +99,8 @@ class Autopilot:
         self.next_run: float | None = None
         self.live_status: dict[str, str] = {}
         self._watchers: dict[str, tuple[threading.Thread, threading.Event]] = {}
+        self.chat = None          # enregistreur de l'activité du chat (live.ChatRecorder)
+        self._chat_synced = 0.0
         self._watch_key = ""
 
     # ---------- contrôle ----------
@@ -100,6 +117,8 @@ class Autopilot:
 
     def shutdown(self) -> None:
         self.stop.set()
+        if self.chat is not None:
+            self.chat.stop.set()
         self.wake.set()
         self._sync_watchers({"enabled": False})
 
@@ -113,6 +132,33 @@ class Autopilot:
             self.wake.wait(self.tick)
             self.wake.clear()
 
+    def _sync_chat_recorder(self, settings: dict) -> None:
+        """Écoute en continu le chat des lives scannés (toutes les 30 min : nouvelle liste)."""
+        if not (self.cfg.twitch_client_id and self.cfg.twitch_client_secret):
+            return
+        if self.chat is None:
+            from .live import ChatRecorder
+
+            self.chat = ChatRecorder(self.state)
+            self.chat.start()
+        if time.time() - self._chat_synced < 1800:
+            return
+        self._chat_synced = time.time()
+        try:
+            from .discover import proven_channels
+            from .twitch import TwitchClient, get_top_streams
+
+            twitch = TwitchClient(self.cfg.twitch_client_id, self.cfg.twitch_client_secret)
+            live = [s["user_login"] for s in get_top_streams(
+                twitch, language=settings.get("language") or None,
+                first=int(settings.get("streamers", 30)))]
+            wanted = set(live) | set(settings.get("channels") or []) \
+                | set(settings.get("live_channels") or []) | set(proven_channels(self.state)[0])
+            self.chat.set_channels(wanted)
+            log.info("Écoute du chat de %d lives (repère les moments forts)", len(wanted))
+        except Exception:
+            log.warning("Liste des lives pour l'écoute du chat indisponible", exc_info=True)
+
     def _step(self) -> None:
         from . import stats
 
@@ -120,12 +166,15 @@ class Autopilot:
             stats.refresh(self.cfg, self.state)  # statistiques TikTok, toutes les heures
         settings = load_settings(self.state, self.cfg)
         apply_settings(self.cfg, settings)
+        self._sync_chat_recorder(settings)
         self._sync_watchers(settings)
         if not settings["enabled"]:
             self.message, self.next_run = "En pause", None
             self.force = False
             return
         every = max(float(settings["every"]), 5) * 60
+        if settings.get("smart_timing", True):
+            every *= timing_factor(self.cfg.timezone)
         due = self.last_run is None or time.time() - self.last_run >= every
         if due or self.force:
             self.force = False

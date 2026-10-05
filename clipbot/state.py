@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS tiktok_videos (
     clip_id     TEXT,               -- clip cliptv d'origine, si reconnu
     updated_at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_activity (
+    channel TEXT NOT NULL,
+    bucket  INTEGER NOT NULL,       -- début de la tranche de 10 s (timestamp)
+    weight  REAL NOT NULL,          -- activité pondérée du chat (réactions fortes x2)
+    PRIMARY KEY (channel, bucket)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL             -- JSON
@@ -150,6 +156,24 @@ class State:
              cols["output_path"], cols["caption"], cols["publish_id"], cols["error"],
              cols["scheduled_at"], cols["category"], cols["signals"], int(time.time())),
         )
+
+    # ---------- activité du chat (enregistreur) ----------
+    def add_chat_activity(self, rows: list[tuple[str, int, float]], keep: float = 48 * 3600) -> None:
+        with self.lock:
+            self.conn.executemany(
+                """INSERT INTO chat_activity (channel, bucket, weight) VALUES (?,?,?)
+                   ON CONFLICT(channel, bucket) DO UPDATE SET weight = weight + excluded.weight""",
+                rows)
+            self.conn.execute("DELETE FROM chat_activity WHERE bucket < ?",
+                              (int(time.time() - keep),))
+            self.conn.commit()
+
+    def chat_activity(self, channel: str, start: float, end: float) -> dict[int, float]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT bucket, weight FROM chat_activity WHERE channel=? AND bucket>=? AND bucket<?",
+                (channel.lower(), int(start), int(end))).fetchall()
+        return {b: w for b, w in rows}
 
     def set_signals(self, clip_id: str, signals: str) -> None:
         """Met à jour les indices de potentiel sans toucher au statut ni à la programmation."""

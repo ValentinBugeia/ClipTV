@@ -1041,6 +1041,9 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
     Ajouter des sous-titres animés (décoche si tes streamers ont déjà les leurs)</label>
   <label class="check full"><input type="checkbox" name="ai_caption" value="1"{" checked" if s["ai_caption"] else ""}>
     Légendes et hashtags écrits par Claude</label>
+  <label class="check full"><input type="checkbox" name="smart_timing" value="1"{" checked" if s.get("smart_timing", True) else ""}>
+    Horaires intelligents : cherche 2× plus souvent le soir (18 h - 2 h, quand les gros lives
+    tournent) et 3× moins la nuit et le matin</label>
 </div>
 <div class="row" style="margin-top:14px"><button type="submit">Enregistrer</button></div>
 </form>"""
@@ -1561,6 +1564,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 "platforms": [p for p in form.get("platforms", []) if p in PLATFORMS],
                 "ai_caption": one.get("ai_caption") == "1",
                 "subtitles": one.get("subtitles") == "1",
+                "smart_timing": one.get("smart_timing") == "1",
             }
         except (ValueError, SystemExit) as exc:
             return self._redirect(f"Réglage invalide : {exc}", err=True, to="/auto")

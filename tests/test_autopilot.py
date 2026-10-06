@@ -13,7 +13,7 @@ def make(tmp_path, **settings):
     cfg.post_slots = ["12:00", "18:00"]
     state = State(cfg.db_path)
     state.save_settings({"enabled": True, "channels": ["a", "b"], "live_channels": [],
-                         "top": 5, **settings})
+                         "top": 5, "auto_publish": True, **settings})
     return cfg, state
 
 

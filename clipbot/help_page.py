@@ -80,8 +80,9 @@ def render(status: dict) -> str:
   (vertical), cadre le streamer et ajoute des sous-titres animés.</div>
   <div class="step"><b>3. Écrire</b>Elle prépare la légende avec des hashtags (par l'IA Claude
   si tu as mis sa clé).</div>
-  <div class="step"><b>4. Publier</b>Aux heures choisies, elle envoie la vidéo sur ton compte
-  TikTok. Tu la publies d'un tap depuis l'app TikTok.</div>
+  <div class="step"><b>4. Publier</b>Dans <em>Clips → À publier</em>, <strong>🚀 Préparer</strong>
+  télécharge la vidéo, copie la description et ouvre TikTok Studio : glisse la vidéo, colle la
+  description, publie, puis clique <strong>✔ Publié</strong>.</div>
 </div>
 <p>Tout se fait sur <strong>ton ordinateur</strong> : laisse la fenêtre noire (le terminal)
 ouverte et le PC allumé pendant que l'app travaille.</p></div>
@@ -148,9 +149,8 @@ brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où 
 <div class="panel" id="utiliser"><h2>Utiliser l'app</h2>
 <h3>Les onglets</h3>
 <ul>
-  <li><strong>Clips</strong> : les vidéos préparées. <em>À valider</em> (prêtes), <em>Programmés</em>
-  (partiront à l'heure prévue), <em>Envoi en cours</em>, <em>Publiés</em>, <em>Rejetés</em>,
-  <em>Erreurs</em>.</li>
+  <li><strong>Clips</strong> : <em>À publier</em> (clips prêts), <em>Publiés</em>,
+  <em>Rejetés</em> (récupérables), <em>Erreurs</em>.</li>
   <li><strong>Pilote auto</strong> : le mode automatique (marche/pause), ses réglages et la grille
   d'affluence TikTok pour choisir tes heures de publication.</li>
   <li><strong>Statistiques</strong> : vues, j'aime, meilleures vidéos, ce qui marche le mieux.</li>
@@ -159,12 +159,16 @@ brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où 
 </ul>
 <h3>Sous chaque clip</h3>
 <ul>
-  <li><strong>⏰ Programmer</strong> : le clip partira au prochain créneau libre.</li>
-  <li><strong>🚀 Publier</strong> : envoi tout de suite vers TikTok.</li>
-  <li><strong>⋯</strong> : télécharger la vidéo, copier la légende, marquer comme publié (si tu
-  l'as postée toi-même), <strong>refaire le montage</strong> (autre cadrage, avec ou sans
-  sous-titres) ou rejeter.</li>
-  <li>Tu peux <strong>modifier la légende</strong> dans la zone de texte avant de programmer ou publier.</li>
+  <li>La <strong>note sur 10</strong> en haut à droite : le potentiel du clip sur ton compte
+  (clique dessus pour le détail).</li>
+  <li><strong>🚀 Préparer</strong> : télécharge la vidéo, copie la description et ouvre TikTok
+  Studio. Il ne reste qu'à glisser la vidéo (dossier Téléchargements) et coller (Ctrl+V).</li>
+  <li><strong>✔ Publié</strong> : une fois en ligne, pour ranger le clip dans « Publiés ».</li>
+  <li>En petit : <strong>Vidéo seule</strong>, <strong>Description seule</strong>, et sur
+  téléphone <strong>📲 Partager vers TikTok</strong> quand le navigateur le permet.</li>
+  <li><strong>⋯</strong> : ouvrir TikTok Studio, <strong>refaire le montage</strong> (autre
+  cadrage, avec ou sans sous-titres) ou rejeter.</li>
+  <li>Tu peux <strong>modifier la description</strong> dans la zone de texte avant de préparer.</li>
 </ul>
 <h3>Pendant une recherche</h3>
 <p>Un panneau au centre montre chaque étape. <strong>Masquer</strong> le cache,

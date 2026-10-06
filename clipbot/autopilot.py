@@ -58,7 +58,12 @@ def default_settings(cfg: Config) -> dict:
 
 
 def load_settings(state: State, cfg: Config) -> dict:
-    return {**default_settings(cfg), **state.get_settings()}
+    settings = {**default_settings(cfg), **state.get_settings()}
+    if not settings.get("auto_publish"):
+        # app TikTok pas encore validée : rien n'est publié ni programmé par ClipTV, les
+        # clips attendent dans « À publier » (tu publies depuis TikTok Studio)
+        settings["then"] = "manual"
+    return settings
 
 
 def apply_settings(cfg: Config, settings: dict) -> None:

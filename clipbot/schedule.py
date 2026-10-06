@@ -71,6 +71,8 @@ def publish_due(state, cfg, opts, now: float | None = None) -> int:
     from .pipeline import publish_clip
 
     state.recover_stuck()
+    if not state.get_settings().get("auto_publish"):  # tu publies toi-même (TikTok Studio)
+        return 0
     done = 0
     for clip in state.due(now or time.time()):
         if not state.claim(clip["clip_id"]):

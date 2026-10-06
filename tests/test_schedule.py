@@ -52,6 +52,7 @@ def env(tmp_path):
     cfg.post_slots = SLOTS
     cfg.timezone = "Europe/Paris"
     state = State(cfg.db_path)
+    state.save_settings({"auto_publish": True})  # app validée : ClipTV publie
     video = tmp_path / "v.mp4"
     video.write_bytes(b"x")
     for cid in ("a", "b"):

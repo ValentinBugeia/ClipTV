@@ -1,4 +1,5 @@
 import threading
+import time
 from pathlib import Path
 import urllib.parse
 import urllib.error
@@ -21,6 +22,7 @@ def server(tmp_path):
     state = State(cfg.db_path)
     state.record("abc", "kamet0", "rendered", title="<b>Énorme</b>", url="https://x",
                  view_count=42, output_path=str(video), caption="légende #fyp")
+    state.save_settings({"auto_publish": True})  # tests de la publication par ClipTV
     srv = make_server(cfg, Options(), port=0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_address[1]}", state
@@ -269,13 +271,31 @@ def test_extract_oauth_code(raw, code):
 
 def test_manual_publishing(server):
     base, state = server
+    state.save_settings({"auto_publish": False})
     body = urllib.request.urlopen(base + "/").read().decode()
-    assert "Télécharger" in body and "Copier la légende" in body
+    assert "🚀 Préparer" in body and "Description seule" in body and "✔ Publié" in body
+    assert "⏰ Programmer" not in body and "Programmés (" not in body
+    assert "À publier (1)" in body and 'name="then"' not in body
     resp = urllib.request.urlopen(base + "/video/abc?dl=1")
     assert resp.headers["Content-Disposition"] == 'attachment; filename="kamet0-b-Enorme-b.mp4"'
-    _post(base + "/done/abc", b"")
-    assert state.get("abc")["status"] == "published"
+    _post(base + "/done/abc", "caption=ma description finale".encode())
+    clip = state.get("abc")
+    assert clip["status"] == "published" and clip["caption"] == "ma description finale"
     assert state.posts("abc")["manuel"]["status"] == "ok"
+
+
+def test_manual_mode_releases_scheduled_and_hides_publishing(server):
+    base, state = server
+    state.schedule("abc", int(time.time()) + 3600, "x")
+    state.save_settings({"auto_publish": False})
+    body = urllib.request.urlopen(base + "/").read().decode()
+    assert state.get("abc")["status"] == "rendered"  # revient dans « À publier »
+    auto = urllib.request.urlopen(base + "/auto").read().decode()
+    assert 'name="post_slots"' not in auto and 'name="then"' not in auto
+    acc = urllib.request.urlopen(base + "/accounts").read().decode()
+    assert "Activer la publication automatique" in acc and "Les vidéos arrivent" not in acc
+    body = _post(base + "/publish-mode", b"on=1").read().decode()
+    assert "Publication automatique activée" in body
 
 
 def test_manual_mode_setting(server):
@@ -284,13 +304,6 @@ def test_manual_mode_setting(server):
                                    ("post_slots", "18:00")]).encode()
     _post(base + "/auto", data)
     assert state.get_settings()["then"] == "manual"
-
-
-def test_accounts_page_in_manual_mode(server):
-    base, state = server
-    state.save_settings({"then": "manual"})
-    body = urllib.request.urlopen(base + "/accounts").read().decode()
-    assert "Pas nécessaire en mode" in body and 'href="/connect/tiktok"' not in body
 
 
 def test_tiktok_pkce_round_trip(server, monkeypatch):
@@ -559,20 +572,6 @@ def test_potential_badge_on_card(server):
     assert 'class="pot r-' in page and "/10" in page and "Estimation de départ" in page
 
 
-def test_studio_tab(server):
-    base, state = server
-    page = urllib.request.urlopen(base + "/?s=studio").read().decode()
-    assert "✋ TikTok Studio (1)" in page
-    assert "⬇ Vidéo" in page and "📋 Description" in page and "✔ Publié" in page
-    assert "tiktokstudio/upload" in page and "⏰ Programmer" not in page
-    # les autres onglets gardent la programmation
-    assert "⏰ Programmer" in urllib.request.urlopen(base + "/").read().decode()
-    resp = _post(base + "/done/abc", "caption=ma description finale&back=studio".encode())
-    assert "s=studio" in resp.url
-    clip = state.get("abc")
-    assert clip["status"] == "published" and clip["caption"] == "ma description finale"
-
-
 def test_card_warns_when_already_on_tiktok(server):
     base, state = server
     state.record("def", "kamet0", "rendered", title="Le clutch de malade en finale",
@@ -582,5 +581,5 @@ def test_card_warns_when_already_on_tiktok(server):
                         "create_time": 1, "cover": None, "share_url": None, "views": 1,
                         "likes": 0, "comments": 0, "shares": 0, "duration": 30,
                         "clip_id": None}])
-    page = urllib.request.urlopen(base + "/?s=studio").read().decode()
+    page = urllib.request.urlopen(base + "/").read().decode()
     assert "Déjà sur ton" in page

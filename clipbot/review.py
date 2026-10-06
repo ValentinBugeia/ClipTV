@@ -111,6 +111,9 @@ PAGE = """<!doctype html>
   .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
   .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
   .card {{ position:relative }}
+  .mini {{ font-size:12px; color:var(--muted); margin-top:6px }}
+  .mini a, .mini .link {{ color:var(--muted); background:none; border:0; padding:0; font:inherit;
+    cursor:pointer; text-decoration:underline }}
   .pot {{ --r:#9d9d9d; position:absolute; top:18px; right:18px; z-index:2 }}
   .pot.r-uncommon {{ --r:#3ddc4a }} .pot.r-rare {{ --r:#4da3ff }} .pot.r-epic {{ --r:#b964ff }}
   .pot.r-legendary {{ --r:#ff9a1f }}
@@ -159,6 +162,27 @@ function copyCaption(btn) {{
   }} else if (area) {{
     area.select(); document.execCommand('copy'); done();
   }}
+}}
+// « Préparer » : télécharge la vidéo, copie la description, ouvre TikTok Studio
+function prepareClip(btn) {{
+  const form = btn.closest('form');
+  const a = document.createElement('a');
+  a.href = btn.dataset.video; a.download = btn.dataset.name; document.body.appendChild(a);
+  a.click(); a.remove();
+  copyCaption(form.querySelector('.mini .link'));
+  window.open('https://www.tiktok.com/tiktokstudio/upload', '_blank', 'noopener');
+  btn.textContent = '✔ Prêt : glisse la vidéo, colle (Ctrl+V)';
+}}
+// téléphone (si le navigateur le permet) : partage direct de la vidéo vers l'app TikTok
+async function shareClip(btn) {{
+  const form = btn.closest('form');
+  copyCaption(form.querySelector('.mini .link'));
+  const blob = await (await fetch(btn.dataset.video)).blob();
+  const file = new File([blob], btn.dataset.name, {{ type: 'video/mp4' }});
+  try {{ await navigator.share({{ files: [file], text: form.querySelector('textarea').value }}); }} catch (e) {{}}
+}}
+if (navigator.canShare && navigator.canShare({{ files: [new File([''], 'x.mp4', {{ type: 'video/mp4' }})] }})) {{
+  document.addEventListener('DOMContentLoaded', () => document.querySelectorAll('.share').forEach(b => b.hidden = false));
 }}
 // met à jour l'état du pilote / de la recherche, et la page Clips quand un clip est prêt.
 // Si une légende est en cours d'édition, on affiche un lien au lieu de recharger.
@@ -280,7 +304,10 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 
 SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/stats", "Statistiques"),
             ("/accounts", "Comptes"), ("/help", "Aide")]
-STUDIO = "studio"  # onglet « TikTok Studio » : clips prêts, à publier soi-même
+STUDIO = "studio"  # ancien onglet « TikTok Studio » (redirige vers « À publier »)
+AUTO_PUBLISH = "auto_publish"  # publication / programmation par ClipTV (app validée par TikTok)
+MANUAL_TABS = [("rendered", "À publier"), ("published", "Publiés"), ("rejected", "Rejetés"),
+               ("failed", "Erreurs")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),
         ("published", "Publiés"), ("rejected", "Rejetés"), ("failed", "Erreurs")]
 CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo", "restore")
@@ -322,13 +349,18 @@ ACTIONS = """<form method="post" action="/schedule/{id}" class="act">
 
 # mode « je publie moi-même » (TikTok Studio) : télécharger, copier, marquer publié
 MANUAL_ACTIONS = """<form method="post" action="/done/{id}" class="act">
-  <input type="hidden" name="back" value="studio">
+  <input type="hidden" name="back" value="rendered">
   <textarea name="caption" rows="4" aria-label="Description">{caption}</textarea>
   <div class="bar">
-    <a class="btn" href="{download}" download title="Enregistre la vidéo sur ton PC">⬇ Vidéo</a>
-    <button type="button" onclick="copyCaption(this)" title="Copie la description (modifiable ci-dessus)">📋 Description</button>
+    <button type="button" class="prep" data-video="{download}" data-name="{filename}"
+            onclick="prepareClip(this)" title="Télécharge la vidéo, copie la description et ouvre TikTok Studio">🚀 Préparer</button>
     <button class="now" type="submit" title="À cliquer une fois publié sur TikTok">✔ Publié</button>
     {menu}
+  </div>
+  <div class="mini">
+    <a href="{download}" download="{filename}">⬇ Vidéo seule</a> ·
+    <button type="button" class="link" onclick="copyCaption(this)">📋 Description seule</button>
+    <button type="button" class="link share" hidden onclick="shareClip(this)" data-video="{download}" data-name="{filename}">· 📲 Partager vers TikTok</button>
   </div>
 </form>"""
 
@@ -379,17 +411,21 @@ SEARCH = """<details class="panel">
              autocapitalize="none" autocorrect="off"></label>
     <label>Période <select name="hours">{hours}</select></label>
     <label>Clips par chaîne <input name="top" type="number" min="1" max="20" value="3"></label>
-    <label>Ensuite
-      <select name="then">
-        <option value="review">À valider ici</option>
-        <option value="schedule">Programmer automatiquement</option>
-        <option value="publish">Publier tout de suite</option>
-      </select></label>
+    {then_field}
     <label class="check"><input type="checkbox" name="ai" value="1" checked> Légende par Claude</label>
   </div>
   <div class="row" style="margin-top:12px"><button type="submit"{disabled}>Lancer la recherche</button></div>
 </form>
 </details>"""
+
+
+def _download_name(clip: dict) -> str:
+    """Nom lisible du fichier téléchargé : streamer + titre (sans accents ni espaces)."""
+    import unicodedata
+
+    slug = unicodedata.normalize("NFKD", f"{clip.get('channel', '')} {clip.get('title') or ''}")
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", slug.encode("ascii", "ignore").decode()).strip("-")
+    return f"{slug[:60]}.mp4" if slug else ""
 
 
 def extract_oauth_code(raw: str) -> str:
@@ -711,14 +747,17 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         tab = q.get("s", ["rendered"])[0]
         self._start_backfill()
+        manual = not self._auto_publish()  # tu publies toi-même (TikTok Studio)
+        if manual:
+            self._release_scheduled()
+            if tab == STUDIO:
+                tab = "rendered"
         counts = {s: self.state.count(s) for s, _ in TABS}
-        counts[STUDIO] = counts["rendered"]
-        manual = tab == STUDIO  # onglet « TikTok Studio » : publier soi-même
+        tab_list = MANUAL_TABS if manual else TABS
         tabs = "".join(
             f'<a class="{"on" if s == tab else ""}" href="/?s={s}">{label} ({counts[s]})</a>'
-            for s, label in TABS + [(STUDIO, "✋ TikTok Studio")])
-        cards = "".join(self._card(c, manual=manual)
-                        for c in self.state.list("rendered" if manual else tab)) or \
+            for s, label in tab_list)
+        cards = "".join(self._card(c, manual=manual) for c in self.state.list(tab)) or \
             '<p class="empty">Rien ici pour le moment.</p>'
         info = e(f"Publication : {', '.join(PLATFORM_NAMES.get(p, p) for p in self.platforms)}"
                  f" · créneaux {', '.join(self.cfg.post_slots)} ({self.cfg.timezone})")
@@ -726,10 +765,10 @@ class Handler(BaseHTTPRequestHandler):
             from . import stats as _stats
 
             checked = bool(self.state.get_settings().get(_stats.ENABLED))
-            info = ('✋ Les clips prêts, à publier toi-même : <strong>⬇ Vidéo</strong> → <strong>📋 Description'
-                    '</strong> → <a href="https://www.tiktok.com/tiktokstudio/upload" '
-                    'target="_blank" rel="noopener">TikTok Studio ↗</a> (glisse la vidéo, colle '
-                    'la description, publie) → <strong>✔ Publié</strong>')
+            info = ('Pour publier un clip : <strong>🚀 Préparer</strong> (télécharge la vidéo, '
+                    'copie la description et ouvre TikTok Studio) → dans TikTok Studio, glisse la '
+                    'vidéo depuis tes Téléchargements, colle la description (Ctrl+V), publie → '
+                    'reviens ici et clique <strong>✔ Publié</strong>.')
             if checked:  # liste des vidéos du compte rafraîchie en fond (15 min max)
                 threading.Thread(target=_stats.refresh_before_search,
                                  args=(self.cfg, self.state), daemon=True).start()
@@ -745,8 +784,30 @@ class Handler(BaseHTTPRequestHandler):
 
         s = load_settings(self.state, self.cfg)
         channels = ", ".join(s["channels"]) if s.get("source") == "channels" else ""
-        return SEARCH.format(channels=e(channels), hours=_options(HOURS, 24),
+        then_field = "" if not self._auto_publish() else (
+            '<label>Ensuite <select name="then"><option value="review">À valider ici</option>'
+            '<option value="schedule">Programmer automatiquement</option>'
+            '<option value="publish">Publier tout de suite</option></select></label>')
+        return SEARCH.format(channels=e(channels), hours=_options(HOURS, 24), then_field=then_field,
                              disabled=" disabled" if self.app.job.running else "")
+
+    def _auto_publish(self) -> bool:
+        """Publication / programmation par ClipTV : seulement une fois l'app validée par
+        TikTok. Sinon (par défaut) tu publies toi-même depuis TikTok Studio."""
+        return bool(self.state.get_settings().get(AUTO_PUBLISH))
+
+    def _release_scheduled(self) -> None:
+        """Mode manuel : les clips programmés reviennent dans « À publier »."""
+        for clip in self.state.list("scheduled"):
+            self.state.unschedule(clip["clip_id"])
+
+    def _set_auto_publish(self, form: dict[str, str]):
+        on = form.get("on") == "1"
+        self.state.save_settings({AUTO_PUBLISH: on})
+        msg = ("Publication automatique activée : programmation, envoi vers TikTok et pilote "
+               "« publier » sont de retour." if on else
+               "Publication manuelle : tu publies toi-même depuis TikTok Studio.")
+        return self._redirect(msg, to="/accounts")
 
     def _tiktok_mode(self) -> str:
         from .pipeline import tiktok_mode
@@ -809,7 +870,8 @@ class Handler(BaseHTTPRequestHandler):
                                       layouts=_options(LAYOUTS_REDO, settings.get("layout", "auto")),
                                       subs_checked=" checked" if settings.get("subtitles", True) else "")
             actions = MANUAL_ACTIONS.format(id=cid, caption=e(c["caption"]), menu=menu,
-                                            download=e(f"{base}?dl=1"))
+                                            download=e(f"{base}?dl=1"),
+                                            filename=e(_download_name(c)))
         elif status == "rendered" or (status == "failed" and c.get("output_path")):
             label = "Réessayer" if status == "failed" else "Publier"
             actions = ACTIONS.format(id=cid, caption=e(c["caption"]), now_label=label, menu=menu)
@@ -989,9 +1051,15 @@ class Handler(BaseHTTPRequestHandler):
                              + e(format_when(int(pilot.next_run), self.cfg.timezone)))
             for channel, st in sorted(pilot.live_status.items()):
                 lines.append(f"Live <strong>{e(channel)}</strong> : {e(st)}")
-        queued = self.state.count("scheduled")
-        lines.append(f"Clips programmés : {queued} / {max_queue(s)} max · publiés en 24 h : "
-                     f"{self.state.count_since('published', time.time() - 86400)}")
+        auto = self._auto_publish()
+        if auto:
+            queued = self.state.count("scheduled")
+            lines.append(f"Clips programmés : {queued} / {max_queue(s)} max · publiés en 24 h : "
+                         f"{self.state.count_since('published', time.time() - 86400)}")
+        else:
+            lines.append(f"Clips prêts à publier : {self.state.count('rendered')} / "
+                         f"{max_queue(s)} max (au-delà, les recherches attendent) · publiés en "
+                         f"24 h : {self.state.count_since('published', time.time() - 86400)}")
         status = "".join(f'<div class="info">{line}</div>' for line in lines)
 
         checks = "".join(
@@ -1000,18 +1068,34 @@ class Handler(BaseHTTPRequestHandler):
             for p in PLATFORMS)
         from .audience import heatmap
 
-        audience = heatmap(s["post_slots"], self.state.videos(0), self.cfg.timezone,
-                           apply_button=True)
+        audience = heatmap(s["post_slots"] if auto else [], self.state.videos(0),
+                           self.cfg.timezone, apply_button=auto)
         then = _options([("schedule", "Programmer sur les créneaux"),
                          ("publish", "Publier dès que c'est prêt"),
                          ("manual", "Le garder : je publie moi-même")], s["then"])
+        if auto:
+            intro = ("Il repère tout seul les temps forts des streams les plus regardés, les "
+                     "monte en vertical avec sous-titres, écrit la légende, puis les publie aux "
+                     "heures choisies. Il surveille aussi les lives et clippe chaque moment fort "
+                     "du chat.")
+            then_field = (f'<label>Quand un clip est prêt <select name="then">{then}</select>'
+                          '</label>')
+            publish_fields = f"""<label class="full">Heures de publication (heure de {e(self.cfg.timezone)})
+    <input name="post_slots" value="{e(', '.join(s['post_slots']))}" placeholder="12:30, 18:00, 21:00"></label>
+  <label>Clips programmés max (0 = auto) <input name="max_queue" type="number" min="0" value="{e(s['max_queue'])}"></label>
+  <div class="full"><div class="info">Publier sur</div><div class="row">{checks}</div></div>"""
+        else:
+            intro = ("Il repère tout seul les temps forts des streams les plus regardés, les "
+                     "monte en vertical avec sous-titres et écrit la légende. Les clips "
+                     "t'attendent dans <a href=\"/\">Clips → À publier</a> : 🚀 Préparer, "
+                     "puis tu publies sur TikTok Studio. Il surveille aussi les lives et "
+                     "clippe chaque moment fort du chat.")
+            then_field = ""
+            publish_fields = (f'<label>Clips prêts max (0 = auto) <input name="max_queue" '
+                              f'type="number" min="0" value="{e(s["max_queue"])}"></label>')
         body = f"""
 <div class="panel"><h2>{head}</h2>
-<p class="info">Il repère tout seul les temps forts des streams les plus regardés (les
-clips que les viewers partagent le plus en ce moment), les monte en vertical avec sous-titres,
-écrit la légende, puis les publie aux heures choisies. Il surveille aussi les lives et
-clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
-(ou annuler un clip) dans l'onglet Clips.</p>
+<p class="info">{intro}</p>
 {status}<div style="margin-top:12px">{toggle}</div></div>
 
 {audience}
@@ -1030,13 +1114,10 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
   <label>Clips récents de moins de <select name="hours">{_options(HOURS, int(s['hours']))}</select></label>
   <label>Clips max par recherche <input name="top" type="number" min="1" max="20" value="{e(s['top'])}"></label>
   <label>Vues minimum <input name="min_views" type="number" min="0" value="{e(s['min_views'])}"></label>
-  <label>Quand un clip est prêt <select name="then">{then}</select></label>
+  {then_field}
   <label class="full">Cadrage des vidéos <select name="layout">{_options(LAYOUTS, s.get('layout', 'auto'))}</select></label>
   <label>Sensibilité des lives <select name="ratio">{_options(RATIOS, float(s['ratio']))}</select></label>
-  <label class="full">Heures de publication (heure de {e(self.cfg.timezone)})
-    <input name="post_slots" value="{e(', '.join(s['post_slots']))}" placeholder="12:30, 18:00, 21:00"></label>
-  <label>Clips programmés max (0 = auto) <input name="max_queue" type="number" min="0" value="{e(s['max_queue'])}"></label>
-  <div class="full"><div class="info">Publier sur</div><div class="row">{checks}</div></div>
+  {publish_fields}
   <label class="check full"><input type="checkbox" name="subtitles" value="1"{" checked" if s.get("subtitles", True) else ""}>
     Ajouter des sous-titres animés (décoche si tes streamers ont déjà les leurs)</label>
   <label class="check full"><input type="checkbox" name="ai_caption" value="1"{" checked" if s["ai_caption"] else ""}>
@@ -1112,7 +1193,17 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                     detail += ("<br>Pour reconnecter : clique sur « Reconnecter », accepte sur "
                                "TikTok, puis copie l'adresse complète de la page de retour "
                                "(ou clique « Terminer la connexion dans ClipTV ») et colle-la ici :" + paste)
-                if keys:
+                if keys and not self._auto_publish():
+                    detail = (("Compte connecté : sert aux statistiques et à repérer les clips "
+                               "déjà publiés." if ok else
+                               "Connecte-le pour les statistiques et pour repérer les clips "
+                               "déjà publiés (la publication se fait depuis TikTok Studio).")
+                              + detail[detail.find("<br>"):] if "<br>" in detail else
+                              ("Compte connecté : sert aux statistiques et à repérer les clips "
+                               "déjà publiés." if ok else
+                               "Connecte-le pour les statistiques et pour repérer les clips "
+                               "déjà publiés."))
+                elif keys:
                     mode = self._tiktok_mode()
                     choices = "".join(
                         f'<option value="{v}"{" selected" if v == mode else ""}>{lab}</option>'
@@ -1125,7 +1216,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
                                f'<select name="mode">{choices}</select>'
                                '<button class="small">OK</button></form>')
                 stats_on = bool(self._settings().get("tiktok_stats"))
-                if manual and not ok and not stats_on:  # pas de connexion nécessaire
+                if manual and not ok and not stats_on and self._auto_publish():
                     detail = ("Pas nécessaire en mode « je publie moi-même » : télécharge "
                               "chaque clip depuis l'onglet Clips. (La publication "
                               "automatique demande le produit Content Posting API avec le "
@@ -1174,6 +1265,7 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 <div class="panel"><h2>Comptes</h2>{''.join(rows)}</div>{more}
 {self._keys_panel()}
 {self._access_panel()}
+{self._publish_mode_panel()}
 <div class="panel"><h2>Diagnostic</h2>
 <p class="info">Teste ffmpeg, la police, et chaque connexion avec un vrai appel aux API.</p>
 {checks}
@@ -1181,6 +1273,22 @@ clippe chaque moment fort du chat. Tu n'as rien à faire : tu peux juste suivre
 <button>Tout vérifier</button></form></div>"""
         waiting = any(p.state == "pending" for p in self.app.pending.values())
         self._page(body, "/accounts", narrow=True, refresh=5 if waiting else 0)
+
+    def _publish_mode_panel(self) -> str:
+        """Interrupteur unique : publication par ClipTV (app validée) ou à la main."""
+        if self._auto_publish():
+            return ('<details class="panel"><summary>📤 Publication automatique : activée'
+                    '</summary><p class="info">ClipTV programme et envoie les vidéos sur TikTok. '
+                    'Si TikTok n\'a pas (encore) validé ton app, repasse en manuel.</p>'
+                    '<form method="post" action="/publish-mode"><button name="on" value="0" '
+                    'class="rej">Revenir à la publication manuelle (TikTok Studio)</button>'
+                    '</form></details>')
+        return ('<details class="panel"><summary>📤 Publication automatique : désactivée '
+                '(tu publies depuis TikTok Studio)</summary><p class="info">À activer '
+                '<strong>seulement quand TikTok aura validé ton app</strong> : ClipTV pourra '
+                'alors programmer et publier les vidéos lui-même (créneaux, envoi, choix de la '
+                'visibilité).</p><form method="post" action="/publish-mode"><button name="on" '
+                'value="1">Activer la publication automatique</button></form></details>')
 
     def _keys_panel(self) -> str:
         from .localkeys import KEYS, current_value
@@ -1300,12 +1408,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         self.send_response(206 if rng else 200)
         self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "video/mp4")
         if "dl=1" in urllib.parse.urlparse(self.path).query:  # bouton « Télécharger »
-            import re as _re
-            import unicodedata as _ud
-
-            slug = _ud.normalize("NFKD", f"{clip['channel']} {clip.get('title') or ''}")
-            slug = _re.sub(r"[^A-Za-z0-9]+", "-", slug.encode("ascii", "ignore").decode())
-            name = (slug.strip("-")[:60] or path.stem) + ".mp4"
+            name = _download_name(clip) or path.name
             self.send_header("Content-Disposition", f'attachment; filename="{name}"')
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
@@ -1347,6 +1450,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             "/stop": self._stop,
             "/stats/enable": self._stats_enable,
             "/tiktok/mode": lambda: self._set_tiktok_mode(one),
+            "/publish-mode": lambda: self._set_auto_publish(one),
             "/connect/twitch": lambda: self._connect_device("twitch"),
             "/connect/youtube": lambda: self._connect_device("youtube"),
             "/connect/instagram": lambda: self._connect_instagram(one),
@@ -1378,8 +1482,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record_post(clip_id, "manuel", "ok")
             self.state.record(clip_id, clip["channel"], "published", caption=caption or None)
-            return self._redirect("Clip marqué comme publié ✔",
-                                  tab=STUDIO if form.get("back") == STUDIO else None)
+            return self._redirect("Clip marqué comme publié ✔")
         if action == "unschedule":
             ok = self.state.unschedule(clip_id)
             return self._redirect("Programmation annulée." if ok else "Clip déjà parti.",
@@ -1388,8 +1491,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             if clip["status"] not in ("rendered", "failed"):
                 return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record(clip_id, clip["channel"], "rejected", caption=caption)
-            return self._redirect("Clip rejeté.",
-                                  tab=STUDIO if form.get("back") == STUDIO else None)
+            return self._redirect("Clip rejeté.")
         if action == "restore":
             if clip["status"] != "rejected" or not clip.get("output_path") \
                     or not Path(clip["output_path"]).exists():
@@ -1517,7 +1619,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             top = min(max(int(form.get("top", 3)), 1), 20)
         except ValueError:
             return self._redirect("Période ou nombre de clips invalide → choisis une valeur dans les menus.", err=True)
-        then = form.get("then", "review")
+        then = form.get("then", "review") if self._auto_publish() else "review"
         from .autopilot import load_settings
 
         layout = load_settings(self.state, self.cfg).get("layout", "auto")
@@ -1541,6 +1643,15 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         bad = [c for c in channels + live if not CHANNEL_RE.fullmatch(c)]
         if bad:
             return self._redirect(f"Nom de chaîne invalide : « {bad[0]} » → écris le nom tel qu'il apparaît dans l'adresse twitch.tv/nom.", err=True, to="/auto")
+        from .autopilot import load_settings as _load
+
+        current = _load(self.state, self.cfg)
+        auto = self._auto_publish()
+        if not auto:  # champs cachés : on garde les valeurs actuelles
+            one.setdefault("post_slots", ", ".join(current["post_slots"]))
+            one.setdefault("then", current.get("then", "schedule"))
+            if not form.get("platforms"):
+                form["platforms"] = list(current["platforms"])
         slots = [s for s in re.split(r"[\s,;]+", one.get("post_slots", "")) if s]
         try:
             parse_slots(slots)

@@ -28,7 +28,7 @@ class Options:
     fonts_dir: Path | None = None
     highlight: str = "#FFE600"
     max_duration: float = 60.0
-    caption_template: str = "{title} {mood}\n{icon} twitch.tv/{channel_tag}"
+    caption_template: str = "{title} {mood}\n{cta}\n{icon} twitch.tv/{channel_tag}"
     ai_caption: bool = False
     publish: bool = False           # publie tout de suite après le rendu
     schedule: bool = False          # programme sur le prochain créneau libre
@@ -40,12 +40,15 @@ class Options:
     trim_start: bool = True         # coupe le début mou (silence, attente)
     normalize_audio: bool = True    # volume égalisé (-14 LUFS)
     skip_burned_subs: bool = True   # pas de sous-titres en double si le stream en a déjà
+    trim_end: bool = True           # fin sèche juste après la chute (revisionnages)
+    punch_zoom: bool = True         # petit zoom sur la réaction la plus forte
 
 
 def template_caption(template: str, clip) -> str:
     """Légende sans IA. Le modèle par défaut est complété par les hashtags du clip
     (streamer, jeu, niche) ; un modèle personnalisé avec ses propres # est laissé tel quel."""
-    from .captions import base_hashtags, credit_emoji, merge_hashtags, mood_emoji
+    from .captions import (base_hashtags, call_to_action, credit_emoji, merge_hashtags,
+                           mood_emoji)
 
     category = getattr(clip, "category", "")
     text = template.format(
@@ -55,6 +58,7 @@ def template_caption(template: str, clip) -> str:
         clipper=clip.creator_name,
         mood=mood_emoji(clip.title, clip.id),
         icon=credit_emoji(category),
+        cta=call_to_action(mood_emoji(clip.title, clip.id), clip.id),
     ).replace(" \n", "\n")
     if "#" in template:
         return text
@@ -138,17 +142,35 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         log.info("Cadrage : %s%s%s", layout, f" (visage {face.w}x{face.h})" if face else "",
                  " avec suivi du visage" if crop_track and len(crop_track) > 1 else "")
 
-    from .enhance import find_start, hook_text
+    from .enhance import find_end, find_start, hook_text, peak_time
     from .subtitles import SAMPLE_RATE, Word, load_audio
 
-    start = 0.0
-    if opts.trim_start:
+    start, end, punch_at = 0.0, None, None
+    audio = None
+    if opts.trim_start or opts.trim_end or opts.punch_zoom:
         try:
-            start = find_start(load_audio(src), SAMPLE_RATE, words)
+            audio = load_audio(src)
         except Exception:
-            log.warning("Analyse du début impossible : clip gardé en entier", exc_info=True)
-        if start:
-            log.info("Début coupé : %.1f s de mise en route retirées", start)
+            log.warning("Analyse du son impossible : clip gardé tel quel", exc_info=True)
+    if audio is not None:
+        if opts.trim_start:
+            start = find_start(audio, SAMPLE_RATE, words)
+            if start:
+                log.info("Début coupé : %.1f s de mise en route retirées", start)
+        if opts.trim_end:
+            end = find_end(audio, SAMPLE_RATE, words, start)
+            if end:
+                log.info("Fin coupée juste après la chute (%.1f s retirées)",
+                         len(audio) / SAMPLE_RATE - end)
+        if opts.punch_zoom:
+            at, strength = peak_time(audio, SAMPLE_RATE)
+            limit = (end or len(audio) / SAMPLE_RATE) - start
+            if strength >= 4 and 0.5 <= at - start <= limit - 0.6:
+                punch_at = round(at - start, 2)
+                log.info("Zoom « impact » sur la réaction à %.1f s", punch_at)
+    duration = opts.max_duration
+    if end:
+        duration = min(duration or end - start, end - start)
     shown = [Word(w.text, w.start - start, w.end - start) for w in words if w.end > start]
     if burned:
         log.info("Sous-titres déjà présents dans le stream : pas de sous-titres ajoutés.")
@@ -170,10 +192,10 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
     log.info("Rendu vertical (%s) → %s", layout, dst)
     progress.step("render", {"split": "facecam en haut, jeu en bas", "crop": "zoom plein écran",
                              "blur": "fond flouté"}.get(layout, layout))
-    render_vertical(src, dst, layout=layout, subtitles=subs, max_duration=opts.max_duration,
+    render_vertical(src, dst, layout=layout, subtitles=subs, max_duration=duration,
                     fonts_dir=opts.fonts_dir, cam_box=cam_box, crop_center=crop_center,
                     crop_track=crop_track, cam_height=cam_height, start=start,
-                    normalize_audio=opts.normalize_audio)
+                    normalize_audio=opts.normalize_audio, punch_at=punch_at)
     if info is not None:  # indices pour l'indicateur de potentiel
         from .render import probe_duration
 

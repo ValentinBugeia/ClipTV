@@ -89,6 +89,27 @@ def credit_emoji(category: str = "") -> str:
     return "🎮"
 
 
+# une question en fin de légende fait commenter ; les commentaires font monter la vidéo
+CTAS = {
+    "😂": ["Tu aurais tenu sans rire ? 😭", "Note ce fou rire sur 10 👇"],
+    "😱": ["T'aurais eu peur aussi ? 👇", "Qui aurait crié pareil ? 😭"],
+    "😡": ["Il a raison de s'énerver ou pas ? 👇", "Team calme ou team rage ? 👇"],
+    "💀": ["Le pire fail de la semaine ou pas ? 💀", "T'aurais fait mieux ? 👇"],
+    "😭": ["Ça vous est déjà arrivé ? 😭", "Qui a vécu la même ? 👇"],
+    "🔥": ["Le moment le plus fou de la semaine ? 🔥", "Note ce moment sur 10 👇"],
+}
+GENERIC_CTAS = ["T'en penses quoi ? 👇", "Tu l'avais vu passer en live ? 👇",
+                "Ton avis en commentaire 👇", "Note ce moment sur 10 👇"]
+
+
+def call_to_action(mood: str = "", seed: str = "") -> str:
+    """Question qui pousse à commenter, accordée à l'ambiance du clip (stable par clip)."""
+    from zlib import crc32
+
+    options = CTAS.get(mood) or GENERIC_CTAS
+    return options[crc32(seed.encode()) % len(options)]
+
+
 MAX_HASHTAGS = 8
 # toujours utiles pour un compte de clips Twitch francophone : niche FR + découverte
 DEFAULT_TAGS = ["twitchfr", "twitch", "streamerfr", "clip", "pourtoi", "fyp"]
@@ -132,7 +153,9 @@ def format_caption(hook: str, hashtags: list[str], channel: str, category: str =
     # Claude en donne 4 à 6 : on garde la place du streamer et du jeu dans les 8
     tags = merge_hashtags(hashtags[:6], [channel, category], base)
     credit = f"{credit_emoji(category)} twitch.tv/{channel.lower()}"
-    return f"{hook.strip()}\n{credit}\n{' '.join(tags)}"[:2200]
+    hook = hook.strip()
+    cta = "" if hook.endswith("?") else "\n" + call_to_action(seed=hook)
+    return f"{hook}{cta}\n{credit}\n{' '.join(tags)}"[:2200]
 
 
 def generate_caption(*, title: str, channel: str, transcript: str, model: str,

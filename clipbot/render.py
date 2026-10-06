@@ -16,8 +16,12 @@ def build_filter(
     crop_center: float | None = None,
     crop_track: list[tuple[float, float]] | None = None,
     cam_height: int | None = None,
+    punch_at: float | None = None,
 ) -> str:
     """Construit le filtergraph ffmpeg.
+
+    ``punch_at`` : seconde de la réaction la plus forte → petit zoom « impact » d'une
+    demi-seconde (effet de montage : rythme, et contenu transformé aux yeux de TikTok).
 
     - ``blur`` : la vidéo 16:9 est centrée, le fond est la même vidéo zoomée et floutée
       (format le plus courant pour les clips de stream).
@@ -63,6 +67,11 @@ def build_filter(
     else:
         raise ValueError(f"Layout inconnu : {layout}")
 
+    if punch_at is not None:
+        a, b = punch_at, punch_at + 0.5
+        zoom = f"(1+0.12*between(t,{a:.2f},{b:.2f}))"
+        graph = (graph[: -len("[v]")] + f"[nz];[nz]scale=w='trunc({WIDTH}*{zoom}/2)*2'"
+                 f":h='trunc({HEIGHT}*{zoom}/2)*2':eval=frame,crop={WIDTH}:{HEIGHT},setsar=1[v]")
     if subtitles:
         graph = graph[: -len("[v]")] + f"[pre];[pre]ass={_escape_filter_path(subtitles)}[v]"
     return graph
@@ -98,6 +107,7 @@ def render_vertical(
     cam_height: int | None = None,
     start: float = 0.0,
     normalize_audio: bool = True,
+    punch_at: float | None = None,
 ) -> Path:
     """``start`` : secondes coupées au début ; ``normalize_audio`` : volume égalisé
     (-14 LUFS, le niveau des vidéos TikTok) pour qu'aucun clip ne soit trop faible ou saturé."""
@@ -108,7 +118,7 @@ def render_vertical(
         crop_track = ([(0.0, before[-1])] if before else []) + later or crop_track[-1:]
     graph = build_filter(layout, str(subtitles.resolve()) if subtitles else None,
                          cam_box=cam_box, crop_center=crop_center, crop_track=crop_track,
-                         cam_height=cam_height)
+                         cam_height=cam_height, punch_at=punch_at)
     if subtitles and fonts_dir:
         graph = graph.replace("ass=", f"ass=fontsdir={_escape_filter_path(str(fonts_dir.resolve()))}:filename=", 1)
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]

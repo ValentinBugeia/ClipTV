@@ -22,9 +22,10 @@ def test_format_caption_dedup_and_credit():
                          "Kamet0")
     lines = cap.splitlines()
     assert lines[0] == "Il ne s'y attendait pas 😭"
-    assert lines[1] == "🎮 twitch.tv/kamet0"  # catégorie inconnue : manette
+    assert lines[1].endswith("👇")  # question qui fait commenter
+    assert lines[2] == "🎮 twitch.tv/kamet0"  # catégorie inconnue : manette
     # tags du contenu d'abord, puis streamer, et complété jusqu'à 8 hashtags cohérents
-    assert lines[2] == "#fyp #justchatting #kameto #kamet0 #twitchfr #twitch #streamerfr #clip"
+    assert lines[3] == "#fyp #justchatting #kameto #kamet0 #twitchfr #twitch #streamerfr #clip"
 
 
 def test_template_caption_hashtags():
@@ -37,6 +38,8 @@ def test_template_caption_hashtags():
                 creator_name="x", view_count=1, created_at=datetime.now(timezone.utc),
                 duration=30, category="Just Chatting")
     lines = template_caption(Options().caption_template, clip).splitlines()
+    assert lines[1].endswith("👇")
+    del lines[1]
     assert lines == ["Billy se fait daronned 😭", "🎙️ twitch.tv/nico_la",
                      "#nico_la #justchatting #irl #twitchfr #twitch #streamerfr #clip #pourtoi"]
     game = Clip(**{**clip.__dict__, "category": "Pokémon Légendes"})

@@ -80,3 +80,39 @@ def test_standout_score_prefers_exceptional_clip():
              clip("small1", "petit", 40), clip("small2", "petit", 50), clip("star", "petit", 3000)]
     score = standout_score(clips)
     assert score(clips[-1]) > score(clips[0])  # le clip qui explose chez le petit streamer
+
+
+def test_find_end_cuts_dead_tail():
+    from clipbot.enhance import find_end
+
+    audio = np.concatenate([tone(10, 0.5), tone(8, 0.005)])  # 10 s d'action, 8 s de vide
+    end = find_end(audio, SR)
+    assert 10.5 <= end <= 11.5
+    assert find_end(tone(12, 0.5), SR) is None  # rien à couper
+    assert find_end(audio, SR, [Word("mdr", 15.0, 15.5)]) is None  # parle jusqu'à la fin
+
+
+def test_peak_time():
+    from clipbot.enhance import peak_time
+
+    audio = np.concatenate([tone(5, 0.05), tone(1, 0.9), tone(6, 0.05)])
+    at, strength = peak_time(audio, SR)
+    assert 4.5 <= at <= 6 and strength > 8
+
+
+def test_punch_zoom_filter():
+    from clipbot.render import build_filter
+
+    graph = build_filter("crop", "/tmp/s.ass", punch_at=4.8)
+    assert "between(t,4.80,5.30)" in graph and "eval=frame" in graph
+    assert graph.index("eval=frame") < graph.index("ass=")  # zoom avant les sous-titres
+
+
+def test_call_to_action():
+    from clipbot.captions import call_to_action, format_caption
+
+    assert call_to_action("😂", "a").endswith(("😭", "👇"))
+    assert call_to_action("", "x") == call_to_action("", "x")  # stable pour un clip
+    assert "👇" in format_caption("Il hurle", ["fyp"], "kamet0") or \
+        "?" in format_caption("Il hurle", ["fyp"], "kamet0").splitlines()[1]
+    assert format_caption("Vous auriez fait quoi ?", [], "k").splitlines()[1].startswith("🎮")

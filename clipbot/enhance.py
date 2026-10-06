@@ -132,3 +132,49 @@ def speech_energy(words: list) -> dict:
     hype += sum(len(_re.findall(p, text)) for p, _ in MOODS)
     hype += len(_re.findall(r"non mais|c'est pas possible|attends|oh non|t'es sérieux", text))
     return {"talk_rate": round(len(words) / span, 2), "hype_words": hype}
+
+
+TAIL_KEEP = 0.8   # secondes gardées après la dernière parole / le dernier son fort
+
+
+def _rms(audio, sample_rate: int):
+    import numpy as np
+
+    win = sample_rate // 4
+    n = len(audio) // win
+    return np.sqrt(np.mean(np.square(audio[: n * win].reshape(n, win)), axis=1))
+
+
+def find_end(audio, sample_rate: int, words: list | None = None, start: float = 0.0) -> float | None:
+    """Fin conseillée (s) : juste après la chute (dernière parole ou dernier son fort).
+    Une fin sèche donne envie de revoir le clip ; TikTok compte les revisionnages.
+    None si la fin est déjà serrée (moins de 2 s à couper)."""
+    import numpy as np
+
+    if audio is None or len(audio) < sample_rate * 4:
+        return None
+    rms = _rms(audio, sample_rate)
+    total = len(rms) * 0.25
+    ref = np.percentile(rms, 90)
+    if ref <= 1e-4:
+        return None
+    loud = np.nonzero(rms >= 0.35 * ref)[0]
+    last = loud[-1] * 0.25 + 0.25 if len(loud) else total
+    if words:
+        last = max(last, float(words[-1].end))
+    end = min(last + TAIL_KEEP, total)
+    if total - end < 2.0 or end - start < MIN_KEEP:
+        return None
+    return round(end, 2)
+
+
+def peak_time(audio, sample_rate: int) -> tuple[float, float]:
+    """(seconde du moment le plus fort, force × le niveau habituel)."""
+    import numpy as np
+
+    rms = _rms(audio, sample_rate)
+    if not len(rms):
+        return 0.0, 1.0
+    smooth = np.convolve(rms, np.ones(4) / 4, mode="same")
+    i = int(np.argmax(smooth))
+    return i * 0.25, float(smooth[i]) / max(float(np.median(rms)), 1e-4)

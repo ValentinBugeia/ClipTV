@@ -29,6 +29,8 @@ STYLE = """<style>
   .kpi .l { color:var(--t2); font-size:13px }
   .kpi .v { font-size:26px; font-weight:600; margin-top:2px }
   .kpi .s { color:var(--t2); font-size:12px }
+  .tips { margin:8px 0 14px; padding-left:18px; line-height:1.7 }
+  .tips .tipk { color:var(--t1); font-weight:600 }
   .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-bottom:16px }
   figure.chart { margin:0; background:var(--card); border-radius:12px; padding:14px }
   figure.chart figcaption { font-weight:600; margin-bottom:2px }
@@ -101,7 +103,8 @@ def kpi(label: str, value: str, sub: str = "") -> str:
     return f'<div class="kpi"><div class="l">{e(label)}</div><div class="v">{e(value)}</div>{sub}</div>'
 
 
-def bar_chart(title: str, sub: str, rows: list[tuple[str, float, int]], empty: str) -> str:
+def bar_chart(title: str, sub: str, rows: list[tuple[str, float, int]], empty: str, *,
+              unit: str = "vues en moyenne", head: str = "Vues moy.") -> str:
     """Barres horizontales, une seule teinte (comparaison de grandeurs)."""
     if not rows:
         return (f'<figure class="chart"><figcaption>{e(title)}</figcaption>'
@@ -110,7 +113,7 @@ def bar_chart(title: str, sub: str, rows: list[tuple[str, float, int]], empty: s
     bars = "".join(
         f'<div class="name" title="{e(name)}">{e(name)}</div>'
         f'<div class="track" tabindex="0" data-label="{e(name)} · {n} vidéo(s)" '
-        f'data-value="{e(compact(val))} vues en moyenne">'
+        f'data-value="{e(compact(val))} {e(unit)}">'
         f'<div class="fill" style="width:{max(val / top * 82, 0.5):.1f}%"></div>'
         f'<span class="val">{e(compact(val))}</span></div>'
         for name, val, n in rows)
@@ -119,8 +122,46 @@ def bar_chart(title: str, sub: str, rows: list[tuple[str, float, int]], empty: s
     return (f'<figure class="chart"><figcaption>{e(title)}</figcaption>'
             f'<div class="sub">{e(sub)}</div><div class="bars">{bars}</div>'
             f'<details class="tv"><summary>Voir le tableau</summary><table class="vtable">'
-            f'<tr><th>{e(title.split(" par ")[-1].capitalize())}</th><th class="n">Vues moy.</th>'
+            f'<tr><th>{e(title.split(" par ")[-1].capitalize())}</th><th class="n">{e(head)}</th>'
             f'<th class="n">Vidéos</th></tr>{table}</table></details></figure>')
+
+
+def insights_panel(videos: list[dict], tz: str) -> str:
+    """« Ce qui marche sur ton compte » : conseils + vues médianes par durée, jour,
+    ambiance, streamer et format de légende."""
+    from . import insights
+
+    data = insights.analyse(videos, tz)
+    head = ('<div class="panel"><h2>🧠 Ce qui marche sur ton compte</h2>'
+            '<p class="info">Vues <strong>médianes</strong> (une vidéo virale isolée ne fausse '
+            f'pas le résultat) · ta médiane : <strong>{e(compact(data["overall"]))}</strong> '
+            f'vues sur {data["count"]} vidéo(s).</p>')
+    if data["count"] < insights.MIN_VIDEOS:
+        return (head + f'<p class="info">Il faut au moins {insights.MIN_VIDEOS} vidéos sur la '
+                'période pour tirer des conclusions : choisis une période plus longue ou '
+                'reviens après quelques publications.</p></div>')
+    if data["tips"]:
+        items = "".join(
+            f'<li><span class="tipk">{"▲" if t["good"] else "▼"} {e(t["dim"])} · '
+            f'{e(t["name"])}</span> ×{t["ratio"]:.1f} ta médiane ({t["n"]} vidéos) → '
+            f'{e(t["advice"])}</li>' for t in data["tips"])
+        head += f'<ul class="tips">{items}</ul>'
+    else:
+        head += ('<p class="info">Pas encore d\'écart net : tes vidéos font à peu près '
+                 'toutes pareil. Continue à varier, les tendances apparaîtront.</p>')
+    g = data["groups"]
+    opts = dict(unit="vues (médiane)", head="Vues méd.")
+    empty = "Pas assez de vidéos."
+    charts = "".join([
+        bar_chart("Vues par durée", "Durée de la vidéo publiée", g["duration"], empty, **opts),
+        bar_chart("Vues par jour", "Jour de publication", g["weekday"], empty, **opts),
+        bar_chart("Vues par ambiance", "D'après l'emoji de l'accroche", g["mood"], empty, **opts),
+        bar_chart("Vues par streamer", "D'après le lien twitch.tv de la légende",
+                  g["streamer"][:8], empty, **opts),
+        bar_chart("Vues par légende", "Question en fin de légende ou non", g["question"],
+                  empty, **opts),
+    ])
+    return head + f'<div class="charts">{charts}</div></div>'
 
 
 def videos_table(videos: list[dict], sort: str, tz: str, base_q: dict) -> str:
@@ -206,6 +247,7 @@ def render(summary: dict, *, days: int, sort: str, tz: str) -> str:
                   "Pour choisir tes créneaux (heure locale)", summary["by_hour"],
                   "Pas encore de vidéo sur la période."),
     ]) + "</div>")
+    parts.append(insights_panel(summary["videos"], tz))
     parts.append(videos_table(summary["videos"], sort, tz, base_q))
     from .audience import heatmap
 

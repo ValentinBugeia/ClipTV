@@ -273,6 +273,21 @@ class State:
                 [tuple(v.get(c) for c in cols) + (now,) for v in videos])
             self.conn.commit()
 
+    def prune_videos(self, keep_ids: list[str]) -> int:
+        """Retire les vidéos supprimées du compte TikTok (absentes de la dernière liste)."""
+        if not keep_ids:
+            return 0
+        marks = ",".join("?" * len(keep_ids))
+        return self._write(f"DELETE FROM tiktok_videos WHERE video_id NOT IN ({marks})",
+                           tuple(keep_ids))
+
+    def recent_videos(self, limit: int = 60) -> list[dict]:
+        """Tes vidéos TikTok, les plus récentes d'abord."""
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT * FROM tiktok_videos ORDER BY create_time DESC LIMIT ?", (limit,))
+            return [dict(r) for r in rows]
+
     def videos(self, since: float = 0) -> list[dict]:
         with self.lock:
             rows = self.conn.execute(

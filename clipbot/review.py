@@ -111,6 +111,10 @@ PAGE = """<!doctype html>
   .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
   .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
   .card {{ position:relative }}
+  .card.tk img, .card.tk .nocover {{ height:300px; aspect-ratio:9/16; object-fit:cover;
+    margin:0 auto; border-radius:10px; background:#000; display:grid; place-items:center;
+    font-size:40px }}
+  .tkstats {{ font-size:14px; font-weight:600 }}
   .mini {{ font-size:12px; color:var(--muted); margin-top:6px }}
   .mini a, .mini .link {{ color:var(--muted); background:none; border:0; padding:0; font:inherit;
     cursor:pointer; text-decoration:underline }}
@@ -753,10 +757,14 @@ class Handler(BaseHTTPRequestHandler):
             if tab == STUDIO:
                 tab = "rendered"
         counts = {s: self.state.count(s) for s, _ in TABS}
+        tiktok_videos = self.state.recent_videos()
+        counts["published"] = len(tiktok_videos)  # « Publiés » = ce qui est sur TikTok
         tab_list = MANUAL_TABS if manual else TABS
         tabs = "".join(
             f'<a class="{"on" if s == tab else ""}" href="/?s={s}">{label} ({counts[s]})</a>'
             for s, label in tab_list)
+        if tab == "published":
+            return self._published_page(tabs, tiktok_videos)
         cards = "".join(self._card(c, manual=manual) for c in self.state.list(tab)) or \
             '<p class="empty">Rien ici pour le moment.</p>'
         info = e(f"Publication : {', '.join(PLATFORM_NAMES.get(p, p) for p in self.platforms)}"
@@ -777,6 +785,52 @@ class Handler(BaseHTTPRequestHandler):
                          'active les statistiques (onglet <a href="/stats">Statistiques</a>).')
         body = (f'<nav class="sub">{tabs}</nav>{self._search_panel()}'
                 f'<p class="info">{info}</p><main>{cards}</main>')
+        self._page(body, "/")
+
+    def _published_page(self, tabs: str, videos: list[dict]):
+        """Onglet « Publiés » : tes vraies vidéos TikTok (liste du compte), pas l'historique
+        de ClipTV. Rafraîchie en fond si elle a plus de 15 min."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from . import stats
+        from .stats_page import compact
+
+        settings = self.state.get_settings()
+        if settings.get(stats.ENABLED):
+            threading.Thread(target=stats.refresh_before_search, args=(self.cfg, self.state),
+                             daemon=True).start()
+            updated = settings.get(stats.UPDATED)
+            ago = (f"mise à jour il y a {max(int((time.time() - updated) / 60), 0)} min"
+                   if updated else "pas encore récupérée")
+            info = (f"Tes vidéos sur TikTok ({e(ago)}). Les clips de « À publier » que ClipTV "
+                    "retrouve ici passent tout seuls en publiés.")
+            if settings.get(stats.ERROR):
+                info += f'<br>⚠️ {e(settings[stats.ERROR])}'
+        else:
+            info = ('⚠️ Active les statistiques TikTok (onglet <a href="/stats">Statistiques'
+                    '</a>) pour voir ici tes vidéos publiées, avec leurs vues.')
+        zone = ZoneInfo(self.cfg.timezone)
+        cards = []
+        for v in videos:
+            text = (v.get("description") or v.get("title") or "").strip()
+            first, _, rest = text.partition("\n")
+            when = (datetime.fromtimestamp(v["create_time"], zone).strftime("%d/%m %H:%M")
+                    if v.get("create_time") else "")
+            cover = (f'<img src="{e(v["cover"])}" alt="" loading="lazy" referrerpolicy="no-referrer">'
+                     if v.get("cover") else '<div class="nocover">🎬</div>')
+            link = (f'<a href="{e(v["share_url"])}" target="_blank" rel="noopener">'
+                    'Voir sur TikTok ↗</a>' if v.get("share_url") else "")
+            cards.append(
+                f'<div class="card tk">{cover}<div><strong>{e(first or "(sans description)")}'
+                f'</strong></div><div class="meta">{e(rest[:140])}</div>'
+                f'<div class="tkstats">👁 {compact(v.get("views") or 0)} · ♥ '
+                f'{compact(v.get("likes") or 0)} · 💬 {compact(v.get("comments") or 0)} · ↗ '
+                f'{compact(v.get("shares") or 0)}</div><div class="meta">{e(when)} · {link}'
+                '</div></div>')
+        grid = "".join(cards) or '<p class="empty">Aucune vidéo TikTok récupérée pour le moment.</p>'
+        body = (f'<nav class="sub">{tabs}</nav>{self._search_panel()}'
+                f'<p class="info">{info}</p><main>{grid}</main>')
         self._page(body, "/")
 
     def _search_panel(self) -> str:

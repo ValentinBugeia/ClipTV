@@ -88,8 +88,7 @@ def test_publish_now(server, monkeypatch):
             break
         time.sleep(0.1)
     assert state.get("abc")["status"] == "published"
-    assert "boîte de réception" in urllib.request.urlopen(
-        base + "/?s=published").read().decode()
+    assert state.posts("abc")["tiktok"]["status"] == "ok"
 
 
 def test_stuck_publishing_recovered_on_start(tmp_path):
@@ -483,13 +482,6 @@ def test_tiktok_mode_private_profile(server, monkeypatch):
     assert seen["mode"] == "direct"
 
 
-def test_published_clip_has_copyable_caption(server):
-    base, state = server
-    state.record("abc", "kamet0", "published", caption="légende #fyp")
-    body = urllib.request.urlopen(base + "/?s=published").read().decode()
-    assert "légende #fyp</textarea>" in body and "copyCaption(this)" in body
-
-
 CREATOR = {"creator_nickname": "C'était En Live", "can_post": True,
            "max_video_post_duration_sec": 600, "comment_disabled": False,
            "duet_disabled": True, "stitch_disabled": False,
@@ -583,3 +575,37 @@ def test_card_warns_when_already_on_tiktok(server):
                         "clip_id": None}])
     page = urllib.request.urlopen(base + "/").read().decode()
     assert "Déjà sur ton" in page
+
+
+def test_published_tab_shows_tiktok_videos(server):
+    from clipbot import stats
+
+    base, state = server
+    state.save_settings({stats.ENABLED: True, stats.UPDATED: int(time.time())})
+    state.save_videos([{"video_id": "v1", "title": "", "description":
+                        "Il hurle de peur 😱\nT'aurais eu peur ? 👇\n🎮 twitch.tv/kamet0",
+                        "create_time": int(time.time()), "cover": "https://x/c.jpg",
+                        "share_url": "https://www.tiktok.com/@a/video/1", "views": 1234,
+                        "likes": 56, "comments": 7, "shares": 2, "duration": 20,
+                        "clip_id": None}])
+    page = urllib.request.urlopen(base + "/?s=published").read().decode()
+    assert "Publiés (1)" in page and "Il hurle de peur" in page
+    assert "Voir sur TikTok" in page and "1\u202f234" in page
+
+
+def test_clip_found_on_tiktok_is_marked_published(tmp_path):
+    from clipbot import stats
+    from clipbot.config import Config
+    from clipbot.state import State
+
+    cfg = Config()
+    cfg.data_dir = tmp_path
+    state = State(cfg.db_path)
+    state.record("c1", "kamet0", "rendered", title="Le clutch de malade en finale")
+    state.record("c2", "kamet0", "rendered", title="Un autre moment")
+    state.save_videos([{"video_id": "v1", "title": "", "description":
+                        "Le clutch de malade en finale 🔥\n🎮 twitch.tv/kamet0",
+                        "create_time": 1, "cover": None, "share_url": None, "views": 10,
+                        "likes": 0, "comments": 0, "shares": 0, "duration": 20, "clip_id": None}])
+    assert stats.mark_published(state) == 1
+    assert state.get("c1")["status"] == "published" and state.get("c2")["status"] == "rendered"

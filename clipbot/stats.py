@@ -112,8 +112,31 @@ def refresh(cfg: Config, state: State) -> str:
          "shares": int(v.get("share_count") or 0), "duration": int(v.get("duration") or 0),
          "clip_id": links.get(str(v["id"]))}
         for v in videos])
+    if len(videos) < 200:  # liste complète : les vidéos supprimées sur TikTok disparaissent
+        state.prune_videos([str(v["id"]) for v in videos])
     state.save_settings({ACCOUNT: account, ERROR: None, UPDATED: int(time.time())})
-    return f"{len(videos)} vidéo(s) TikTok mises à jour"
+    marked = mark_published(state)
+    extra = f", {marked} clip(s) retrouvé(s) sur TikTok → Publiés" if marked else ""
+    return f"{len(videos)} vidéo(s) TikTok mises à jour{extra}"
+
+
+def mark_published(state: State) -> int:
+    """Les clips « À publier » qu'on retrouve sur ton compte TikTok passent tout seuls en
+    « Publiés » (plus besoin de cliquer ✔ Publié)."""
+    from types import SimpleNamespace
+
+    check = on_tiktok(state)
+    done = 0
+    for clip in state.list("rendered"):
+        probe = SimpleNamespace(id=clip["clip_id"], title=clip.get("title") or "",
+                                broadcaster_name=clip.get("channel") or "")
+        if check(probe):
+            state.record_post(clip["clip_id"], "tiktok", "ok")
+            state.record(clip["clip_id"], clip["channel"], "published")
+            done += 1
+    if done:
+        log.info("%d clip(s) retrouvé(s) sur TikTok : passés dans « Publiés »", done)
+    return done
 
 
 def _words(text: str) -> set[str]:

@@ -116,3 +116,26 @@ def test_call_to_action():
     assert "👇" in format_caption("Il hurle", ["fyp"], "kamet0") or \
         "?" in format_caption("Il hurle", ["fyp"], "kamet0").splitlines()[1]
     assert format_caption("Vous auriez fait quoi ?", [], "k").splitlines()[1].startswith("🎮")
+
+
+def test_question_matches_clip():
+    from types import SimpleNamespace
+
+    from clipbot.captions import CTAS, GENERIC_CTAS, format_caption, title_mood
+    from clipbot.pipeline import Options, template_caption
+
+    assert title_mood("Il a eu tellement peur") == "😱"
+    assert title_mood("Une crise de nerfs ? non, une critique") == ""  # pas « cri »
+    assert title_mood("Il face la caméra") == ""                        # pas « ace »
+    # titre neutre : question qui va avec n'importe quel clip, jamais une ambiance au hasard
+    for i in range(30):
+        clip = SimpleNamespace(id=f"c{i}", title="Partie classée avec les potes",
+                               broadcaster_name="nico", creator_name="x", category="Valorant")
+        assert template_caption(Options().caption_template, clip).splitlines()[1] in GENERIC_CTAS
+    scary = SimpleNamespace(id="s", title="Le jumpscare de fou", broadcaster_name="nico",
+                            creator_name="x", category="")
+    assert template_caption(Options().caption_template, scary).splitlines()[1] in CTAS["😱"]
+    # légende écrite par Claude : sa question, liée au contenu du clip
+    text = format_caption("Il découvre son score", ["fyp"], "nico",
+                          question="Tu t'attendais à ce score ? 👇")
+    assert text.splitlines()[1] == "Tu t'attendais à ce score ? 👇"

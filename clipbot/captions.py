@@ -35,31 +35,46 @@ def explain_api_error(status: int, message: str) -> str:
 SYSTEM = """Tu es community manager TikTok spécialisé dans les clips de streamers Twitch.
 À partir du titre du clip et de sa transcription, écris une légende courte qui donne
 envie de regarder jusqu'au bout : une accroche (max 90 caractères, pas de spoiler de la
-chute), puis 4 à 6 hashtags pertinents (jeu, streamer, type de moment, + #fyp).
+chute), une question courte qui fait commenter et qui porte précisément sur ce qui se
+passe dans CE clip (ce que dit ou fait le streamer), puis 4 à 6 hashtags pertinents
+(jeu, streamer, type de moment, + #fyp). Pas de question générique ni hors sujet.
 Reste fidèle au contenu, n'invente pas de faits. Écris dans la langue de la transcription."""
 
 SCHEMA = {
     "type": "object",
     "properties": {
         "hook": {"type": "string", "description": "accroche, max 90 caractères"},
+        "question": {"type": "string",
+                     "description": "question aux spectateurs sur CE clip, max 60 caractères"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["hook", "hashtags"],
+    "required": ["hook", "question", "hashtags"],
     "additionalProperties": False,
 }
 
 
-MOODS = [  # (mots du titre, emoji) : le premier qui correspond l'emporte
-    (r"mdr|ptdr|lol|rire|drôle|marrant|blague|xd", "😂"),
-    (r"peur|flipp|horreur|jumpscare|cri|hurl", "😱"),
-    (r"rage|énerv|insult|clash|embrouille|vénère|tilt", "😡"),
-    (r"fail|raté|rate |chute|tomb|bug|glitch", "💀"),
-    (r"maman|daron|mère|père|famille|pleur|triste", "😭"),
-    (r"clutch|ace|victoire|win|gagn|incroyable|monstre|insane|record|top ?1", "🔥"),
-    (r"love|bisou|crush|cœur|coeur|mignon", "🥰"),
-    (r"argent|€|euros|thune|riche", "💸"),
+MOODS = [  # (mots du titre, emoji) : le premier qui correspond l'emporte (débuts de mots)
+    (r"mdr|ptdr|lol\b|rire|rigol|drôle|marrant|blague|xd\b", "😂"),
+    (r"peur|flipp|horreur|jumpscare|cri(?:s|e|é|er|ent)?\b|hurl", "😱"),
+    (r"rage\b|rageu|énerv|insult|clash|embrouille|vénère|tilt", "😡"),
+    (r"fail|raté|rate\b|chute|tomb[eé]|bug\b|glitch", "💀"),
+    (r"maman|daron|mère\b|père\b|famille|pleur|triste", "😭"),
+    (r"clutch|ace\b|victoire|win\b|gagn|incroyable|monstre|insane|record|top ?1\b", "🔥"),
+    (r"love\b|bisou|crush|cœur|coeur|mignon", "🥰"),
+    (r"argent|\d+ ?€|euros|thune|riche", "💸"),
 ]
 FALLBACK_MOODS = ["🔥", "😂", "😱", "💀", "😭", "👀"]
+
+
+def title_mood(title: str) -> str:
+    """Ambiance annoncée par le titre (emoji), ou "" si le titre n'en dit rien."""
+    import re
+
+    low = (title or "").lower()
+    for pattern, emoji in MOODS:
+        if re.search(r"(?<!\w)(?:" + pattern + ")", low):
+            return emoji
+    return ""
 
 
 def mood_emoji(title: str, seed: str = "") -> str:
@@ -71,11 +86,7 @@ def mood_emoji(title: str, seed: str = "") -> str:
 
     if any(unicodedata.category(c) == "So" for c in title or ""):
         return ""
-    low = (title or "").lower()
-    for pattern, emoji in MOODS:
-        if re.search(pattern, low):
-            return emoji
-    return FALLBACK_MOODS[crc32((seed or title or "").encode()) % len(FALLBACK_MOODS)]
+    return title_mood(title) or FALLBACK_MOODS[crc32((seed or title or "").encode()) % len(FALLBACK_MOODS)]
 
 
 def credit_emoji(category: str = "") -> str:
@@ -90,20 +101,22 @@ def credit_emoji(category: str = "") -> str:
 
 
 # une question en fin de légende fait commenter ; les commentaires font monter la vidéo
+# questions par ambiance : utilisées seulement quand le titre annonce clairement cette
+# ambiance (sinon une question neutre, qui va avec n'importe quel clip)
 CTAS = {
     "😂": ["Tu aurais tenu sans rire ? 😭", "Note ce fou rire sur 10 👇"],
-    "😱": ["T'aurais eu peur aussi ? 👇", "Qui aurait crié pareil ? 😭"],
-    "😡": ["Il a raison de s'énerver ou pas ? 👇", "Team calme ou team rage ? 👇"],
-    "💀": ["Le pire fail de la semaine ou pas ? 💀", "T'aurais fait mieux ? 👇"],
-    "😭": ["Ça vous est déjà arrivé ? 😭", "Qui a vécu la même ? 👇"],
-    "🔥": ["Le moment le plus fou de la semaine ? 🔥", "Note ce moment sur 10 👇"],
+    "😱": ["T'aurais eu peur aussi ? 👇", "T'aurais réagi comment ? 😭"],
+    "😡": ["Raison de s'énerver ou pas ? 👇", "Team calme ou team rage ? 👇"],
+    "💀": ["T'aurais fait mieux ? 👇", "Le pire fail de la semaine ? 💀"],
+    "🔥": ["Note ce moment sur 10 🔥", "T'aurais fait pareil ? 👇"],
 }
 GENERIC_CTAS = ["T'en penses quoi ? 👇", "Tu l'avais vu passer en live ? 👇",
                 "Ton avis en commentaire 👇", "Note ce moment sur 10 👇"]
 
 
 def call_to_action(mood: str = "", seed: str = "") -> str:
-    """Question qui pousse à commenter, accordée à l'ambiance du clip (stable par clip)."""
+    """Question qui pousse à commenter (stable par clip). ``mood`` : ambiance certaine du
+    clip (title_mood), jamais un emoji tiré au hasard."""
     from zlib import crc32
 
     options = CTAS.get(mood) or GENERIC_CTAS
@@ -146,7 +159,8 @@ def merge_hashtags(*groups: list[str], limit: int = MAX_HASHTAGS) -> list[str]:
     return ["#" + t for t in out[:limit]]
 
 
-def format_caption(hook: str, hashtags: list[str], channel: str, category: str = "") -> str:
+def format_caption(hook: str, hashtags: list[str], channel: str, category: str = "",
+                   question: str = "") -> str:
     """Accroche, crédit du streamer, puis jusqu'à 8 hashtags : ceux choisis pour le contenu
     d'abord, complétés par le streamer, le jeu et les hashtags de niche."""
     base = base_hashtags(channel, category)
@@ -154,7 +168,11 @@ def format_caption(hook: str, hashtags: list[str], channel: str, category: str =
     tags = merge_hashtags(hashtags[:6], [channel, category], base)
     credit = f"{credit_emoji(category)} twitch.tv/{channel.lower()}"
     hook = hook.strip()
-    cta = "" if hook.endswith("?") else "\n" + call_to_action(seed=hook)
+    question = (question or "").strip()
+    if hook.endswith("?"):
+        cta = ""
+    else:
+        cta = "\n" + (question or call_to_action(title_mood(hook), seed=hook))
     return f"{hook}{cta}\n{credit}\n{' '.join(tags)}"[:2200]
 
 
@@ -208,4 +226,5 @@ def generate_caption(*, title: str, channel: str, transcript: str, model: str,
         return None
     text = next((b.text for b in response.content if b.type == "text"), "")
     data = json.loads(text)
-    return format_caption(data["hook"], data["hashtags"], channel, category)
+    return format_caption(data["hook"], data["hashtags"], channel, category,
+                          question=data.get("question", ""))

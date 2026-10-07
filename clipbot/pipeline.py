@@ -48,7 +48,7 @@ def template_caption(template: str, clip) -> str:
     """Légende sans IA. Le modèle par défaut est complété par les hashtags du clip
     (streamer, jeu, niche) ; un modèle personnalisé avec ses propres # est laissé tel quel."""
     from .captions import (base_hashtags, call_to_action, credit_emoji, merge_hashtags,
-                           mood_emoji)
+                           mood_emoji, title_mood)
 
     category = getattr(clip, "category", "")
     text = template.format(
@@ -58,7 +58,7 @@ def template_caption(template: str, clip) -> str:
         clipper=clip.creator_name,
         mood=mood_emoji(clip.title, clip.id),
         icon=credit_emoji(category),
-        cta=call_to_action(mood_emoji(clip.title, clip.id), clip.id),
+        cta=call_to_action(title_mood(clip.title), clip.id),
     ).replace(" \n", "\n")
     if "#" in template:
         return text

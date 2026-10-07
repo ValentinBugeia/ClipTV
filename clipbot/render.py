@@ -17,8 +17,12 @@ def build_filter(
     crop_track: list[tuple[float, float]] | None = None,
     cam_height: int | None = None,
     punch_at: float | None = None,
+    emoji_at: float | None = None,
 ) -> str:
     """Construit le filtergraph ffmpeg.
+
+    ``emoji_at`` : un emoji (2e entrée, image PNG) surgit au-dessus des sous-titres à cette
+    seconde pendant 1,2 s.
 
     ``punch_at`` : seconde de la réaction la plus forte → petit zoom « impact » d'une
     demi-seconde (effet de montage : rythme, et contenu transformé aux yeux de TikTok).
@@ -74,6 +78,16 @@ def build_filter(
                  f":h='trunc({HEIGHT}*{zoom}/2)*2':eval=frame,crop={WIDTH}:{HEIGHT},setsar=1[v]")
     if subtitles:
         graph = graph[: -len("[v]")] + f"[pre];[pre]ass={_escape_filter_path(subtitles)}[v]"
+    if emoji_at is not None:
+        a, b = emoji_at, emoji_at + 1.2
+        # grossit de 40 % à 110 % en 0,18 s puis se pose à 100 % : effet « pop »
+        grow = (f"min(max(0.4,0.4+(t-{a:.2f})*4),"
+                f"max(1,1.1-2*max(t-{a + 0.18:.2f},0)))")
+        graph = (graph[: -len("[v]")] + f"[pre2];[1:v]format=rgba,"
+                 f"fade=out:st={b - 0.25:.2f}:d=0.25:alpha=1,"
+                 f"scale=w='trunc(230*{grow}/2)*2':h=-2:eval=frame[emo];"
+                 f"[pre2][emo]overlay=x=(W-w)/2:y={HEIGHT // 2 + 30}-h/2:eval=frame:"
+                 f"enable='between(t,{a:.2f},{b:.2f})':eof_action=pass,setsar=1[v]")
     return graph
 
 
@@ -108,6 +122,8 @@ def render_vertical(
     start: float = 0.0,
     normalize_audio: bool = True,
     punch_at: float | None = None,
+    emoji: Path | None = None,
+    emoji_at: float | None = None,
 ) -> Path:
     """``start`` : secondes coupées au début ; ``normalize_audio`` : volume égalisé
     (-14 LUFS, le niveau des vidéos TikTok) pour qu'aucun clip ne soit trop faible ou saturé."""
@@ -118,13 +134,16 @@ def render_vertical(
         crop_track = ([(0.0, before[-1])] if before else []) + later or crop_track[-1:]
     graph = build_filter(layout, str(subtitles.resolve()) if subtitles else None,
                          cam_box=cam_box, crop_center=crop_center, crop_track=crop_track,
-                         cam_height=cam_height, punch_at=punch_at)
+                         cam_height=cam_height, punch_at=punch_at,
+                         emoji_at=emoji_at if emoji else None)
     if subtitles and fonts_dir:
         graph = graph.replace("ass=", f"ass=fontsdir={_escape_filter_path(str(fonts_dir.resolve()))}:filename=", 1)
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]
     if start:
         cmd += ["-ss", f"{start:.2f}"]
     cmd += ["-i", str(src)]
+    if emoji and emoji_at is not None:  # image répétée juste le temps de l'apparition
+        cmd += ["-loop", "1", "-t", f"{emoji_at + 1.5:.2f}", "-i", str(emoji)]
     if max_duration:
         cmd += ["-t", str(max_duration)]
     cmd += [

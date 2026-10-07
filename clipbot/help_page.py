@@ -151,7 +151,7 @@ brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où 
 <ul>
   <li><strong>Clips</strong> : <em>À publier</em> (clips prêts), <em>Publiés</em>,
   <em>Historique</em> (les 10 derniers clips des recherches précédentes ou écartés,
-  récupérables), <em>Erreurs</em>.</li>
+  récupérables).</li>
   <li><strong>Pilote auto</strong> : le mode automatique (marche/pause), ses réglages et la grille
   d'affluence TikTok pour choisir tes heures de publication.</li>
   <li><strong>Statistiques</strong> : vues, j'aime, meilleures vidéos, ce qui marche le mieux.</li>
@@ -218,9 +218,9 @@ autre option) → Refaire.</div></details>
 <details class="faq"><summary>La recherche est longue</summary><div>
 Compte 1 à 3 minutes par clip (le panneau central montre l'étape en cours). La toute première
 fois, l'app télécharge le modèle de transcription (environ 500 Mo) : quelques minutes de plus.</div></details>
-<details class="faq"><summary>Un clip est dans « Erreurs »</summary><div>
-Le message sous le clip explique ce qui s'est passé. Si c'est un problème de connexion
-passager, clique sur <strong>Réessayer</strong>.</div></details>
+<details class="faq"><summary>Un clip n'a pas pu être monté</summary><div>
+Il n'apparaît pas dans « À publier » : la cause est notée dans le journal de la fenêtre du
+lanceur. ClipTV pourra le reproposer lors d'une prochaine recherche.</div></details>
 <details class="faq"><summary>Ouvrir l'app depuis mon téléphone ou un autre PC</summary><div>
 Les deux appareils doivent être sur le même Wi-Fi. Dans <a href="/accounts">Comptes</a> →
 « Accès depuis d'autres appareils », choisis un mot de passe : l'adresse à ouvrir s'affiche

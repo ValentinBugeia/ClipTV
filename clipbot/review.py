@@ -164,6 +164,35 @@ PAGE = """<!doctype html>
   .menu .redo select {{ flex:1 1 100%; padding:7px 10px; font-size:14px }}
   .menu .redo label {{ flex:1; font-size:14px }}
   .menu .redo button {{ flex:0 0 auto; min-height:34px; padding:4px 14px; font-size:14px }}
+  .player {{ position:relative; width:min(100%, calc(72vh * 9 / 16)); aspect-ratio:9/16; margin:0 auto;
+            container-type:inline-size; border-radius:14px; overflow:hidden; background:#000 }}
+  .player video {{ width:100%; height:100%; max-height:none; border-radius:0 }}
+  .ttbtn {{ position:absolute; top:10px; left:10px; z-index:3; flex:none; min-height:0; padding:5px 10px;
+           font-size:12px; border-radius:999px; background:rgba(10,10,15,.7); backdrop-filter:blur(8px);
+           box-shadow:inset 0 0 0 1px rgba(255,255,255,.18) }}
+  .player.tt .ttbtn {{ background:#fff; color:#000 }}
+  .player.tt {{ cursor:pointer }}
+  .card.tton .pot {{ display:none }}
+  .ttui {{ display:none; position:absolute; inset:0; z-index:2; pointer-events:none; color:#fff;
+          font-family:"TikTok Sans",Inter,system-ui,sans-serif; text-shadow:0 1px 2px rgba(0,0,0,.5) }}
+  .player.tt .ttui {{ display:block }}
+  .ttui .tabs {{ position:absolute; top:4.5%; right:4%; font-size:4.6cqw; font-weight:600;
+                color:rgba(255,255,255,.7) }}
+  .ttui .tabs b {{ color:#fff; border-bottom:.6cqw solid #fff; padding-bottom:1cqw; margin-left:4cqw }}
+  .ttui .side {{ position:absolute; right:2.5%; bottom:17%; width:13cqw; display:flex; flex-direction:column;
+                align-items:center; gap:4.5cqw; font-size:3.2cqw; font-weight:600 }}
+  .ttui .side span {{ display:flex; flex-direction:column; align-items:center; gap:.6cqw }}
+  .ttui .side svg {{ width:9cqw; height:9cqw; filter:drop-shadow(0 1px 2px rgba(0,0,0,.4)) }}
+  .ttui .av {{ width:11cqw; height:11cqw; border-radius:50%; border:.5cqw solid #fff; background:var(--grad) center/cover }}
+  .ttui .disc {{ width:10cqw; height:10cqw; border-radius:50%; background:radial-gradient(#555 30%,#111 32%);
+                border:2cqw solid #222 }}
+  .ttui .cap {{ position:absolute; left:3.5%; right:20%; bottom:4%; font-size:3.7cqw; line-height:1.35 }}
+  .ttui .cap b {{ display:block; font-size:4.2cqw; margin-bottom:1.2cqw }}
+  .ttui .txt {{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+               white-space:pre-line }}
+  .ttui .snd {{ margin-top:1.6cqw; font-size:3.4cqw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }}
+  .ttui .zone {{ position:absolute; left:0; right:0; bottom:0; height:22%;
+                background:linear-gradient(transparent,rgba(0,0,0,.45)) }}
   .badges {{ display:flex; gap:6px; flex-wrap:wrap }}
   .badge {{ font-size:12px; font-weight:500; padding:3px 9px; border-radius:999px; background:rgba(255,255,255,.06);
             color:var(--muted); border:1px solid var(--line) }}
@@ -243,6 +272,27 @@ function copyCaption(btn) {{
     area.select(); document.execCommand('copy'); done();
   }}
 }}
+// aperçu « comme sur TikTok » : interface de l'app par-dessus la vidéo, avec la description
+function ttToggle(btn) {{
+  const player = btn.closest('.player'), video = player.querySelector('video');
+  const on = player.classList.toggle('tt');
+  player.closest('.card').classList.toggle('tton', on);
+  btn.textContent = on ? "✕ Fermer l’aperçu" : '👁 Aperçu TikTok';
+  video.controls = !on;  // comme sur TikTok : un clic sur la vidéo = lecture / pause
+  if (on) video.play().catch(() => {{}});
+  ttFill(player.closest('.card'));
+}}
+document.addEventListener('click', ev => {{
+  const player = ev.target.closest('.player.tt');
+  if (!player || ev.target.closest('.ttbtn')) return;
+  const video = player.querySelector('video');
+  video.paused ? video.play() : video.pause();
+}});
+function ttFill(card) {{
+  const area = card && card.querySelector('textarea'), box = card && card.querySelector('.ttui .txt');
+  if (area && box) box.textContent = area.value;
+}}
+document.addEventListener('input', ev => {{ if (ev.target.tagName === 'TEXTAREA') ttFill(ev.target.closest('.card')); }});
 // « Préparer » : télécharge la vidéo, copie la description, ouvre TikTok Studio
 function prepareClip(btn) {{
   const form = btn.closest('form');
@@ -397,8 +447,7 @@ ICONS = {
 }
 STUDIO = "studio"  # ancien onglet « TikTok Studio » (redirige vers « À publier »)
 AUTO_PUBLISH = "auto_publish"  # publication / programmation par ClipTV (app validée par TikTok)
-MANUAL_TABS = [("rendered", "À publier"), ("published", "Publiés"), ("rejected", "Historique"),
-               ("failed", "Erreurs")]
+MANUAL_TABS = [("rendered", "À publier"), ("published", "Publiés"), ("rejected", "Historique")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),
         ("published", "Publiés"), ("rejected", "Historique"), ("failed", "Erreurs")]
 CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo", "restore")
@@ -844,7 +893,7 @@ class Handler(BaseHTTPRequestHandler):
         manual = not self._auto_publish()  # tu publies toi-même (TikTok Studio)
         if manual:
             self._release_scheduled()
-            if tab == STUDIO:
+            if tab not in {s for s, _ in MANUAL_TABS}:  # ancien onglet (Studio, Erreurs…)
                 tab = "rendered"
         counts = {s: self.state.count(s) for s, _ in TABS}
         tiktok_videos = self.state.recent_videos()
@@ -1051,7 +1100,8 @@ class Handler(BaseHTTPRequestHandler):
             player = ('<div class="when" style="padding:40px 0;text-align:center">'
                       '⏳ Remontage en cours…</div>')
         else:
-            player = f'<video src="{video}" controls preload="metadata" playsinline></video>'
+            player = (f'<div class="player"><video src="{video}" controls preload="metadata" '
+                      f'playsinline></video>{self._tiktok_overlay()}</div>')
             if c.get("output_path") and not self._has_audio(c["output_path"]):
                 player += '<div class="badges"><span class="badge failed">🔇 vidéo sans son</span></div>'
         posts = self.state.posts(c["clip_id"])
@@ -1071,6 +1121,32 @@ class Handler(BaseHTTPRequestHandler):
                            title=e(c["title"]), channel=e(c["channel"]),
                            views=e(c["view_count"]), url=e(c["url"]), error=error,
                            badges=badges, actions=actions)
+
+    def _tiktok_overlay(self) -> str:
+        """Interface TikTok simulée (bouton « Aperçu TikTok ») : voir avant de publier si la
+        description ou les boutons cachent les sous-titres."""
+        from . import stats
+
+        account = self.state.get_settings().get(stats.ACCOUNT) or {}
+        name = e(account.get("display_name") or "ton_compte")
+        avatar = (f' style="background-image:url(\'{e(account["avatar_url"])}\')"'
+                  if account.get("avatar_url") else "")
+        icon = ('<svg viewBox="0 0 24 24" fill="#fff">{}</svg>').format
+        heart = icon('<path d="M12 21s-7.5-4.6-9.5-9.2C1 8.2 3.3 4.5 7 4.5c2 0 3.6 1.1 5 2.8 '
+                     '1.4-1.7 3-2.8 5-2.8 3.7 0 6 3.7 4.5 7.3C19.5 16.4 12 21 12 21z"/>')
+        comment = icon('<path d="M12 3C6.5 3 2 6.6 2 11c0 2.4 1.3 4.6 3.4 6L5 21l4.3-2.4c.9.2 '
+                       '1.8.3 2.7.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z"/>')
+        save = icon('<path d="M6 2h12a1 1 0 0 1 1 1v19l-7-4.5L5 22V3a1 1 0 0 1 1-1z"/>')
+        share = icon('<path d="M14 4l8 7.5-8 7.5v-4.5c-6 0-9.5 1.8-12 6 .8-6.5 4-11.5 12-12.5z"/>')
+        return (
+            '<button type="button" class="ttbtn" onclick="ttToggle(this)">👁 Aperçu TikTok</button>'
+            '<div class="ttui" aria-hidden="true"><div class="zone"></div>'
+            '<div class="tabs"><b>Pour toi</b></div>'
+            f'<div class="side"><div class="av"{avatar}></div><span>{heart}12,4 k</span>'
+            f'<span>{comment}318</span><span>{save}1 024</span><span>{share}562</span>'
+            '<div class="disc"></div></div>'
+            f'<div class="cap"><b>{name}</b><div class="txt"></div>'
+            f'<div class="snd">♫ son original - {name}</div></div></div>')
 
     def _on_tiktok(self, c: dict) -> bool:
         """Ce clip est-il déjà sur le compte TikTok ? (liste des vidéos des statistiques)"""
@@ -1273,8 +1349,30 @@ class Handler(BaseHTTPRequestHandler):
     tournent) et 3× moins la nuit et le matin</label>
 </div>
 <div class="row" style="margin-top:14px"><button type="submit">Enregistrer</button></div>
-</form>"""
+</form>
+{self._handles_panel()}"""
         self._page(body, "/auto", narrow=True)
+
+    def _handles_panel(self) -> str:
+        from .socials import as_lines
+
+        lines = as_lines(self.state)
+        return f"""<details class="panel"><summary>🏷️ Comptes TikTok des streamers</summary>
+<p class="info">ClipTV ajoute le @ TikTok du streamer dans la description (il trouve le compte
+tout seul sur la chaîne Twitch quand le streamer l'affiche). Corrige ou ajoute un compte : une
+ligne par streamer, « nom_twitch @compte_tiktok » ; « nom_twitch - » pour ne jamais le
+mentionner.</p>
+<form method="post" action="/handles">
+  <textarea name="handles" rows="6" placeholder="nico_la @nicolatiktok&#10;kamet0 @kameto"
+            autocapitalize="none" autocorrect="off" spellcheck="false">{e(lines)}</textarea>
+  <div class="row" style="margin-top:10px"><button type="submit" class="small">Enregistrer</button></div>
+</form></details>"""
+
+    def _save_handles(self, form: dict[str, str]):
+        from .socials import save_manual
+
+        n = save_manual(self.state, form.get("handles", ""))
+        return self._redirect(f"Comptes TikTok enregistrés ({n} streamer(s)).", to="/auto")
 
     # ---------- page Comptes ----------
     def _accounts_page(self):
@@ -1603,6 +1701,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             "/connect/tiktok-code": lambda: self._tiktok_code(one),
             "/keys": lambda: self._save_keys(one),
             "/password": lambda: self._save_password(one),
+            "/handles": lambda: self._save_handles(one),
         }
         if path in routes:
             return routes[path]()

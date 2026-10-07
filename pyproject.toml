@@ -32,4 +32,4 @@ pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.setuptools.package-data]
-clipbot = ["models/*.onnx", "models/LICENSE-*"]
+clipbot = ["models/*.onnx", "models/LICENSE-*", "emoji/*.png", "emoji/LICENSE.txt"]

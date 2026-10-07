@@ -160,13 +160,15 @@ def merge_hashtags(*groups: list[str], limit: int = MAX_HASHTAGS) -> list[str]:
 
 
 def format_caption(hook: str, hashtags: list[str], channel: str, category: str = "",
-                   question: str = "") -> str:
+                   question: str = "", tiktok: str | None = None) -> str:
     """Accroche, crédit du streamer, puis jusqu'à 8 hashtags : ceux choisis pour le contenu
     d'abord, complétés par le streamer, le jeu et les hashtags de niche."""
     base = base_hashtags(channel, category)
     # Claude en donne 4 à 6 : on garde la place du streamer et du jeu dans les 8
     tags = merge_hashtags(hashtags[:6], [channel, category], base)
     credit = f"{credit_emoji(category)} twitch.tv/{channel.lower()}"
+    if tiktok:  # le streamer est prévenu s'il est mentionné : like, repost possibles
+        credit += f" · @{tiktok}"
     hook = hook.strip()
     question = (question or "").strip()
     if hook.endswith("?"):
@@ -177,7 +179,7 @@ def format_caption(hook: str, hashtags: list[str], channel: str, category: str =
 
 
 def generate_caption(*, title: str, channel: str, transcript: str, model: str,
-                     category: str = "") -> str | None:
+                     category: str = "", tiktok: str | None = None) -> str | None:
     try:
         import anthropic
     except ImportError:
@@ -227,4 +229,4 @@ def generate_caption(*, title: str, channel: str, transcript: str, model: str,
     text = next((b.text for b in response.content if b.type == "text"), "")
     data = json.loads(text)
     return format_caption(data["hook"], data["hashtags"], channel, category,
-                          question=data.get("question", ""))
+                          question=data.get("question", ""), tiktok=tiktok)

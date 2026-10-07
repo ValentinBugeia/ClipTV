@@ -1,7 +1,8 @@
 """Transcription (faster-whisper) et génération de sous-titres ASS style TikTok.
 
 Les mots sont regroupés en petits blocs (2-3 mots) affichés en gros au centre,
-le mot en cours de prononciation est surligné en couleur.
+le mot en cours de prononciation est surligné en couleur. Les mots forts (« NON », « MDR »,
+« QUOI », cris…) ressortent dans une autre couleur et grossissent quand ils sont prononcés.
 """
 
 from __future__ import annotations
@@ -105,6 +106,27 @@ def group_words(
     return groups
 
 
+STRONG_WORDS = {
+    "non", "nan", "nooon", "quoi", "wtf", "omg", "putain", "merde", "bordel", "purée", "sérieux",
+    "sérieusement", "jamais", "incroyable", "impossible", "attends", "arrête", "stop", "pourquoi",
+    "oh", "ah", "aïe", "oula", "ouf", "dingue", "dinguerie", "fou", "folle", "énorme", "chaud",
+    "help", "gg", "mdr", "ptdr", "jpp", "lol", "xd", "nul", "honteux", "masterclass", "monstre",
+}
+
+
+def is_strong(text: str) -> bool:
+    """Mot de réaction : exclamation, rire, cri (« noooon », « aaah »), juron…"""
+    import re
+
+    from .live import LAUGH_RE
+
+    word = re.sub(r"[^\w'+]", "", text.lower())
+    if not word:
+        return False
+    return (word in STRONG_WORDS or bool(LAUGH_RE.match(word))
+            or bool(re.search(r"(\w)\1{2,}", word)) or text.rstrip().endswith("!"))
+
+
 def _ts(seconds: float) -> str:
     seconds = max(seconds, 0.0)
     cs = int(round(seconds * 100))
@@ -149,13 +171,15 @@ def build_ass(
     font: str = "Montserrat Black",
     font_size: int = 88,
     highlight: str = "#FFE600",
+    strong: str | None = "#FF4F7B",
     uppercase: bool = True,
     margin_v: int = 560,
     hook: str = "",
     hook_seconds: float = 3.0,
     hook_margin: int = 260,
 ) -> str:
-    """``hook`` : titre d'accroche affiché en haut pendant ``hook_seconds`` secondes."""
+    """``hook`` : titre d'accroche affiché en haut pendant ``hook_seconds`` secondes.
+    ``strong`` : couleur des mots forts (None = comme les autres mots)."""
     out = [
         ASS_HEADER.format(
             width=width,
@@ -172,17 +196,28 @@ def build_ass(
         out.append(f"Dialogue: 1,{_ts(0)},{_ts(hook_seconds)},Hook,,0,0,0,,"
                    f"{{\\fad(0,250)}}{_escape(hook)}\n")
     hl = _ass_color(highlight)
+    st = _ass_color(strong) if strong else None
+    white = "&H00FFFFFF&"
     for group in group_words(words):
         texts = [_escape(w.text.upper() if uppercase else w.text) for w in group]
+        strongs = [bool(st) and is_strong(w.text) for w in group]
         for i, word in enumerate(group):
             start = word.start
             # le bloc reste affiché jusqu'au mot suivant (pas de clignotement)
             end = group[i + 1].start if i + 1 < len(group) else word.end
             if end <= start:
                 end = start + 0.05
-            parts = [
-                f"{{\\c{hl}}}{t}{{\\c&H00FFFFFF&}}" if j == i else t for j, t in enumerate(texts)
-            ]
+            parts = []
+            for j, t in enumerate(texts):
+                if strongs[j] and j == i:  # mot fort prononcé : couleur + grossit d'un coup
+                    parts.append(f"{{\\c{st}\\fscx130\\fscy130\\t(0,140,\\fscx115\\fscy115)}}"
+                                 f"{t}{{\\c{white}\\fscx100\\fscy100}}")
+                elif strongs[j]:
+                    parts.append(f"{{\\c{st}}}{t}{{\\c{white}}}")
+                elif j == i:
+                    parts.append(f"{{\\c{hl}}}{t}{{\\c{white}}}")
+                else:
+                    parts.append(t)
             # petit effet "pop" à l'apparition du bloc
             prefix = "{\\fscx110\\fscy110\\t(0,80,\\fscx100\\fscy100)}" if i == 0 else ""
             out.append(

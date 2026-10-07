@@ -139,3 +139,34 @@ def test_question_matches_clip():
     text = format_caption("Il découvre son score", ["fyp"], "nico",
                           question="Tu t'attendais à ce score ? 👇")
     assert text.splitlines()[1] == "Tu t'attendais à ce score ? 👇"
+
+
+def test_reaction_emoji():
+    from clipbot.enhance import reaction_emoji
+    from clipbot.subtitles import Word
+
+    assert reaction_emoji([Word("mdrrr", 5.0, 5.4)], 5.2).stem == "laugh"
+    assert reaction_emoji([Word("aaaah", 3.0, 3.5)], 3.1).stem == "scream"
+    assert reaction_emoji([Word("bonjour", 3.0, 3.5)], 3.1, "Le jumpscare de fou").stem == "scream"
+    assert reaction_emoji([Word("bonjour", 3.0, 3.5)], 3.1, "Partie classée") is None
+    assert reaction_emoji([Word("mdr", 20.0, 20.4)], 3.1) is None  # trop loin de la réaction
+
+
+def test_emoji_filter_and_render(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    from clipbot.render import build_filter, probe_duration, render_vertical
+
+    graph = build_filter("crop", None, emoji_at=2.0)
+    assert "[1:v]" in graph and "between(t,2.00,3.20)" in graph and graph.endswith("[v]")
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg absent")
+    src = tmp_path / "s.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc2=size=640x360:duration=3", "-f", "lavfi", "-i",
+                    "sine=duration=3", "-shortest", "-pix_fmt", "yuv420p", str(src)], check=True)
+    emoji = Path(__file__).parent.parent / "clipbot" / "emoji" / "laugh.png"
+    out = render_vertical(src, tmp_path / "o.mp4", layout="blur", emoji=emoji, emoji_at=1.0)
+    assert 2.5 <= probe_duration(out) <= 3.5  # l'image en boucle ne prolonge pas la vidéo

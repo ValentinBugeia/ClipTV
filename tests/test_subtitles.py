@@ -21,11 +21,11 @@ def test_timestamp_and_color():
 
 
 def test_build_ass_highlights_each_word():
-    ass = build_ass(words(("non", 0, .3), ("mais", .3, .6)), highlight="#FF0000")
+    ass = build_ass(words(("bon", 0, .3), ("mais", .3, .6)), highlight="#FF0000")
     dialogues = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
     assert len(dialogues) == 2
-    assert "{\\c&H000000FF}NON{\\c&H00FFFFFF&} MAIS" in dialogues[0]
-    assert "NON {\\c&H000000FF}MAIS" in dialogues[1]
+    assert "{\\c&H000000FF}BON{\\c&H00FFFFFF&} MAIS" in dialogues[0]
+    assert "BON {\\c&H000000FF}MAIS" in dialogues[1]
     # le premier mot reste affiché jusqu'au début du second
     assert dialogues[0].split(",")[1:3] == ["0:00:00.00", "0:00:00.30"]
 
@@ -54,3 +54,14 @@ def test_load_audio_with_ffmpeg(tmp_path):
     audio = load_audio(src)
     assert audio.dtype == np.float32 and abs(len(audio) / SAMPLE_RATE - 2) < 0.1
     assert 0.05 < float(abs(audio).max()) <= 1.0
+
+
+def test_strong_words_stand_out():
+    from clipbot.subtitles import is_strong
+
+    assert is_strong("NON") and is_strong("mdrrr") and is_strong("noooon") and is_strong("vas-y!")
+    assert not is_strong("maison") and not is_strong("le")
+    ass = build_ass(words(("bon", 0, .3), ("quoi", .3, .6)), strong="#FF0000")
+    first, second = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+    assert "{\\c&H000000FF}QUOI" in first                        # en couleur dans tout le bloc
+    assert "{\\c&H000000FF\\fscx130\\fscy130" in second           # et grossit quand il est dit

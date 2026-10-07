@@ -178,3 +178,32 @@ def peak_time(audio, sample_rate: int) -> tuple[float, float]:
     smooth = np.convolve(rms, np.ones(4) / 4, mode="same")
     i = int(np.argmax(smooth))
     return i * 0.25, float(smooth[i]) / max(float(np.median(rms)), 1e-4)
+
+
+EMOJI_DIR = Path(__file__).parent / "emoji"
+MOOD_EMOJI = {"😂": "laugh", "😱": "scream", "😡": "rage", "💀": "skull", "😭": "cry",
+              "🔥": "fire"}
+
+
+def reaction_emoji(words: list, at: float, title: str = "") -> Path | None:
+    """Emoji qui surgit sur la réaction la plus forte : d'après ce qui se dit à ce
+    moment-là (rire, cri, rage), sinon d'après le titre. Rien si on ne sait pas : un emoji
+    à côté de la plaque ferait pire que pas d'emoji."""
+    import re as _re
+
+    from .captions import title_mood
+    from .live import LAUGH_RE
+
+    near = " ".join(w.text.lower() for w in words if at - 1.5 <= w.start <= at + 1.5)
+    tokens = _re.findall(r"[\w']+", near)
+    name = None
+    if any(LAUGH_RE.match(t) or t in ("mdr", "ptdr", "jpp", "xd", "lol") for t in tokens):
+        name = "laugh"
+    elif _re.search(r"\ba{3,}h*\b|\bau secours\b|\bj'ai peur\b|\bflipp", near):
+        name = "scream"
+    elif _re.search(r"\bta gueule\b|\bferme[- ]la\b|\bénerv|\bsale \w+", near):
+        name = "rage"
+    else:
+        name = MOOD_EMOJI.get(title_mood(title))
+    path = EMOJI_DIR / f"{name}.png" if name else None
+    return path if path and path.exists() else None

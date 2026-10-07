@@ -28,7 +28,7 @@ class Options:
     fonts_dir: Path | None = None
     highlight: str = "#FFE600"
     max_duration: float = 60.0
-    caption_template: str = "{title} {mood}\n{cta}\n{icon} twitch.tv/{channel_tag}"
+    caption_template: str = "{title} {mood}\n{cta}\n{icon} twitch.tv/{channel_tag}{tiktok}"
     ai_caption: bool = False
     publish: bool = False           # publie tout de suite après le rendu
     schedule: bool = False          # programme sur le prochain créneau libre
@@ -42,6 +42,7 @@ class Options:
     skip_burned_subs: bool = True   # pas de sous-titres en double si le stream en a déjà
     trim_end: bool = True           # fin sèche juste après la chute (revisionnages)
     punch_zoom: bool = True         # petit zoom sur la réaction la plus forte
+    reaction_emoji: bool = True     # emoji qui surgit sur cette réaction (rire, cri…)
 
 
 def template_caption(template: str, clip) -> str:
@@ -59,6 +60,7 @@ def template_caption(template: str, clip) -> str:
         mood=mood_emoji(clip.title, clip.id),
         icon=credit_emoji(category),
         cta=call_to_action(title_mood(clip.title), clip.id),
+        tiktok=f" · @{handle}" if (handle := getattr(clip, "tiktok_handle", None)) else "",
     ).replace(" \n", "\n")
     if "#" in template:
         return text
@@ -142,10 +144,10 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         log.info("Cadrage : %s%s%s", layout, f" (visage {face.w}x{face.h})" if face else "",
                  " avec suivi du visage" if crop_track and len(crop_track) > 1 else "")
 
-    from .enhance import find_end, find_start, hook_text, peak_time
+    from .enhance import find_end, find_start, hook_text, peak_time, reaction_emoji
     from .subtitles import SAMPLE_RATE, Word, load_audio
 
-    start, end, punch_at = 0.0, None, None
+    start, end, punch_at, emoji = 0.0, None, None, None
     audio = None
     if opts.trim_start or opts.trim_end or opts.punch_zoom:
         try:
@@ -168,6 +170,10 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
             if strength >= 4 and 0.5 <= at - start <= limit - 0.6:
                 punch_at = round(at - start, 2)
                 log.info("Zoom « impact » sur la réaction à %.1f s", punch_at)
+                if opts.reaction_emoji:
+                    emoji = reaction_emoji(words, at, title)
+                    if emoji:
+                        log.info("Emoji %s sur la réaction", emoji.stem)
     duration = opts.max_duration
     if end:
         duration = min(duration or end - start, end - start)
@@ -195,7 +201,8 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
     render_vertical(src, dst, layout=layout, subtitles=subs, max_duration=duration,
                     fonts_dir=opts.fonts_dir, cam_box=cam_box, crop_center=crop_center,
                     crop_track=crop_track, cam_height=cam_height, start=start,
-                    normalize_audio=opts.normalize_audio, punch_at=punch_at)
+                    normalize_audio=opts.normalize_audio, punch_at=punch_at,
+                    emoji=emoji, emoji_at=punch_at)
     if info is not None:  # indices pour l'indicateur de potentiel
         from .render import probe_duration
 
@@ -220,6 +227,7 @@ def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
             transcript=" ".join(w.text for w in words),
             model=cfg.llm_model,
             category=getattr(clip, "category", ""),
+            tiktok=getattr(clip, "tiktok_handle", None),
         )
         if caption:
             return caption
@@ -331,6 +339,12 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
 
     category = getattr(clip, "category", "")
     meta = dict(title=clip.title, url=clip.url, view_count=clip.view_count, category=category)
+    try:
+        from .socials import tiktok_handle
+
+        clip.tiktok_handle = tiktok_handle(state, clip.broadcaster_name)  # @ dans la légende
+    except Exception:
+        log.warning("Compte TikTok du streamer non vérifié", exc_info=True)
     try:
         progress.step("download", f"{channel} · {clip.title}")
         src = source() if source else download_clip(clip.url, cfg.downloads_dir, clip.id)

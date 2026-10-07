@@ -150,7 +150,8 @@ brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où 
 <h3>Les onglets</h3>
 <ul>
   <li><strong>Clips</strong> : <em>À publier</em> (clips prêts), <em>Publiés</em>,
-  <em>Rejetés</em> (récupérables), <em>Erreurs</em>.</li>
+  <em>Historique</em> (les 10 derniers clips des recherches précédentes ou écartés,
+  récupérables), <em>Erreurs</em>.</li>
   <li><strong>Pilote auto</strong> : le mode automatique (marche/pause), ses réglages et la grille
   d'affluence TikTok pour choisir tes heures de publication.</li>
   <li><strong>Statistiques</strong> : vues, j'aime, meilleures vidéos, ce qui marche le mieux.</li>

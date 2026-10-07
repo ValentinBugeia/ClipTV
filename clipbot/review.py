@@ -397,10 +397,10 @@ ICONS = {
 }
 STUDIO = "studio"  # ancien onglet « TikTok Studio » (redirige vers « À publier »)
 AUTO_PUBLISH = "auto_publish"  # publication / programmation par ClipTV (app validée par TikTok)
-MANUAL_TABS = [("rendered", "À publier"), ("published", "Publiés"), ("rejected", "Rejetés"),
+MANUAL_TABS = [("rendered", "À publier"), ("published", "Publiés"), ("rejected", "Historique"),
                ("failed", "Erreurs")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),
-        ("published", "Publiés"), ("rejected", "Rejetés"), ("failed", "Erreurs")]
+        ("published", "Publiés"), ("rejected", "Historique"), ("failed", "Erreurs")]
 CLIP_ACTIONS = ("publish", "schedule", "reject", "unschedule", "done", "redo", "restore")
 HOURS = [(6, "6 dernières heures"), (24, "24 dernières heures"), (72, "3 derniers jours"),
          (168, "7 derniers jours")]

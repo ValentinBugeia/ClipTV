@@ -1,9 +1,7 @@
 """« À publier » = dernière recherche ; « Rejetés » limité aux 10 plus récents."""
 
 import time
-from types import SimpleNamespace
 
-from clipbot import selection
 from clipbot.config import Config
 from clipbot.state import AUTO_REJECT, State
 
@@ -21,11 +19,6 @@ def test_new_search_archives_pending(tmp_path):
     assert state.archive_pending() == 1
     assert state.get("a")["status"] == "rejected" and state.get("a")["error"] == AUTO_REJECT
     assert state.get("b")["status"] == "published"
-    # écarté par une recherche ≠ refusé par toi : pas compté contre le streamer
-    prefs = selection.preferences(state)
-    assert prefs["channel"].get("nico", 0) == 1
-    assert selection.preference_factor(
-        SimpleNamespace(broadcaster_name="nico", category=""), prefs) > 1
 
 
 def test_trim_rejected_keeps_ten_newest(tmp_path):

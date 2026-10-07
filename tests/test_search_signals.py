@@ -34,17 +34,6 @@ def test_chat_recorder_and_spike(tmp_path):
     assert selection.chat_factor(state, clip) == 2.0 and clip.chat_spike >= 10
 
 
-def test_preferences_learn_from_choices(tmp_path):
-    state = make_state(tmp_path)
-    for i in range(3):
-        state.record(f"p{i}", "aimé", "published", category="Valorant")
-        state.record(f"r{i}", "pas_aimé", "rejected", category="Just Chatting")
-    prefs = selection.preferences(state)
-    liked = SimpleNamespace(broadcaster_name="Aimé", category="Valorant")
-    disliked = SimpleNamespace(broadcaster_name="pas_aimé", category="Just Chatting")
-    assert selection.preference_factor(liked, prefs) > 1 > selection.preference_factor(disliked, prefs)
-
-
 def test_title_factor():
     assert selection.title_factor("il rage complètement") > 1
     assert selection.title_factor("KEKW le fail") > 1
@@ -84,7 +73,7 @@ def test_proven_channels(tmp_path):
                        for i, (ch, v) in enumerate([("top", 5000), ("top", 6000), ("top", 5500),
                                                     ("flop", 50), ("flop", 40), ("flop", 60),
                                                     ("mid", 900), ("mid", 1000)])])
-    for i in range(3):
+    for i in range(3):  # rejeter ses clips ne le classe pas « à éviter »
         state.record(f"r{i}", "rejete", "rejected")
     good, bad = proven_channels(state)
-    assert good == ["top"] and "flop" in bad and "rejete" in bad
+    assert good == ["top"] and "flop" in bad and "rejete" not in bad

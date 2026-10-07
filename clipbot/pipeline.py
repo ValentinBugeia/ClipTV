@@ -409,7 +409,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
                   if not state.is_done(c.id) and not on_tiktok(c)]
         from .discover import preselection_boost
 
-        boost = preselection_boost(state)  # tes TikToks, tes choix, titre, chat
+        boost = preselection_boost(state)  # vues de tes TikToks, titre, chat
         ranked.sort(key=lambda c: c.virality() * boost(c), reverse=True)
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         from . import selection

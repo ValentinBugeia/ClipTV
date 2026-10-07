@@ -253,14 +253,5 @@ def render(summary: dict, *, days: int, sort: str, tz: str) -> str:
 
     parts.append(heatmap(summary.get("slots", []), summary["videos"], tz, apply_button=False))
 
-    a = summary["activity"]
-    made = sum(a.get(k, 0) for k in ("rendered", "scheduled", "publishing", "published"))
-    parts.append('<div class="panel"><h2>Activité de cliptv sur la période</h2><div class="kpis">'
-                 + kpi("Clips montés", compact(made))
-                 + kpi("Publiés", compact(a.get("published", 0)))
-                 + kpi("Programmés", compact(a.get("scheduled", 0)))
-                 + kpi("Rejetés", compact(a.get("rejected", 0)))
-                 + kpi("En erreur", compact(a.get("failed", 0)))
-                 + "</div></div>")
     parts.append("</div>" + SCRIPT)
     return "".join(parts)

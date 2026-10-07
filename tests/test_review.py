@@ -387,7 +387,7 @@ def test_subtitles_setting(server):
 def test_stats_page(server):
     base, state = server
     body = urllib.request.urlopen(base + "/stats?p=7").read().decode()
-    assert "Activer les statistiques TikTok" in body and "Activité de cliptv" in body
+    assert "Activer les statistiques TikTok" in body and "Activité de cliptv" not in body
     _post(base + "/stats/enable", b"")
     assert state.get_settings()["tiktok_stats"] is True
 

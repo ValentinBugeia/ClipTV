@@ -216,10 +216,6 @@ def summary(state: State, *, since: float, tz: str) -> dict:
     totals["videos"] = len(videos)
     totals["engagement"] = ((totals["likes"] + totals["comments"] + totals["shares"])
                             / totals["views"] if totals["views"] else 0.0)
-    with state.lock:
-        activity = dict(state.conn.execute(
-            "SELECT status, COUNT(*) FROM clips WHERE updated_at >= ? GROUP BY status",
-            (int(since),)).fetchall())
     settings = state.get_settings()
     return {
         "enabled": bool(settings.get(ENABLED)),
@@ -232,5 +228,4 @@ def summary(state: State, *, since: float, tz: str) -> dict:
         "by_category": group(lambda v: v["category"])[:8],
         "by_hour": sorted(group(lambda v: datetime.fromtimestamp(
             v["create_time"], zone).strftime("%Hh") if v["create_time"] else None)),
-        "activity": activity,
     }

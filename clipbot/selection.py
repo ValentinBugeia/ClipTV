@@ -60,40 +60,6 @@ def history_factor(clip, hist: dict) -> float:
     return min(max(factor, 0.25), 4.0)
 
 
-PREF_DAYS = 60
-
-
-def preferences(state) -> dict:
-    """Ce que tu as gardé ou rejeté ces 60 derniers jours, par streamer et par catégorie :
-    publié / programmé = +1, rejeté = -1."""
-    import time
-
-    since = int(time.time() - PREF_DAYS * 86400)
-    with state.lock:
-        rows = state.conn.execute(
-            "SELECT channel, category, status, error FROM clips WHERE updated_at >= ?",
-            (since,)).fetchall()
-    from .state import AUTO_REJECT
-
-    out: dict = {"channel": {}, "category": {}}
-    for channel, category, status, error in rows:
-        delta = {"published": 1, "scheduled": 1, "publishing": 1, "rejected": -1,
-                 "purged": -1}.get(status)
-        if not delta or (delta < 0 and error == AUTO_REJECT):  # écarté par une recherche
-            continue
-        for kind, key in (("channel", channel), ("category", category)):
-            if key:
-                out[kind][key.lower()] = out[kind].get(key.lower(), 0) + delta
-    return out
-
-
-def preference_factor(clip, prefs: dict) -> float:
-    """Plus de clips des streamers / catégories que tu publies, moins de ceux que tu rejettes."""
-    ch = prefs["channel"].get(clip.broadcaster_name.lower(), 0)
-    cat = prefs["category"].get((getattr(clip, "category", "") or "").lower(), 0)
-    return math.exp(0.12 * min(max(ch, -5), 5) + 0.08 * min(max(cat, -5), 5))
-
-
 def title_factor(title: str) -> float:
     """Titre qui annonce une réaction (fou rire, rage, cri, clutch…) : petit bonus."""
     import re

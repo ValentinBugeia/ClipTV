@@ -24,13 +24,13 @@ MEMORY_KEY = "discovered"
 
 
 def proven_channels(state, limit: int = 10) -> tuple[list[str], list[str]]:
-    """(streamers qui marchent sur ton compte, streamers à éviter)."""
+    """(streamers qui marchent sur ton compte, streamers à éviter), d'après les vues de
+    tes TikToks uniquement : rejeter un clip ne veut pas dire que le streamer fait peu de vues."""
     from statistics import median
 
-    from . import potential, selection
+    from . import potential
 
     hist = potential.history(state)
-    prefs = selection.preferences(state)
     good, bad = [], []
     if len(hist["all"]) >= potential.MIN_HISTORY:
         overall = median(hist["all"])
@@ -40,9 +40,6 @@ def proven_channels(state, limit: int = 10) -> tuple[list[str], list[str]]:
                 good.append((factor, login))
             elif len(views) >= 3 and factor < 0.5:
                 bad.append(login)
-    for login, score in prefs["channel"].items():
-        if score <= -3:
-            bad.append(login)
     return [g for _, g in sorted(good, reverse=True)[:limit]], bad
 
 
@@ -60,8 +57,8 @@ def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
     memory = dict(keep)
     state.save_settings({MEMORY_KEY: memory})
     channels = {login: v["id"] for login, v in memory.items()}
-    # streamers qui marchent sur ton compte : toujours scannés ; ceux qui ne marchent pas
-    # (ou que tu rejettes souvent) : écartés, sauf s'ils sont dans tes favoris
+    # streamers qui marchent sur ton compte TikTok : toujours scannés ; ceux qui y font peu
+    # de vues : écartés, sauf s'ils sont dans tes favoris
     good, bad = proven_channels(state)
     for login in bad:
         if login not in favorites:
@@ -103,15 +100,13 @@ def standout_score(clips: list[Clip]):
 
 
 def preselection_boost(state):
-    """Durée adaptée à TikTok × tes anciens TikToks × tes choix (publiés / rejetés) ×
+    """Durée adaptée à TikTok × vues de tes anciens TikToks (streamer, catégorie) ×
     titre qui annonce une réaction × pic du chat au moment du clip."""
     from . import potential, selection
 
     hist = potential.history(state)
-    prefs = selection.preferences(state)
     return lambda clip: (selection.duration_factor(clip.duration)
                          * selection.history_factor(clip, hist)
-                         * selection.preference_factor(clip, prefs)
                          * selection.title_factor(clip.title)
                          * selection.chat_factor(state, clip))
 

@@ -70,7 +70,11 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 """
 
-DONE_STATUSES = ("rendered", "scheduled", "publishing", "published", "rejected")
+# « purged » : rejeté puis supprimé (fichiers effacés) ; gardé pour ne pas le reproposer
+DONE_STATUSES = ("rendered", "scheduled", "publishing", "published", "rejected", "purged")
+# clip non choisi, écarté automatiquement par une nouvelle recherche (pas un refus de ta part)
+AUTO_REJECT = "remplacé par une nouvelle recherche"
+REJECTED_KEEP = 10
 # statuts depuis lesquels une publication peut être lancée
 PUBLISHABLE = ("rendered", "scheduled", "failed")
 
@@ -156,6 +160,37 @@ class State:
              cols["output_path"], cols["caption"], cols["publish_id"], cols["error"],
              cols["scheduled_at"], cols["category"], cols["signals"], int(time.time())),
         )
+
+    def archive_pending(self) -> int:
+        """Nouvelle recherche : les clips encore « à publier » passent dans « Rejetés »,
+        pour ne voir que ceux de la dernière recherche."""
+        n = self._write("UPDATE clips SET status='rejected', error=?, updated_at=? "
+                        "WHERE status='rendered'", (AUTO_REJECT, int(time.time())))
+        return n
+
+    def trim_rejected(self, downloads_dir: Path | None = None, keep: int = REJECTED_KEEP) -> int:
+        """Garde les ``keep`` rejetés les plus récents ; les plus anciens sont supprimés
+        (vidéo, sous-titres, source téléchargée). La ligne reste (statut « purged ») pour
+        que le clip ne soit pas reproposé."""
+        with self.lock:
+            old = [dict(r) for r in self.conn.execute(
+                "SELECT clip_id, output_path FROM clips WHERE status='rejected' "
+                "ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?", (keep,))]
+        for row in old:
+            files = []
+            if row["output_path"]:
+                out = Path(row["output_path"])
+                files += [out, out.with_suffix(".ass")]
+            if downloads_dir:
+                files += list(Path(downloads_dir).glob(f"{row['clip_id']}.*"))
+            for f in files:
+                try:
+                    f.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            self._write("UPDATE clips SET status='purged', output_path=NULL WHERE clip_id=?",
+                        (row["clip_id"],))
+        return len(old)
 
     # ---------- activité du chat (enregistreur) ----------
     def add_chat_activity(self, rows: list[tuple[str, int, float]], keep: float = 48 * 3600) -> None:

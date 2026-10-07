@@ -111,10 +111,12 @@ def test_manual_mode_keeps_clips_for_the_user(tmp_path, monkeypatch):
         return [("x1", True)]
 
     monkeypatch.setattr("clipbot.discover.run_discovery", fake_discovery)
-    state.record("old", "c", "rendered")  # déjà un clip qui attend
+    state.record("old", "c", "rendered")  # clip de la recherche précédente
     pilot = ap.Autopilot(cfg, state, Options())
     pilot._step()
-    assert seen == {"top": 1, "publish": False, "schedule": False}
+    # « À publier » ne garde que la dernière recherche : l'ancien part dans « Rejetés »
+    assert seen == {"top": 2, "publish": False, "schedule": False}
+    assert state.get("old")["status"] == "rejected"
     assert "prêt(s) à publier" in pilot.message
 
 

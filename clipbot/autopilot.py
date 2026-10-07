@@ -211,15 +211,18 @@ class Autopilot:
         if not discover and not channels:
             self.message = "Aucune chaîne à suivre : ajoute-en ou passe en découverte auto"
             return
+        if not (self.cfg.twitch_client_id and self.cfg.twitch_client_secret):
+            self.message = "Clés Twitch manquantes (TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET)"
+            return
+        if settings["then"] == "manual":  # « À publier » = clips de la dernière recherche
+            self.state.archive_pending()
+            self.state.trim_rejected(self.cfg.downloads_dir)
         limit = max_queue(settings)
         queued = self._pending(settings)
         if settings["then"] != "publish" and queued >= limit:
             what = "à publier" if settings["then"] == "manual" else "programmés"
             self.message = (f"File d'attente pleine ({queued} clips {what}) : "
                             "recherche reportée")
-            return
-        if not (self.cfg.twitch_client_id and self.cfg.twitch_client_secret):
-            self.message = "Clés Twitch manquantes (TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET)"
             return
         from . import progress
 

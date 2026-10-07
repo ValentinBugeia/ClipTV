@@ -71,12 +71,15 @@ def preferences(state) -> dict:
     since = int(time.time() - PREF_DAYS * 86400)
     with state.lock:
         rows = state.conn.execute(
-            "SELECT channel, category, status FROM clips WHERE updated_at >= ?",
+            "SELECT channel, category, status, error FROM clips WHERE updated_at >= ?",
             (since,)).fetchall()
+    from .state import AUTO_REJECT
+
     out: dict = {"channel": {}, "category": {}}
-    for channel, category, status in rows:
-        delta = {"published": 1, "scheduled": 1, "publishing": 1, "rejected": -1}.get(status)
-        if not delta:
+    for channel, category, status, error in rows:
+        delta = {"published": 1, "scheduled": 1, "publishing": 1, "rejected": -1,
+                 "purged": -1}.get(status)
+        if not delta or (delta < 0 and error == AUTO_REJECT):  # écarté par une recherche
             continue
         for kind, key in (("channel", channel), ("category", category)):
             if key:

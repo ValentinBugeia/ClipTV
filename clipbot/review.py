@@ -499,6 +499,9 @@ def run_search(job: SearchJob, cfg: Config, state: State, opts: Options, channel
     cfg.require("twitch_client_id", "twitch_client_secret")
     cfg.ensure_dirs()
     twitch = TwitchClient(cfg.twitch_client_id, cfg.twitch_client_secret)
+    if not state.get_settings().get(AUTO_PUBLISH):  # « À publier » = dernière recherche
+        state.archive_pending()
+        state.trim_rejected(cfg.downloads_dir)
     progress.begin("Recherche ponctuelle")
     try:
         message = _run_search(job, cfg, state, opts, channels, hours, top, twitch)
@@ -939,7 +942,8 @@ class Handler(BaseHTTPRequestHandler):
             actions = f'<div class="meta">{e(c["caption"])}</div>'
             if status == "rejected":
                 actions += (f'<form method="post" action="/restore/{cid}" class="act">'
-                            '<button type="submit" class="small">↩ Remettre dans « À valider »'
+                            '<button type="submit" class="small">↩ Remettre dans « '
+                            f'{"À publier" if not self._auto_publish() else "À valider"} »'
                             '</button></form>')
             tiktok = self.state.posts(c["clip_id"]).get("tiktok", {})
             if status == "published":  # légende prête à coller dans TikTok
@@ -1545,6 +1549,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
             if clip["status"] not in ("rendered", "failed"):
                 return self._redirect("Ce clip a déjà changé d'état (publié, programmé ou rejeté) → actualise la page.", err=True)
             self.state.record(clip_id, clip["channel"], "rejected", caption=caption)
+            self.state.trim_rejected(self.cfg.downloads_dir)
             return self._redirect("Clip rejeté.")
         if action == "restore":
             if clip["status"] != "rejected" or not clip.get("output_path") \
@@ -1553,7 +1558,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                                       "supprimée → relance une recherche.", err=True,
                                       tab="rejected")
             self.state.record(clip_id, clip["channel"], "rendered")
-            return self._redirect("Clip récupéré : il est de nouveau dans « À valider ».",
+            where = "À valider" if self._auto_publish() else "À publier"
+            return self._redirect(f"Clip récupéré : il est de nouveau dans « {where} ».",
                                   tab="rendered")
         # publication directe : TikTok exige que l'utilisateur choisisse les réglages ;
         # l'écran est aussi reproposé pour réessayer un clip en erreur

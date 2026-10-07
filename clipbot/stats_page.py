@@ -20,29 +20,29 @@ SORTS = [("views", "Vues"), ("likes", "J'aime"), ("engagement", "Engagement"),
          ("recent", "Plus récentes")]
 
 STYLE = """<style>
-  .viz { --bar:#9147ff; --grid:#2a2a2d; --t1:#efeff1; --t2:#adadb8; }
+  .viz { --bar:linear-gradient(90deg,#9b5cff,#ff4fa3); --grid:var(--line); --t1:var(--fg); --t2:var(--muted); }
   .filters { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px }
-  .chip { color:var(--t2); background:var(--card); border-radius:999px; padding:6px 12px; text-decoration:none; font-size:14px }
-  .chip.on { color:#fff; background:#5c16c5 }
+  .chip { color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:999px; padding:7px 14px; text-decoration:none; font-size:14px }
+  .chip.on { color:#fff; background:var(--grad); border-color:transparent }
   .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px }
-  .kpi { background:var(--card); border-radius:12px; padding:12px 14px }
+  .kpi { background:linear-gradient(180deg,rgba(155,92,255,.08),transparent),var(--card); border:1px solid var(--line); border-radius:16px; padding:16px 18px }
   .kpi .l { color:var(--t2); font-size:13px }
-  .kpi .v { font-size:26px; font-weight:600; margin-top:2px }
+  .kpi .v { font-size:28px; font-weight:800; letter-spacing:-.02em; margin-top:4px; font-variant-numeric:tabular-nums }
   .kpi .s { color:var(--t2); font-size:12px }
   .tips { margin:8px 0 14px; padding-left:18px; line-height:1.7 }
   .tips .tipk { color:var(--t1); font-weight:600 }
   .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-bottom:16px }
-  figure.chart { margin:0; background:var(--card); border-radius:12px; padding:14px }
+  figure.chart { margin:0; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px }
   figure.chart figcaption { font-weight:600; margin-bottom:2px }
   figure.chart .sub { color:var(--t2); font-size:12px; margin-bottom:10px }
   .bars { display:grid; grid-template-columns:minmax(80px,32%) 1fr; gap:6px 10px; align-items:center }
   .bars .name { color:var(--t2); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
   .bars .track { position:relative; height:22px; display:flex; align-items:center; gap:6px; cursor:default;
                  border-left:1px solid var(--grid) }
-  .bars .fill { height:16px; background:var(--bar); border-radius:0 4px 4px 0; min-width:2px }
+  .bars .fill { height:14px; background:var(--bar); border-radius:0 7px 7px 0; min-width:3px }
   .bars .track:hover .fill, .bars .track:focus .fill { filter:brightness(1.25) }
   .bars .val { color:var(--t1); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap }
-  #tip { position:fixed; pointer-events:none; background:#000; border:1px solid #333; border-radius:8px;
+  #tip { position:fixed; pointer-events:none; background:rgba(26,26,35,.97); border:1px solid var(--line2); border-radius:10px;
          padding:6px 10px; font-size:13px; display:none; z-index:10 }
   #tip b { display:block; font-size:15px }
   .vtable { width:100%; border-collapse:collapse; font-size:14px }
@@ -53,7 +53,7 @@ STYLE = """<style>
   .tablewrap { overflow-x:auto }
   details.tv summary { color:var(--t2); font-size:12px; cursor:pointer; margin-top:8px }
   .vtable td.title { min-width:120px }
-  .panel .kpi { background:#0e0e10 }
+  .panel .kpi { background:rgba(0,0,0,.25) }
   @media (max-width:600px) {
     .vtable .opt { display:none }
     .vtable img { width:27px; height:48px }

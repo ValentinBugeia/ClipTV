@@ -33,7 +33,7 @@ def test_list_page_escapes_and_shows_clip(server):
     base, _ = server
     body = urllib.request.urlopen(base + "/").read().decode()
     assert "&lt;b&gt;Énorme&lt;/b&gt;" in body and "légende #fyp" in body
-    assert "À valider (1)" in body
+    assert "À valider <span class=\"count\">1</span>" in body
 
 
 def test_video_range(server):
@@ -274,7 +274,7 @@ def test_manual_publishing(server):
     body = urllib.request.urlopen(base + "/").read().decode()
     assert "🚀 Préparer" in body and "Description seule" in body and "✔ Publié" in body
     assert "⏰ Programmer" not in body and "Programmés (" not in body
-    assert "À publier (1)" in body and 'name="then"' not in body
+    assert "À publier <span class=\"count\">1</span>" in body and 'name="then"' not in body
     resp = urllib.request.urlopen(base + "/video/abc?dl=1")
     assert resp.headers["Content-Disposition"] == 'attachment; filename="kamet0-b-Enorme-b.mp4"'
     _post(base + "/done/abc", "caption=ma description finale".encode())
@@ -589,7 +589,7 @@ def test_published_tab_shows_tiktok_videos(server):
                         "likes": 56, "comments": 7, "shares": 2, "duration": 20,
                         "clip_id": None}])
     page = urllib.request.urlopen(base + "/?s=published").read().decode()
-    assert "Publiés (1)" in page and "Il hurle de peur" in page
+    assert "Publiés <span class=\"count\">1</span>" in page and "Il hurle de peur" in page
     assert "Voir sur TikTok" in page and "1\u202f234" in page
 
 

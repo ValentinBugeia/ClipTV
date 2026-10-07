@@ -87,19 +87,19 @@ STYLE = """<style>
   .aud { overflow-x:auto }
   .aud .grid { display:grid; grid-template-columns:34px repeat(24, minmax(11px, 1fr)); gap:2px;
                min-width:330px; align-items:center }
-  .aud .lab { color:#adadb8; font-size:11px }
-  .aud .hh { color:#adadb8; font-size:10px; text-align:left; white-space:nowrap }
-  .aud .c { height:22px; border-radius:3px; cursor:default }
+  .aud .lab { color:var(--muted); font-size:11px }
+  .aud .hh { color:var(--muted); font-size:10px; text-align:left; white-space:nowrap }
+  .aud .c { height:24px; border-radius:5px; transition:transform .1s; cursor:default }
   .aud .c.slot { box-shadow:inset 0 0 0 2px #efeff1, inset 0 0 0 4px #0e0e10 }
-  .aud .c.none { background:#2a2a2d }
-  .aud .c:hover, .aud .c:focus { outline:2px solid #efeff1; outline-offset:1px }
-  .aud .legend { display:flex; gap:14px; flex-wrap:wrap; margin:10px 0 4px; color:#adadb8; font-size:12px;
+  .aud .c.none { background:rgba(255,255,255,.05) }
+  .aud .c:hover, .aud .c:focus { outline:2px solid #fff; outline-offset:1px; transform:scale(1.12) }
+  .aud .legend { display:flex; gap:14px; flex-wrap:wrap; margin:12px 0 4px; color:var(--muted); font-size:12px;
                  align-items:center }
   .aud .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-2px;
              margin-right:5px }
   .aud .sep { grid-column:1 / -1; height:6px }
-  #audtip { position:fixed; pointer-events:none; background:#000; border:1px solid #333;
-            border-radius:8px; padding:6px 10px; font-size:13px; display:none; z-index:30 }
+  #audtip { position:fixed; pointer-events:none; background:rgba(26,26,35,.97); border:1px solid var(--line2);
+            border-radius:10px; box-shadow:0 12px 30px rgba(0,0,0,.5); padding:6px 10px; font-size:13px; display:none; z-index:30 }
   #audtip b { display:block }
 </style>"""
 

@@ -43,109 +43,185 @@ e = lambda v: html.escape(str(v if v is not None else ""))  # noqa: E731
 
 PAGE = """<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0e0e10">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0f">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <title>cliptv</title>{refresh}
 <style>
-  :root {{ --bg:#0e0e10; --card:#18181b; --line:#2a2a2d; --fg:#efeff1; --muted:#adadb8; --accent:#9147ff; }}
+  :root {{ --bg:#0a0a0f; --card:#13131a; --card2:#1a1a23; --line:rgba(255,255,255,.07);
+           --line2:rgba(255,255,255,.12); --fg:#f4f4f7; --muted:#9b9bab; --accent:#9b5cff;
+           --accent2:#ff4fa3; --grad:linear-gradient(135deg,#9b5cff 0%,#ff4fa3 100%);
+           --ok:#3ddc84; --err:#ff6b7a; --radius:16px; color-scheme:dark; }}
   * {{ box-sizing:border-box }}
-  body {{ margin:0; font:15px/1.45 system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--fg) }}
-  a {{ color:#bf94ff }}
-  header {{ position:sticky; top:0; z-index:2; background:rgba(14,14,16,.94); backdrop-filter:blur(8px);
-            padding:10px 16px 0; border-bottom:1px solid var(--line) }}
-  .top {{ display:flex; align-items:center; gap:12px; justify-content:space-between; flex-wrap:wrap }}
-  h1 {{ margin:0; font-size:20px }} h1 a {{ color:inherit; text-decoration:none }} h1 span {{ color:var(--accent) }}
-  .pill {{ font-size:13px; color:var(--muted); background:var(--card); border-radius:999px; padding:4px 10px }}
-  .pill.on {{ color:#7ee2a0; background:#123d1f }}
-  nav {{ display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; margin-top:8px }}
-  nav a {{ color:var(--muted); padding:8px 10px; text-decoration:none; white-space:nowrap; border-bottom:2px solid transparent }}
-  nav a.on {{ color:var(--fg); border-color:var(--accent) }}
-  nav.sub {{ margin:0 0 12px; border-bottom:1px solid var(--line) }}
-  .wrap {{ padding:16px; max-width:1400px; margin:0 auto }}
-  .narrow {{ max-width:760px }}
-  .panel {{ background:var(--card); border-radius:12px; padding:14px; margin-bottom:16px }}
-  .panel h2 {{ margin:0 0 8px; font-size:17px }}
-  details.panel summary {{ cursor:pointer; font-weight:600 }}
-  .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:12px }}
+  html {{ -webkit-text-size-adjust:100% }}
+  body {{ margin:0; font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--fg);
+          background:radial-gradient(900px 500px at 15% -10%,rgba(155,92,255,.16),transparent 60%),
+                     radial-gradient(800px 500px at 100% 0%,rgba(255,79,163,.08),transparent 60%),var(--bg);
+          background-attachment:fixed; -webkit-font-smoothing:antialiased }}
+  a {{ color:#c3a3ff }}
+  ::selection {{ background:rgba(155,92,255,.45) }}
+  header {{ position:sticky; top:0; z-index:10; background:rgba(10,10,15,.72);
+            backdrop-filter:saturate(1.6) blur(16px); -webkit-backdrop-filter:saturate(1.6) blur(16px);
+            border-bottom:1px solid var(--line) }}
+  .top {{ display:flex; align-items:center; gap:16px; max-width:1400px; margin:0 auto; padding:10px 20px }}
+  .brand {{ display:flex; align-items:center; gap:10px; color:inherit; text-decoration:none; flex:none }}
+  .logo {{ width:32px; height:32px; border-radius:10px; background:var(--grad); display:grid; place-items:center;
+           box-shadow:0 6px 20px rgba(155,92,255,.35) }}
+  .logo svg {{ width:15px; height:15px; margin-left:2px }}
+  .word {{ font-size:19px; font-weight:800; letter-spacing:-.02em }}
+  .word b {{ background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent }}
+  nav.main {{ display:flex; gap:4px; margin:0 auto; padding:4px; background:rgba(255,255,255,.04);
+              border:1px solid var(--line); border-radius:999px }}
+  nav.main a {{ display:flex; align-items:center; gap:7px; color:var(--muted); padding:7px 14px; border-radius:999px;
+                text-decoration:none; font-weight:500; font-size:14px; white-space:nowrap; transition:.15s }}
+  nav.main a:hover {{ color:var(--fg); background:rgba(255,255,255,.05) }}
+  nav.main a.on {{ color:#fff; background:rgba(155,92,255,.22); box-shadow:inset 0 0 0 1px rgba(155,92,255,.45) }}
+  nav.main svg {{ width:17px; height:17px; flex:none }}
+  .pill {{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--muted);
+           background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:999px; padding:6px 12px;
+           max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:0 1 auto }}
+  .pill::before {{ content:""; width:7px; height:7px; border-radius:50%; background:#5b5b66; flex:none }}
+  .pill.on {{ color:#bff5d4; border-color:rgba(61,220,132,.3); background:rgba(61,220,132,.08) }}
+  .pill.on::before {{ background:var(--ok); box-shadow:0 0 0 0 rgba(61,220,132,.6); animation:pulse 1.8s infinite }}
+  @keyframes pulse {{ 70% {{ box-shadow:0 0 0 7px rgba(61,220,132,0) }} 100% {{ box-shadow:0 0 0 0 rgba(61,220,132,0) }} }}
+  nav.sub {{ display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; margin:0 0 16px; padding-bottom:2px }}
+  nav.sub a {{ display:flex; align-items:center; gap:8px; color:var(--muted); padding:8px 14px; border-radius:999px;
+               text-decoration:none; font-weight:500; font-size:14px; white-space:nowrap;
+               background:var(--card); border:1px solid var(--line); transition:.15s }}
+  nav.sub a:hover {{ color:var(--fg); border-color:var(--line2) }}
+  nav.sub a.on {{ color:#fff; background:var(--grad); border-color:transparent; box-shadow:0 6px 18px rgba(155,92,255,.3) }}
+  .count {{ min-width:22px; padding:1px 7px; border-radius:999px; font-size:12px; font-weight:700; text-align:center;
+            background:rgba(255,255,255,.08) }}
+  nav.sub a.on .count {{ background:rgba(0,0,0,.22) }}
+  .wrap {{ padding:24px 20px 40px; max-width:1400px; margin:0 auto }}
+  .narrow {{ max-width:780px }}
+  .panel {{ background:linear-gradient(180deg,rgba(255,255,255,.025),transparent 120px),var(--card);
+            border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; margin-bottom:16px }}
+  .panel h2 {{ margin:0 0 10px; font-size:17px; font-weight:700; letter-spacing:-.01em }}
+  details.panel summary {{ cursor:pointer; font-weight:600; list-style:none; display:flex; align-items:center; gap:8px }}
+  details.panel summary::-webkit-details-marker {{ display:none }}
+  details.panel summary::after {{ content:""; margin-left:auto; width:8px; height:8px; border-right:2px solid var(--muted);
+            border-bottom:2px solid var(--muted); transform:rotate(45deg); transition:.2s }}
+  details.panel[open] summary::after {{ transform:rotate(225deg) }}
+  .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-top:14px }}
   .full {{ grid-column:1/-1 }}
-  label {{ display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted) }}
-  label.check {{ flex-direction:row; align-items:center; gap:8px; color:var(--fg); font-size:15px }}
-  input, select, textarea {{ background:var(--bg); color:var(--fg); border:1px solid #333; border-radius:8px;
-                             padding:10px; font:inherit; font-size:16px; width:100% }}
-  input[type=checkbox] {{ width:20px; height:20px; flex:none }}
+  label {{ display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:500; color:var(--muted) }}
+  label.check {{ flex-direction:row; align-items:center; gap:10px; color:var(--fg); font-size:15px; font-weight:400 }}
+  input, select, textarea {{ background:rgba(0,0,0,.28); color:var(--fg); border:1px solid var(--line2); border-radius:10px;
+                             padding:10px 12px; font:inherit; font-size:16px; width:100%; transition:border-color .15s, box-shadow .15s }}
+  input:focus, select:focus, textarea:focus {{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(155,92,255,.25) }}
+  input[type=checkbox] {{ width:20px; height:20px; flex:none; accent-color:var(--accent) }}
+  input[type=radio] {{ accent-color:var(--accent); width:auto }}
+  :focus-visible {{ outline:2px solid var(--accent); outline-offset:2px }}
   .info, .meta {{ color:var(--muted); font-size:13px; overflow-wrap:anywhere }}
+  .wrap > p.info {{ background:rgba(155,92,255,.07); border:1px solid rgba(155,92,255,.18); border-radius:12px; padding:10px 14px;
+            line-height:1.6; margin:0 0 18px }}
   .meta a {{ color:var(--muted) }}
-  main {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px }}
-  .card {{ background:var(--card); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px }}
-  video {{ width:100%; aspect-ratio:9/16; max-height:72vh; object-fit:contain; background:#000; border-radius:8px }}
-  textarea {{ min-height:96px; resize:vertical }}
+  main {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:18px }}
+  .card {{ position:relative; background:var(--card); border:1px solid var(--line); border-radius:20px; padding:12px;
+           display:flex; flex-direction:column; gap:10px; transition:transform .2s, border-color .2s, box-shadow .2s }}
+  .card:hover {{ border-color:var(--line2); box-shadow:0 18px 40px rgba(0,0,0,.35) }}
+  .card > div > strong {{ font-size:15px; font-weight:700; line-height:1.35; letter-spacing:-.01em }}
+  video {{ width:100%; aspect-ratio:9/16; max-height:72vh; object-fit:contain; background:#000; border-radius:14px; display:block }}
+  textarea {{ min-height:96px; resize:vertical; line-height:1.5 }}
   .row {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center }}
-  button, .btn {{ flex:1 1 30%; min-height:44px; border:0; border-radius:8px; padding:10px 14px; font:inherit;
-            font-weight:600; color:#fff; cursor:pointer; background:var(--accent); text-align:center; text-decoration:none }}
-  button:disabled {{ opacity:.5; cursor:default }}
-  .now {{ background:#5c16c5 }} .rej {{ background:#3a3a3d }} .small {{ flex:0 0 auto; min-height:36px; padding:6px 12px }}
+  button, .btn {{ flex:1 1 30%; min-height:44px; border:0; border-radius:12px; padding:10px 16px; font:inherit;
+            font-weight:600; color:#fff; cursor:pointer; background:var(--grad); text-align:center; text-decoration:none;
+            box-shadow:0 6px 18px rgba(155,92,255,.25); transition:transform .12s, filter .15s, box-shadow .15s }}
+  button:hover, .btn:hover {{ filter:brightness(1.08); box-shadow:0 8px 24px rgba(155,92,255,.35) }}
+  button:active, .btn:active {{ transform:scale(.98) }}
+  button:disabled {{ opacity:.5; cursor:default; transform:none }}
+  .now {{ background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 1px var(--line2) }}
+  .now:hover {{ background:rgba(61,220,132,.14); box-shadow:inset 0 0 0 1px rgba(61,220,132,.45) }}
+  .rej {{ background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 1px var(--line2) }}
+  .small {{ flex:0 0 auto; min-height:36px; padding:6px 14px; font-size:14px }}
   .when {{ font-weight:600 }}
-  form.act textarea {{ min-height:0; font-size:14px; padding:8px }}
-  .bar {{ display:flex; gap:6px; margin-top:6px; align-items:stretch }}
-  .bar > button {{ flex:1 1 0; min-height:38px; padding:6px 8px; font-size:14px }}
+  form.act {{ display:flex; flex-direction:column; gap:8px; margin-top:auto }}
+  .card > .meta {{ margin-top:-4px }}
+  form.act textarea {{ min-height:0; font-size:14px; padding:10px 12px; background:rgba(0,0,0,.25) }}
+  .bar {{ display:flex; gap:8px; align-items:stretch }}
+  .bar > button {{ flex:1 1 0; min-height:42px; padding:8px 10px; font-size:14px }}
   details.more {{ position:relative; flex:0 0 auto }}
-  .iconbtn {{ list-style:none; height:100%; min-height:38px; width:42px; display:grid; place-items:center;
-             background:#3a3a3d; border-radius:8px; cursor:pointer; font-weight:700; font-size:18px }}
+  .iconbtn {{ list-style:none; height:100%; min-height:42px; width:44px; display:grid; place-items:center;
+             background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 1px var(--line2); border-radius:12px;
+             cursor:pointer; font-weight:700; font-size:18px; transition:.15s }}
+  .iconbtn:hover {{ background:rgba(255,255,255,.12) }}
   .iconbtn::-webkit-details-marker {{ display:none }}
-  details.more[open] .iconbtn {{ background:#4a4a4f }}
-  .menu {{ position:absolute; right:0; top:calc(100% + 6px); z-index:5; width:250px; background:#1f1f23;
-          border:1px solid #333; border-radius:10px; padding:6px; display:flex; flex-direction:column;
-          gap:2px; box-shadow:0 10px 30px rgba(0,0,0,.5) }}
-  .menu > a, .menu > button {{ background:transparent; color:var(--fg); text-align:left; text-decoration:none;
-          padding:9px 10px; min-height:0; border-radius:6px; font-weight:500; font-size:14px; flex:none }}
-  .menu > a:hover, .menu > button:hover {{ background:#2a2a2d }}
-  .menu .danger {{ color:#ff9b9b }}
-  .menu .redo {{ border-top:1px solid #2a2a2d; border-bottom:1px solid #2a2a2d; margin:4px 0; padding:8px 10px;
-          display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:14px }}
-  .menu .redo span {{ flex:1 1 100% }}
-  .menu .redo select {{ flex:1 1 100%; padding:6px; font-size:14px }}
+  details.more[open] .iconbtn {{ background:rgba(155,92,255,.25) }}
+  .menu {{ position:absolute; right:0; bottom:calc(100% + 8px); z-index:5; width:260px; background:rgba(26,26,35,.96);
+          backdrop-filter:blur(14px); border:1px solid var(--line2); border-radius:14px; padding:6px; display:flex;
+          flex-direction:column; gap:2px; box-shadow:0 20px 50px rgba(0,0,0,.6) }}
+  .menu > a, .menu > button {{ background:transparent; box-shadow:none; color:var(--fg); text-align:left; text-decoration:none;
+          padding:9px 10px; min-height:0; border-radius:8px; font-weight:500; font-size:14px; flex:none }}
+  .menu > a:hover, .menu > button:hover {{ background:rgba(255,255,255,.07); filter:none; box-shadow:none }}
+  .menu .danger {{ color:var(--err) }}
+  .menu .redo {{ border-top:1px solid var(--line); border-bottom:1px solid var(--line); margin:4px 0; padding:10px;
+          display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:14px }}
+  .menu .redo span {{ flex:1 1 100%; font-weight:600 }}
+  .menu .redo select {{ flex:1 1 100%; padding:7px 10px; font-size:14px }}
   .menu .redo label {{ flex:1; font-size:14px }}
-  .menu .redo button {{ flex:0 0 auto; min-height:32px; padding:4px 12px; font-size:14px }}
+  .menu .redo button {{ flex:0 0 auto; min-height:34px; padding:4px 14px; font-size:14px }}
   .badges {{ display:flex; gap:6px; flex-wrap:wrap }}
-  .badge {{ font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--muted) }}
-  .badge.ok {{ background:#123d1f; color:#7ee2a0 }} .badge.failed {{ background:#3d1212; color:#ff9b9b }}
-  .card {{ position:relative }}
-  .card.tk img, .card.tk .nocover {{ height:300px; aspect-ratio:9/16; object-fit:cover;
-    margin:0 auto; border-radius:10px; background:#000; display:grid; place-items:center;
-    font-size:40px }}
-  .tkstats {{ font-size:14px; font-weight:600 }}
-  .mini {{ font-size:12px; color:var(--muted); margin-top:6px }}
-  .mini a, .mini .link {{ color:var(--muted); background:none; border:0; padding:0; font:inherit;
-    cursor:pointer; text-decoration:underline }}
-  .pot {{ --r:#9d9d9d; position:absolute; top:18px; right:18px; z-index:2 }}
+  .badge {{ font-size:12px; font-weight:500; padding:3px 9px; border-radius:999px; background:rgba(255,255,255,.06);
+            color:var(--muted); border:1px solid var(--line) }}
+  .badge.ok {{ background:rgba(61,220,132,.1); color:#8ff0b8; border-color:rgba(61,220,132,.25) }}
+  .badge.failed {{ background:rgba(255,107,122,.1); color:#ffa3ad; border-color:rgba(255,107,122,.25) }}
+  .card.tk img, .card.tk .nocover {{ width:100%; aspect-ratio:9/16; max-height:420px; object-fit:cover;
+    border-radius:14px; background:#000; display:grid; place-items:center; font-size:40px }}
+  .tkstats {{ display:flex; gap:12px; flex-wrap:wrap; font-size:14px; font-weight:600 }}
+  .mini {{ display:flex; flex-wrap:wrap; gap:4px 10px; font-size:12px; color:var(--muted) }}
+  .mini a, .mini .link {{ color:var(--muted); background:none; border:0; padding:0; font:inherit; box-shadow:none;
+    cursor:pointer; text-decoration:none; flex:none; min-height:0 }}
+  .mini a:hover, .mini .link:hover {{ color:var(--fg); filter:none; box-shadow:none }}
+  .pot {{ --r:#9d9d9d; position:absolute; top:22px; right:22px; z-index:2 }}
   .pot.r-uncommon {{ --r:#3ddc4a }} .pot.r-rare {{ --r:#4da3ff }} .pot.r-epic {{ --r:#b964ff }}
   .pot.r-legendary {{ --r:#ff9a1f }}
-  .pot summary {{ cursor:pointer; list-style:none; min-width:44px; text-align:center;
-    padding:3px 8px; border-radius:8px; border:2px solid var(--r); background:#0e0e10e6;
-    color:var(--r); font-size:18px; font-weight:800 }}
+  .pot summary {{ cursor:pointer; list-style:none; min-width:48px; text-align:center;
+    padding:4px 10px; border-radius:10px; border:1.5px solid var(--r); background:rgba(10,10,15,.75);
+    backdrop-filter:blur(8px); color:var(--r); font-size:18px; font-weight:800; font-variant-numeric:tabular-nums }}
   .pot summary::-webkit-details-marker {{ display:none }}
-  .pot.r-legendary summary {{ box-shadow:0 0 12px var(--r) }}
-  .pot .why {{ position:absolute; right:0; margin-top:6px; width:240px; background:var(--card);
-    border:1px solid var(--r); border-radius:10px; padding:8px 10px; font-size:12px }}
+  .pot.r-legendary summary, .pot.r-epic summary {{ box-shadow:0 0 16px color-mix(in srgb,var(--r) 55%,transparent) }}
+  .pot .why {{ position:absolute; right:0; margin-top:6px; width:250px; background:rgba(26,26,35,.97);
+    border:1px solid var(--r); border-radius:12px; padding:10px 12px; font-size:12px; box-shadow:0 20px 50px rgba(0,0,0,.6) }}
   .pot .why strong {{ color:var(--r) }}
   .pot ul {{ margin:6px 0 0; padding-left:18px; color:var(--muted); font-size:12px }}
-  .flash {{ padding:10px 12px; border-radius:8px; background:#1f3a1f; margin-bottom:16px }}
-  .flash.err {{ background:#3a1f1f }}
+  .flash {{ padding:12px 16px; border-radius:12px; background:rgba(61,220,132,.1); border:1px solid rgba(61,220,132,.28);
+            color:#c9f7da; margin-bottom:18px; animation:drop .35s ease-out }}
+  .flash.err {{ background:rgba(255,107,122,.1); border-color:rgba(255,107,122,.3); color:#ffd0d5 }}
+  @keyframes drop {{ from {{ opacity:0; transform:translateY(-6px) }} }}
+  #fresh {{ max-width:1400px; margin:0 auto 10px !important; width:calc(100% - 40px) }}
   .acc {{ display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;
-          padding:12px 0; border-top:1px solid var(--line) }}
+          padding:14px 0; border-top:1px solid var(--line) }}
   .acc:first-of-type {{ border-top:0 }}
   .acc > div:first-child {{ flex:1 1 300px }}
   .code {{ font:600 22px/1 ui-monospace,monospace; letter-spacing:2px; color:#fff }}
-  table {{ width:100%; border-collapse:collapse }} td {{ padding:6px 4px; border-top:1px solid var(--line); vertical-align:top }}
-  .empty {{ color:var(--muted) }}
-  @media (max-width:600px) {{ .wrap {{ padding:12px }} main, .grid {{ grid-template-columns:1fr }} h1 {{ font-size:18px }} }}
+  table {{ width:100%; border-collapse:collapse }} td {{ padding:8px 4px; border-top:1px solid var(--line); vertical-align:top }}
+  .empty {{ color:var(--muted); grid-column:1/-1; text-align:center; padding:48px 16px; border:1px dashed var(--line2);
+            border-radius:var(--radius) }}
+  @media (prefers-reduced-motion: reduce) {{ *, *::before {{ animation:none !important; transition:none !important }} }}
+  @media (max-width:820px) {{
+    .top {{ padding:10px 14px }}
+    nav.main {{ position:fixed; z-index:10; left:10px; right:10px; bottom:calc(10px + env(safe-area-inset-bottom));
+                margin:0; justify-content:space-around; background:rgba(19,19,26,.88); backdrop-filter:blur(16px);
+                -webkit-backdrop-filter:blur(16px); border-color:var(--line2); border-radius:20px; padding:6px;
+                box-shadow:0 12px 40px rgba(0,0,0,.55) }}
+    nav.main a {{ flex:1; flex-direction:column; gap:3px; padding:7px 2px; font-size:11px; border-radius:14px }}
+    nav.main svg {{ width:21px; height:21px }}
+    .pill {{ margin-left:auto; max-width:60vw }}
+    .wrap {{ padding:16px 12px calc(100px + env(safe-area-inset-bottom)) }}
+    main, .grid {{ grid-template-columns:1fr }}
+    #fresh {{ width:calc(100% - 24px) }}
+  }}
 </style></head><body>
-<header><div class="top"><h1><a href="/">clip<span>tv</span></a></h1>
+<header><div class="top"><a class="brand" href="/" aria-label="cliptv"><span class="logo"><svg viewBox="0 0 24 24" fill="#fff"><path d="M6 3.5v17l14-8.5z"/></svg></span><span class="word">clip<b>tv</b></span></a>
+<nav class="main">{nav}</nav>
 <span id="status" class="pill{status_cls}">{status}</span></div>
-<div id="fresh" class="flash" style="display:none;margin:8px 0 0">Nouveaux clips prêts ·
+<div id="fresh" class="flash" style="display:none">Nouveaux clips prêts ·
 <a href="" onclick="location.reload();return false">actualiser</a></div>
-<nav>{nav}</nav></header>
+</header>
 <div class="wrap{wrap_cls}">
 {flash}
 {body}
@@ -214,27 +290,27 @@ setInterval(async () => {{
 PROGRESS_UI = """<style>
   #progress { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:20;
               width:min(480px, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto;
-              background:#18181b; border:1px solid #3a3a3d; border-radius:16px; padding:18px;
+              background:rgba(19,19,26,.96); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,.12); border-radius:20px; padding:20px;
               box-shadow:0 20px 60px rgba(0,0,0,.6); display:none }
   #progress h3 { margin:0 0 2px; font-size:18px }
-  #progress .pclip { color:#adadb8; font-size:13px; margin-bottom:12px; overflow-wrap:anywhere }
+  #progress .pclip { color:#9b9bab; font-size:13px; margin-bottom:12px; overflow-wrap:anywhere }
   #progress ol { list-style:none; margin:0; padding:0 }
   #progress li { display:flex; gap:10px; padding:7px 0; color:#6b6b73; align-items:flex-start }
-  #progress li.st-done { color:#adadb8 }
-  #progress li.st-now { color:#efeff1; font-weight:600; background:#26262b; border-radius:8px;
+  #progress li.st-done { color:#9b9bab }
+  #progress li.st-now { color:#f4f4f7; font-weight:600; background:rgba(155,92,255,.12); border-radius:10px;
                         margin:2px -8px; padding:8px }
   #progress .ico { width:20px; flex:none; text-align:center }
-  #progress .help { font-weight:400; color:#adadb8; font-size:13px; margin-top:2px }
-  #progress .spin { display:inline-block; width:14px; height:14px; border:2px solid #9147ff;
+  #progress .help { font-weight:400; color:#9b9bab; font-size:13px; margin-top:2px }
+  #progress .spin { display:inline-block; width:14px; height:14px; border:2px solid #9b5cff;
                     border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite }
   @keyframes spin { to { transform:rotate(360deg) } }
   @media (prefers-reduced-motion: reduce) { #progress .spin { animation:none } }
   #progress .pfoot { display:flex; justify-content:space-between; align-items:center; margin-top:12px;
-                     color:#adadb8; font-size:13px; gap:8px }
-  #progress .pfoot button { flex:0 0 auto; min-height:34px; padding:4px 12px; background:#3a3a3d }
+                     color:#9b9bab; font-size:13px; gap:8px }
+  #progress .pfoot button { flex:0 0 auto; min-height:34px; padding:4px 12px; background:rgba(255,255,255,.08); box-shadow:inset 0 0 0 1px rgba(255,255,255,.12) }
   #progress .pfoot span { flex:1 }
-  #progress .pfoot button.stop { background:#8b1d1d }
-  #progress .pdone { padding:10px 12px; border-radius:8px; background:#1f3a1f; margin-top:8px }
+  #progress .pfoot button.stop { background:rgba(255,107,122,.18); box-shadow:inset 0 0 0 1px rgba(255,107,122,.4); color:#ffd0d5 }
+  #progress .pdone { padding:10px 12px; border-radius:10px; background:rgba(61,220,132,.1); margin-top:8px }
 </style>
 <div id="progress" role="status" aria-live="polite"></div>
 <script>
@@ -304,10 +380,21 @@ PROGRESS_UI = """<style>
 
 
 FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<rect width="100" height="100" rx="22" fill="#9147ff"/><path d="M38 28 L74 50 L38 72 Z" fill="#fff"/></svg>"""
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9b5cff"/>
+<stop offset="1" stop-color="#ff4fa3"/></linearGradient></defs>
+<rect width="100" height="100" rx="26" fill="url(#g)"/><path d="M38 27 L76 50 L38 73 Z" fill="#fff"/></svg>"""
 
 SECTIONS = [("/", "Clips"), ("/auto", "Pilote auto"), ("/stats", "Statistiques"),
             ("/accounts", "Comptes"), ("/help", "Aide")]
+_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{}</svg>')
+ICONS = {
+    "/": _SVG.format('<rect x="3" y="3" width="18" height="18" rx="5"/><path d="M10 8.5v7l5.5-3.5z"/>'),
+    "/auto": _SVG.format('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
+    "/stats": _SVG.format('<path d="M3 21h18M7 17v-5M12 17V7M17 17v-8"/>'),
+    "/accounts": _SVG.format('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/>'),
+    "/help": _SVG.format('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.5M12 17h.01"/>'),
+}
 STUDIO = "studio"  # ancien onglet « TikTok Studio » (redirige vers « À publier »)
 AUTO_PUBLISH = "auto_publish"  # publication / programmation par ClipTV (app validée par TikTok)
 MANUAL_TABS = [("rendered", "À publier"), ("published", "Publiés"), ("rejected", "Rejetés"),
@@ -704,8 +791,8 @@ class Handler(BaseHTTPRequestHandler):
         if "msg" in q:
             cls = "flash err" if q.get("err") else "flash"
             flash = f'<div class="{cls}">{e(q["msg"][0])}</div>'
-        nav = "".join(f'<a class="{"on" if p == section else ""}" href="{p}">{label}</a>'
-                      for p, label in SECTIONS)
+        nav = "".join(f'<a class="{"on" if p == section else ""}" href="{p}">{ICONS[p]}'
+                      f'<span>{label}</span></a>' for p, label in SECTIONS)
         status, active = self._status()
         page = PAGE.format(
             progress_ui=PROGRESS_UI, version=e(self.state.version()), autoreload="true" if section == "/" else "false",
@@ -764,7 +851,8 @@ class Handler(BaseHTTPRequestHandler):
         counts["published"] = len(tiktok_videos)  # « Publiés » = ce qui est sur TikTok
         tab_list = MANUAL_TABS if manual else TABS
         tabs = "".join(
-            f'<a class="{"on" if s == tab else ""}" href="/?s={s}">{label} ({counts[s]})</a>'
+            f'<a class="{"on" if s == tab else ""}" href="/?s={s}">{label} '
+            f'<span class="count">{counts[s]}</span></a>'
             for s, label in tab_list)
         if tab == "published":
             return self._published_page(tabs, tiktok_videos)

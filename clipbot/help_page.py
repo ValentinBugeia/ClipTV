@@ -14,21 +14,21 @@ STYLE = """<style>
   .help h3 { margin:16px 0 6px; font-size:16px }
   .help p, .help li { line-height:1.55 }
   .help ol, .help ul { padding-left:22px; margin:6px 0 }
-  .help code { background:#0e0e10; border:1px solid #2a2a2d; border-radius:6px; padding:1px 6px;
+  .help code { background:rgba(0,0,0,.3); border:1px solid var(--line2); border-radius:6px; padding:1px 6px;
                font-size:14px; overflow-wrap:anywhere }
   .help .toc { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px }
-  .help .toc a { color:#adadb8; background:var(--card); border-radius:999px; padding:6px 12px;
+  .help .toc a { color:var(--muted); background:var(--card); border:1px solid var(--line); border-radius:999px; padding:7px 14px;
                  text-decoration:none; font-size:14px }
   .help .check { display:flex; gap:10px; align-items:flex-start; padding:10px 0;
-                 border-top:1px solid #2a2a2d }
+                 border-top:1px solid var(--line) }
   .help .check:first-of-type { border-top:0 }
   .help .check .i { width:24px; flex:none; font-size:18px; text-align:center }
   .help .check .t { flex:1 }
   .help .check a.btn { flex:0 0 auto; min-height:34px; padding:6px 12px; font-size:14px }
   .help .steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px }
-  .help .step { background:#0e0e10; border-radius:10px; padding:12px }
+  .help .step { background:rgba(0,0,0,.25); border:1px solid var(--line); border-radius:12px; padding:14px }
   .help .step b { display:block; margin-bottom:4px }
-  .help details.faq { border-top:1px solid #2a2a2d; padding:10px 0 }
+  .help details.faq { border-top:1px solid var(--line); padding:10px 0 }
   .help details.faq summary { cursor:pointer; font-weight:600 }
   .help details.faq > div { margin-top:8px; color:#d6d6dc }
   .help .note { background:#2a2214; border-radius:8px; padding:10px 12px; margin:10px 0 }

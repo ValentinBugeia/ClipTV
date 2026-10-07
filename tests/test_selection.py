@@ -52,3 +52,28 @@ def test_preselection_factors():
             "category": {}}
     assert selection.history_factor(clip, hist) > 2
     assert selection.history_factor(clip, {"all": [1], "channel": {}, "category": {}}) == 1.0
+
+
+def test_prefetch_wait_stops_on_cancel(monkeypatch):
+    import threading
+    import time
+
+    import pytest
+
+    from clipbot import progress
+    from clipbot.pipeline import Prefetcher
+
+    release = threading.Event()
+    monkeypatch.setattr("clipbot.download.download_clip",
+                        lambda url, d, cid: release.wait(5) and "fichier")
+    clip = type("C", (), {"id": "c1", "url": "u"})()
+    pre = Prefetcher(type("Cfg", (), {"downloads_dir": "/tmp"})(), [clip])
+    progress.begin("test")
+    threading.Timer(0.3, progress.cancel).start()
+    t0 = time.time()
+    with pytest.raises(progress.Cancelled):
+        pre.source(clip)()  # téléchargement encore en cours : l'arrêt n'attend pas sa fin
+    assert time.time() - t0 < 2
+    progress.end("arrêtée")
+    release.set()
+    pre.close()

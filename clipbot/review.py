@@ -324,6 +324,8 @@ setInterval(async () => {{
     const s = await (await fetch('/status', {{credentials: 'same-origin'}})).json();
     const pill = document.getElementById('status');
     pill.textContent = s.message; pill.classList.toggle('on', s.active);
+    // bouton de recherche : réactivé dès que la recherche est finie ou arrêtée
+    document.querySelectorAll('.searchbtn').forEach(b => b.disabled = s.running);
     if (AUTORELOAD && s.version !== VERSION) {{
       // ne pas interrompre une légende en cours d'édition ou une vidéo en lecture
       const busy = editing || document.activeElement.tagName === 'TEXTAREA'
@@ -554,7 +556,7 @@ SEARCH = """<details class="panel">
     {then_field}
     <label class="check"><input type="checkbox" name="ai" value="1" checked> Légende par Claude</label>
   </div>
-  <div class="row" style="margin-top:12px"><button type="submit"{disabled}>Lancer la recherche</button></div>
+  <div class="row" style="margin-top:12px"><button type="submit" class="searchbtn"{disabled}>Lancer la recherche</button></div>
 </form>
 </details>"""
 

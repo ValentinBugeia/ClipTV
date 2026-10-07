@@ -467,7 +467,19 @@ class Prefetcher:
 
     def source(self, clip):
         job = self.jobs.get(clip.id)
-        return job.result if job else None
+        if not job:
+            return None
+
+        def wait():  # attente interrompue tout de suite par le bouton « Arrêter »
+            from concurrent.futures import TimeoutError as Pending
+
+            while True:
+                progress.check()
+                try:
+                    return job.result(timeout=0.5)
+                except Pending:
+                    continue
+        return wait
 
     def close(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)

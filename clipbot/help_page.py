@@ -216,7 +216,7 @@ sous-titres animés ».</div></details>
 Menu ⋯ → <strong>Refaire le montage</strong> → choisis <strong>Zoom plein écran</strong> (ou une
 autre option) → Refaire.</div></details>
 <details class="faq"><summary>La recherche est longue</summary><div>
-Compte 1 à 3 minutes par clip (le panneau central montre l'étape en cours). La toute première
+Compte 1 à 3 minutes par clip (l'étape en cours s'affiche en haut à droite ; clique dessus pour le détail). La toute première
 fois, l'app télécharge le modèle de transcription (environ 500 Mo) : quelques minutes de plus.</div></details>
 <details class="faq"><summary>Un clip n'a pas pu être monté</summary><div>
 Il n'apparaît pas dans « À publier » : la cause est notée dans le journal de la fenêtre du

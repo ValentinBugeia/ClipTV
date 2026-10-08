@@ -136,7 +136,7 @@ def test_search_from_browser(server, monkeypatch):
     base, _ = server
     body = _post(base + "/search",
                  b"channels=Kamet0%2C+zerator&hours=72&top=2&then=schedule&ai=1").read().decode()
-    assert "Recherche lancée" in body
+    assert "Recherche lancée" not in body and 'id="progress"' in body
     for _ in range(50):
         status = urllib.request.urlopen(base + "/status").read().decode()
         if '"running": false' in status:
@@ -192,7 +192,7 @@ def test_search_without_channels_uses_discovery(server, monkeypatch):
                         seen.setdefault("channels", channels) and "" or "ok")
     base, _ = server
     body = _post(base + "/search", b"channels=&hours=24&top=3&then=review").read().decode()
-    assert "Recherche lancée" in body
+    assert 'id="progress"' in body
     import time
     time.sleep(0.2)
     assert seen["channels"] == []

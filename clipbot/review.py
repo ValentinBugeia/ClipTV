@@ -368,11 +368,60 @@ PROGRESS_UI = """<style>
                      background:rgba(255,107,122,.16); box-shadow:inset 0 0 0 1px rgba(255,107,122,.4); color:#ffd0d5 }
   #progress button:disabled { opacity:.5 }
   header .top.busy #status { display:none }
+  #progress { position:relative; cursor:pointer }
+  #progress .chev { flex:none; width:8px; height:8px; margin:0 4px 3px; border-right:2px solid #9b9bab;
+                    border-bottom:2px solid #9b9bab; transform:rotate(45deg); transition:transform .2s }
+  #progress.open .chev { transform:rotate(225deg); margin-bottom:-3px }
+  #progress .pdrop { position:absolute; top:calc(100% + 8px); right:0; width:min(440px, calc(100vw - 24px));
+                     z-index:20; cursor:default; background:rgba(19,19,26,.97); backdrop-filter:blur(16px);
+                     border:1px solid rgba(255,255,255,.12); border-radius:16px; padding:14px 16px;
+                     box-shadow:0 20px 50px rgba(0,0,0,.6) }
+  #progress .pclip { color:#9b9bab; font-size:13px; margin-bottom:8px; overflow-wrap:anywhere }
+  #progress ol { list-style:none; margin:0; padding:0 }
+  #progress li { display:flex; gap:10px; padding:6px 0; color:#6b6b78; font-size:14px; align-items:flex-start }
+  #progress li.st-done { color:#b8b8c4 }
+  #progress li.st-now { color:#f4f4f7; font-weight:600; background:rgba(61,220,132,.08); border-radius:10px;
+                        margin:2px -8px; padding:8px }
+  #progress li .ico { width:18px; flex:none; text-align:center }
+  #progress li .help { display:block; font-weight:400; color:#9b9bab; font-size:12px; margin-top:2px }
+  #progress li .dur { font-weight:400; color:#9b9bab; font-size:12px }
+  #progress .pmsg { margin-top:8px; padding:8px 10px; border-radius:10px; background:rgba(155,92,255,.1);
+                    font-size:13px }
 </style>
 <script>
 // étape de la recherche en cours, en haut à droite (textContent : données non fiables)
 (function () {
   const box = document.getElementById('progress'), top = box.closest('.top');
+  let open = false, last = null;
+  try { open = sessionStorage.getItem('cliptv-progress-open') === '1'; } catch (e) {}
+  box.addEventListener('click', ev => {
+    ev.stopPropagation();  // le clic ne doit pas aussi compter comme « clic ailleurs »
+    if (ev.target.closest('button') || ev.target.closest('.pdrop')) return;
+    open = !open;
+    try { sessionStorage.setItem('cliptv-progress-open', open ? '1' : '0'); } catch (e) {}
+    if (last) render(last[0], last[1]);
+  });
+  document.addEventListener('click', ev => {  // clic ailleurs : on replie
+    if (open && !box.contains(ev.target)) { open = false; if (last) render(last[0], last[1]); }
+  });
+  function details(p, steps, current) {
+    const drop = el('div', 'pdrop');
+    if (p.active && p.clip) drop.append(el('div', 'pclip', p.clip));
+    const ol = el('ol');
+    steps.forEach((s, i) => {
+      const state = !p.active || i < current ? 'st-done' : i === current ? 'st-now' : '';
+      const li = el('li', state), ico = el('span', 'ico');
+      if (state === 'st-now') ico.append(el('span', 'spin')); else ico.textContent = state ? '✓' : '○';
+      const txt = el('div', '', s[1]);
+      const spent = (p.durations || {})[s[0]];
+      if (state === 'st-done' && spent) txt.append(el('span', 'dur', '  · ' + fmt(spent)));
+      if (state === 'st-now') txt.append(el('span', 'help', p.detail ? p.detail + ' — ' + s[2] : s[2]));
+      li.append(ico, txt); ol.append(li);
+    });
+    drop.append(ol);
+    if (!p.active && p.message) drop.append(el('div', 'pmsg', p.message));
+    return drop;
+  }
   function el(tag, cls, text) {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -381,12 +430,15 @@ PROGRESS_UI = """<style>
   }
   function fmt(s) { return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s'; }
   function render(p, steps) {
+    last = [p, steps];
     const recent = !p.active && p.ended && (Date.now() / 1000 - p.ended) < 15;
     const show = p.active || recent;
     box.style.display = show ? 'flex' : 'none';
     top.classList.toggle('busy', !!show);
     if (!show) return;
     box.classList.toggle('done', !p.active);
+    box.classList.toggle('open', open);
+    box.title = open ? '' : 'Clique pour voir le détail des étapes';
     box.replaceChildren();
     const text = el('div', 'ptext'), l1 = el('div', 'pl1');
     const current = steps.findIndex(s => s[0] === p.step);
@@ -419,6 +471,8 @@ PROGRESS_UI = """<style>
       };
       box.append(stop);
     }
+    box.append(el('span', 'chev'));
+    if (open) box.append(details(p, steps, current));
   }
   async function poll() {
     let delay = 5000;
@@ -1882,10 +1936,8 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         first = channels[0] if channels else "temps forts du moment"
         if not job.start(f"Recherche en cours : {first}…", run_search, job, self.cfg,
                          self.state, opts, channels, hours, top):
-            return self._redirect("Une recherche est déjà en cours → attends la fin, ou clique sur « Arrêter » dans le panneau central.", err=True)
-        return self._redirect("Recherche lancée : les clips apparaîtront ici au fur et à "
-                              "mesure (téléchargement, sous-titres et rendu prennent "
-                              "1 à 2 min par clip).")
+            return self._redirect("Une recherche est déjà en cours → attends la fin, ou clique sur ⏹ en haut à droite.", err=True)
+        return self._redirect_to("/")  # la progression s'affiche en haut à droite
 
     def _save_auto(self, form: dict[str, list[str]]):
         one = {k: v[0].strip() for k, v in form.items()}
@@ -1957,7 +2009,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         if self.app.autopilot is None:
             return self._redirect("Le pilote automatique ne tourne pas → relance l'app (fenêtre du terminal).", err=True, to="/auto")
         self.app.autopilot.run_now()
-        return self._redirect("Recherche lancée ✔", to="/auto")
+        return self._redirect_to("/auto")
 
     def _settings_changed(self):
         from .autopilot import apply_settings, load_settings

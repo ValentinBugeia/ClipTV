@@ -13,14 +13,18 @@ from clipbot import llm
 FAKE = """#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
-log = os.environ["FAKE_LOG"]
-with open(log, "w") as f:
-    json.dump({"args": args, "api_key": os.environ.get("ANTHROPIC_API_KEY")}, f)
-mode = os.environ.get("FAKE_MODE", "ok")
-if mode == "login":
-    print(json.dumps({"is_error": True, "result": "Invalid API key · Please run /login"}))
+stdin = sys.stdin.read()
+with open(os.environ["FAKE_LOG"], "w") as f:
+    json.dump({"args": args, "stdin": stdin, "api_key": os.environ.get("ANTHROPIC_API_KEY")}, f)
+if os.environ.get("FAKE_OLD") and "--effort" in args:  # ancienne version de Claude Code
+    print("error: unknown option '--effort'", file=sys.stderr)
     sys.exit(1)
-print(json.dumps({"is_error": False, "result": os.environ["FAKE_RESULT"]}))
+print(json.dumps({"type": "system", "subtype": "init"}))
+if os.environ.get("FAKE_MODE") == "login":
+    print(json.dumps({"type": "result", "is_error": True,
+                      "result": "Invalid API key · Please run /login"}))
+    sys.exit(1)
+print(json.dumps({"type": "result", "is_error": False, "result": os.environ["FAKE_RESULT"]}))
 """
 
 
@@ -47,7 +51,16 @@ def test_subscription_call_strips_api_key(fake_claude, monkeypatch, tmp_path):
     assert data["hook"] == "Il hurle"
     call = fake_claude()
     assert call["api_key"] is None  # jamais facturé sur une clé API
-    assert "-p" in call["args"] and str(img.resolve()) in call["args"][call["args"].index("-p") + 1]
+    message = json.loads(call["stdin"])  # un seul message : l'image est jointe directement
+    kinds = [c["type"] for c in message["message"]["content"]]
+    assert kinds == ["image", "text"] and "--tools" in call["args"]
+
+
+def test_old_claude_code_without_new_options(fake_claude, monkeypatch):
+    monkeypatch.setenv("FAKE_OLD", "1")
+    monkeypatch.setenv("FAKE_RESULT", '{"ok": true}')
+    assert llm.ask_json(system="s", prompt="p", schema={}) == {"ok": True}
+    assert "--effort" not in fake_claude()["args"]
 
 
 def test_not_logged_in_is_explained(fake_claude, monkeypatch):

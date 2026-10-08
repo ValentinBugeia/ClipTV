@@ -121,7 +121,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
             progress.step("transcribe", "en parallèle de la détection du visage"
                           if face_job else "")
             words = transcribe(src, model_size=cfg.whisper_model, device=cfg.whisper_device,
-                               language=opts.language or language)
+                               language=opts.language or language, beam_size=3)
         face = face_job.result() if face_job else None
         burned = bool(burned_job.result()) if burned_job else False
     finally:
@@ -459,7 +459,7 @@ def _process(clip, channel, cfg, state, opts, prefetch) -> bool:
 class Prefetcher:
     """Télécharge les clips suivants pendant que le clip courant est monté."""
 
-    def __init__(self, cfg: Config, clips, workers: int = 3):
+    def __init__(self, cfg: Config, clips, workers: int = 4):
         from concurrent.futures import ThreadPoolExecutor
 
         from .download import download_clip

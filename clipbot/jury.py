@@ -74,7 +74,8 @@ def quick_transcript(video: Path, language: str | None = None) -> str:
     from .subtitles import transcribe
 
     try:
-        words = transcribe(video, model_size="base", language=language)
+        words = transcribe(video, model_size="base", language=language, beam_size=1,
+                           max_seconds=60)
     except Exception:
         log.warning("Transcription rapide impossible pour %s", video.name, exc_info=True)
         return ""
@@ -89,22 +90,34 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
     if not items or not llm.available():
         return {}
     with tempfile.TemporaryDirectory(prefix="cliptv-jury-") as tmp:
+        from concurrent.futures import ThreadPoolExecutor
+
         images, blocks = [], []
-        for i, (clip, path) in enumerate(items, 1):
-            progress.check()
-            progress.step("search", f"Le juré prépare les clips ({i}/{len(items)}) : images "
-                                    "et paroles")
-            sheet = None
+
+        def make_sheet(job):  # les planches (ffmpeg) pendant que Whisper transcrit
+            i, (clip, path) = job
             try:
-                sheet = contact_sheet(Path(path), Path(tmp) / f"clip{i}.jpg")
-                images.append(sheet)
+                return contact_sheet(Path(path), Path(tmp) / f"clip{i}.jpg")
             except Exception:
                 log.warning("Images impossibles pour %s", clip.id, exc_info=True)
-            said = quick_transcript(Path(path), language)
+                return None
+        pool = ThreadPoolExecutor(max_workers=2)
+        sheets = pool.map(make_sheet, enumerate(items, 1))
+        transcripts = []
+        for i, (clip, path) in enumerate(items, 1):
+            progress.check()
+            progress.step("search", f"Le juré écoute les clips ({i}/{len(items)})")
+            said = getattr(clip, "quick_text", None)  # déjà fait pendant les téléchargements
+            transcripts.append(said if said is not None else quick_transcript(Path(path), language))
+        sheets = list(sheets)
+        pool.shutdown()
+        for i, ((clip, path), sheet, said) in enumerate(zip(items, sheets, transcripts), 1):
+            if sheet:
+                images.append(sheet)
             audio = getattr(clip, "audio", None) or {}
             blocks.append(
                 f"### Clip id={clip.id}\n"
-                f"Image : {sheet.name if sheet else '(aucune)'}\n"
+                f"Image : {f'n°{len(images)} (dans l’ordre des images jointes)' if sheet else '(aucune)'}\n"
                 f"Streamer : {clip.broadcaster_name} · catégorie : "
                 f"{getattr(clip, 'category', '') or 'inconnue'} · durée {clip.duration:.0f} s\n"
                 f"Titre : {clip.title}\n"

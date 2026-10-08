@@ -64,40 +64,57 @@ def _extract_json(text: str) -> dict:
 
 
 def ask_json(*, system: str, prompt: str, schema: dict, images: list[Path] = (),
-             timeout: float = 300) -> dict:
+             timeout: float = 300, effort: str = "low") -> dict:
     """Pose la question à Claude et renvoie sa réponse JSON (conforme à ``schema``)."""
-    return _ask_cli(system, prompt, schema, list(images), timeout)
+    return _ask_cli(system, prompt, schema, list(images), timeout, effort)
 
 
-def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout: float) -> dict:
+# options récentes de Claude Code : retirées si la version installée ne les connaît pas
+FAST_FLAGS = ["--tools", "", "--no-session-persistence"]
+
+
+def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout: float,
+             effort: str = "low") -> dict:
+    """Un seul message (texte + images intégrées), un seul tour, aucun outil : rapide."""
+    import base64
+
     exe = cli_path()
     if not exe:
         raise ClaudeError(describe()[1])
     env = {k: v for k, v in os.environ.items() if k not in API_ENV}
-    full = prompt
-    if images:
-        full += ("\n\nImages à regarder (ouvre chacune avec l'outil Read) :\n"
-                 + "\n".join(f"- {p.resolve()}" for p in images))
-    full += ("\n\nRéponds UNIQUEMENT avec un objet JSON conforme à ce schéma, sans texte "
-             f"autour :\n{json.dumps(schema, ensure_ascii=False)}")
+    content: list = []
+    for p in images:
+        media = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+        content.append({"type": "image", "source": {"type": "base64", "media_type": media,
+                        "data": base64.b64encode(p.read_bytes()).decode()}})
+    content.append({"type": "text", "text": prompt + (
+        "\n\nRéponds UNIQUEMENT avec un objet JSON conforme à ce schéma, sans texte autour :\n"
+        + json.dumps(schema, ensure_ascii=False))})
+    message = json.dumps({"type": "user", "message": {"role": "user", "content": content}})
+    base = [exe, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+            "--verbose", "--model", CLI_MODEL, "--append-system-prompt", system]
+    attempts = [base + FAST_FLAGS + ["--effort", effort], base + FAST_FLAGS, base]
     with tempfile.TemporaryDirectory(prefix="cliptv-claude-") as cwd:
-        cmd = [exe, "-p", full, "--output-format", "json", "--model", CLI_MODEL,
-               "--append-system-prompt", system, "--allowedTools", "Read"]
-        for d in {str(p.resolve().parent) for p in images}:
-            cmd += ["--add-dir", d]
+        for cmd in attempts:
+            try:
+                proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
+                                      timeout=timeout, input=message + "\n")
+            except subprocess.TimeoutExpired:
+                raise ClaudeError("Claude Code met trop de temps à répondre → réessaie plus tard.")
+            if not re.search(r"unknown option|unknown argument|invalid choice",
+                             proc.stderr or "", re.I):
+                break  # sinon : ancienne version de Claude Code, on retire des options
+    data: dict = {}
+    for line in (proc.stdout or "").splitlines():
         try:
-            proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
-                                  timeout=timeout, stdin=subprocess.DEVNULL)
-        except subprocess.TimeoutExpired:
-            raise ClaudeError("Claude Code met trop de temps à répondre → réessaie plus tard.")
-    out = (proc.stdout or "").strip()
-    try:
-        data = json.loads(out) if out else {}
-    except ValueError:
-        data = {"result": out}
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict) and item.get("type") == "result":
+            data = item
     result = data.get("result") or ""
-    if proc.returncode != 0 or data.get("is_error"):
-        raw = f"{result} {proc.stderr or ''}"
+    if proc.returncode != 0 or data.get("is_error") or not data:
+        raw = f"{result} {proc.stderr or ''}" if data else f"{proc.stdout or ''} {proc.stderr or ''}"
         detail = " ".join(raw.split())[:220]
         log.warning("Claude Code (code %s) : %s", proc.returncode, detail)
         if re.search(r"/login|not logged|invalid api key|authenticat", raw, re.I):
@@ -107,5 +124,5 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
         if re.search(r"usage limit|limit reached|rate limit|quota", raw, re.I):
             raise ClaudeError("Limite de ton abonnement Claude atteinte pour le moment → "
                               "ça repartira à la réinitialisation du quota.")
-        raise ClaudeError(f"Claude Code a échoué : {raw.strip()[:200]}")
+        raise ClaudeError(f"Claude Code a échoué : {detail}")
     return _extract_json(result)

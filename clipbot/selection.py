@@ -128,7 +128,10 @@ def jury_for(opts, language: str | None = None):
         return None
     from . import jury
 
-    return lambda items: jury.judge(items, language=language)
+    def run(items):
+        return jury.judge(items, language=language)
+    run.language = language  # transcription rapide faite pendant les téléchargements
+    return run
 
 
 def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
@@ -154,6 +157,12 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
             path = sources[clip.id]()
             clip.audio = audio_profile(Path(path))
             factor = audio_factor(clip.audio)
+            if jury is not None:  # pendant que les clips suivants se téléchargent
+                from .jury import quick_transcript
+
+                progress.step("search", f"Écoute des clips présélectionnés ({rank + 1}/"
+                                        f"{len(candidates)})")
+                clip.quick_text = quick_transcript(Path(path), getattr(jury, "language", None))
         except progress.Cancelled:
             raise
         except Exception:

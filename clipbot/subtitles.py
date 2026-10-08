@@ -63,14 +63,20 @@ def transcribe(
     model_size: str = "small",
     device: str = "auto",
     language: str | None = None,
+    beam_size: int = 5,
+    max_seconds: float | None = None,
 ) -> list[Word]:
+    """``beam_size=1`` et ``max_seconds`` : transcription rapide (tri des clips)."""
     model = _model(model_size, device)
     audio = load_audio(video)
+    if max_seconds:
+        audio = audio[: int(max_seconds * SAMPLE_RATE)]
     if audio.size == 0:  # clip sans piste audio
         return []
-    # beam_size=5 (défaut) : meilleure précision des sous-titres que le décodage direct
+    # beam_size : 3 pour les sous-titres (presque aussi précis que 5, nettement plus
+    # rapide), 1 pour la transcription rapide du juré
     segments, _info = model.transcribe(
-        audio, language=language, word_timestamps=True, vad_filter=True, beam_size=5,
+        audio, language=language, word_timestamps=True, vad_filter=True, beam_size=beam_size,
         condition_on_previous_text=False,  # évite les répétitions en boucle
     )
     from . import progress
@@ -229,3 +235,19 @@ def build_ass(
 def write_ass(words: list[Word], path: Path, **kwargs) -> Path:
     path.write_text(build_ass(words, **kwargs), encoding="utf-8")
     return path
+
+
+def warm_up(model_size: str, device: str = "auto") -> None:
+    """Charge les modèles Whisper en arrière-plan au lancement de l'app : la première
+    recherche n'attend plus leur chargement (ni leur téléchargement la toute première fois)."""
+    import logging
+    import threading
+
+    def run():
+        for size in dict.fromkeys((model_size, "base")):
+            try:
+                _model(size, device)
+            except Exception:
+                logging.getLogger("clipbot").info("Préchargement Whisper %s impossible", size,
+                                                  exc_info=True)
+    threading.Thread(target=run, daemon=True, name="whisper-warmup").start()

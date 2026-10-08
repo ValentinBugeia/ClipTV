@@ -150,6 +150,9 @@ def cmd_review(args, cfg: Config) -> int:
     state.recover_stuck(older_than=0)
     autopilot = Autopilot(cfg, state, Options(**{**opts.__dict__, "platforms": []}))
     autopilot.start()
+    from .subtitles import warm_up
+
+    warm_up(cfg.whisper_model, cfg.whisper_device)  # première recherche plus rapide
     server = make_server(cfg, opts, host=args.host, port=args.port, state=state,
                          autopilot=autopilot)
     if not args.no_publisher:  # publie les clips programmés à l'heure

@@ -92,7 +92,7 @@ PAGE = """<!doctype html>
                text-decoration:none; font-weight:500; font-size:14px; white-space:nowrap;
                background:var(--card); border:1px solid var(--line); transition:.15s }}
   nav.sub a:hover {{ color:var(--fg); border-color:var(--line2) }}
-  nav.sub a.on {{ color:#fff; background:var(--grad); border-color:transparent; box-shadow:0 6px 18px rgba(155,92,255,.3) }}
+  nav.sub a.on {{ color:#fff; background:var(--grad); border-color:transparent }}
   .count {{ min-width:22px; padding:1px 7px; border-radius:999px; font-size:12px; font-weight:700; text-align:center;
             background:rgba(255,255,255,.08) }}
   nav.sub a.on .count {{ background:rgba(0,0,0,.22) }}

@@ -32,7 +32,7 @@ gens qui NE connaissent PAS le streamer :
 Sois exigeant : 5 = moyen, 7 = bon, 9 = excellent. Réponds en français, raison en une
 phrase courte.
 
-Pour chaque clip noté 5 ou plus, prépare aussi sa publication, fidèle à ce que tu vois et
+Pour chaque clip noté 3 ou plus, prépare aussi sa publication, fidèle à ce que tu vois et
 entends (n'invente rien) :
 - hook : accroche de la description, COURTE (max 60 caractères), qui se termine par 1 ou 2
   emojis qui collent au moment (😂 😱 😡 💀 😭 🔥 😳 🤯 👀…), sans dévoiler la chute ;
@@ -45,7 +45,7 @@ entends (n'invente rien) :
   skull (fail, malaise absurde), cry (émotion, gênance), fire (exploit), none ;
 - moderation : vide, ou une phrase courte si TikTok risque de limiter la vidéo (insultes
   graves, violence, contenu sexuel, propos haineux, drogue…).
-Pour les clips notés moins de 5, laisse ces champs vides."""
+Pour les clips notés moins de 3, laisse ces champs vides."""
 
 SCHEMA = {
     "type": "object",

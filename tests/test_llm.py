@@ -107,11 +107,17 @@ def test_jury_drops_weak_clips(fake_claude, monkeypatch, tmp_path):
         copies[cid] = tmp_path / f"{cid}.mp4"
         copies[cid].write_bytes(video.read_bytes())
     opts = SimpleNamespace(jury=True)
-    kept = selection.pick_best([(clip("nul"), "x"), (clip("bon"), "x")],
-                               {cid: (lambda p=p: str(p)) for cid, p in copies.items()}, 2,
+    sources = {cid: (lambda p=p: str(p)) for cid, p in copies.items()}
+    kept = selection.pick_best([(clip("nul"), "x"), (clip("bon"), "x")], sources, 1,
                                jury=selection.jury_for(opts))
     assert [c.id for c, _ in kept] == ["bon"] and kept[0][0].jury["score"] == 8
     assert not copies["nul"].exists()  # vidéo écartée supprimée
+    # 2 clips demandés : le clip faible complète, après le bon
+    for cid in ("bon", "nul"):
+        copies[cid].write_bytes(video.read_bytes())
+    kept = selection.pick_best([(clip("nul"), "x"), (clip("bon"), "x")], sources, 2,
+                               jury=selection.jury_for(opts))
+    assert [c.id for c, _ in kept] == ["bon", "nul"]
 
 
 def test_jury_writes_publication(fake_claude, monkeypatch):

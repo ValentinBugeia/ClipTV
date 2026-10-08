@@ -88,6 +88,9 @@ def transcribe(
     segments, _info = model.transcribe(
         audio, language=language, word_timestamps=True, vad_filter=True, beam_size=beam_size,
         condition_on_previous_text=False,  # évite les répétitions en boucle
+        # passage difficile (musique, bruit) : un seul nouvel essai, pas 5 × 5 tirages ;
+        # sur un PC lent, ces reprises pouvaient multiplier le temps par 5 à 10
+        temperature=(0.0, 0.5), best_of=1,
     )
     from . import progress
 

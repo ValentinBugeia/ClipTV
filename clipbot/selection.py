@@ -24,10 +24,10 @@ MAX_SHORTLIST = 12
 
 
 def shortlist_size(top: int, radar: bool = False) -> int:
-    """Clips présélectionnés (téléchargés et écoutés). Avec le Radar, qui trie bien mieux
-    que les chiffres Twitch, 2 par clip gardé suffisent (8 au plus) : plus rapide."""
+    """Clips présélectionnés (téléchargés et écoutés) : 3 par clip gardé, pour que le
+    Radar trouve assez de bons clips (10 au plus avec lui : un seul appel à Claude)."""
     if radar:
-        return min(max(top * 2, top), 8)
+        return min(max(top * 3, top), 10)
     return min(max(top * SHORTLIST, top), MAX_SHORTLIST)
 
 
@@ -144,7 +144,8 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
     ``sources[clip.id]()`` renvoie le chemin de la vidéo téléchargée. Les vidéos écartées
     sont supprimées. Le profil audio est gardé sur le clip (indicateur de potentiel).
     ``jury(items)`` : avis de Claude {clip.id: {score, standalone, reason}} ; les clips
-    sous la note minimale sont écartés même s'il en reste moins que ``top``.
+    sous la note minimale passent après tous les autres, mais complètent la sélection
+    s'il en manque : on rend toujours ``top`` clips quand il y a assez de candidats.
     """
     from . import progress
 
@@ -176,9 +177,20 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
         if clip.audio:
             log.info("  %s · réaction ×%.1f à %.0f s → %.2f", clip.title, clip.audio["reaction"],
                      clip.audio["peak_at"], prior * factor)
+    below: list = []
     if jury is not None:
-        scored = _apply_jury(scored, jury)
+        scored, below = _apply_jury(scored, jury)
     scored.sort(key=lambda s: s[0], reverse=True)
+    if len(scored) < top and below:  # pas assez de bons clips : les moins mauvais complètent
+        below.sort(key=lambda s: (s[1].jury or {}).get("score", 0), reverse=True)
+        extra = below[: top - len(scored)]
+        log.info("Radar : %d clip(s) sous la note minimale ajouté(s) pour atteindre %d",
+                 len(extra), top)
+        scored += extra
+        below = below[len(extra):]
+    for _, clip, _, path in below:
+        if path:
+            Path(path).unlink(missing_ok=True)
     for _, clip, _, path in scored[top:]:  # vidéos non retenues : place libérée
         if path:
             Path(path).unlink(missing_ok=True)
@@ -187,8 +199,9 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
     return kept
 
 
-def _apply_jury(scored: list, jury) -> list:
-    """Combine l'avis de Claude au score ; supprime les clips jugés trop faibles."""
+def _apply_jury(scored: list, jury) -> tuple[list, list]:
+    """Combine l'avis de Claude au score. Retourne (clips retenus, clips sous la note
+    minimale, gardés en réserve)."""
     from . import jury as jury_mod
     from . import progress
 
@@ -199,18 +212,16 @@ def _apply_jury(scored: list, jury) -> list:
         raise
     except Exception as exc:
         log.warning("Radar indisponible (%s) : choix sur le son et les vues", exc)
-        return scored
-    kept = []
+        return scored, []
+    kept, below = [], []
     for value, clip, login, path in scored:
         verdict = verdicts.get(clip.id)
         clip.jury = verdict
         if verdict:
             log.info("  Radar : %s → %.1f/10 (%s)", clip.title, verdict["score"], verdict["reason"])
-        if verdict and verdict["score"] < jury_mod.MIN_SCORE:
-            if path:
-                Path(path).unlink(missing_ok=True)
-            continue
-        kept.append((value * jury_mod.factor(verdict), clip, login, path))
-    if len(kept) < len(scored):
-        log.info("Radar : %d clip(s) écarté(s) sur %d", len(scored) - len(kept), len(scored))
-    return kept
+        entry = (value * jury_mod.factor(verdict), clip, login, path)
+        (below if verdict and verdict["score"] < jury_mod.MIN_SCORE else kept).append(entry)
+    if below:
+        log.info("Radar : %d clip(s) sous %.1f/10 sur %d", len(below), jury_mod.MIN_SCORE,
+                 len(scored))
+    return kept, below

@@ -187,9 +187,19 @@ def _detect(cv2, detector, video: Path, min_hits: float) -> Face | None:
                 for x, y, w, h, sc in detector(small) if h / s >= fh * MIN_FACE]
 
     frames: list[tuple[float, list]] = []
-    # lecture séquentielle (grab sans décodage complet) : bien plus rapide que des sauts
     from . import progress
 
+    keys = _keyframes(video, fw, fh) if fw and fh else None
+    if keys and len(keys) >= 8:  # images clés seules : décodage ~30× plus léger
+        cap.release()
+        for t, frame in keys[:: max(len(keys) // 30, 1)]:
+            progress.check()
+            boxes = faces_in(frame, scale)
+            if not boxes and scale < 1:
+                boxes = faces_in(frame, 1.0)
+            frames.append((t, boxes))
+        last = -1  # lecture image par image inutile
+    # sinon : lecture séquentielle (grab sans conversion), plus rapide que des sauts
     for index in range(last + 1):
         if index % 30 == 0:
             progress.check()  # bouton « Arrêter »
@@ -304,3 +314,31 @@ def smooth_track(track: list[tuple[float, float]], *, still: float = 0.04,
     if points[-1][0] != track[-1][0]:
         points.append((track[-1][0], avg[-1]))
     return points
+
+
+def _keyframes(video: Path, fw: int, fh: int) -> list | None:
+    """[(seconde, image BGR)] des images clés seulement (une toutes les ~2 s sur Twitch) :
+    ffmpeg ne décode qu'elles, au lieu des 30 à 60 images de chaque seconde."""
+    import subprocess
+
+    import numpy as np
+
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+             "packet=pts_time,flags", "-of", "csv=p=0", str(video)],
+            capture_output=True, text=True, timeout=60, check=True).stdout
+        times = [float(line.split(",")[0]) for line in probe.splitlines()
+                 if "K" in line.split(",")[-1] and line.split(",")[0] not in ("", "N/A")]
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "error", "-skip_frame", "nokey", "-i", str(video), "-an",
+             "-vsync", "0", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+            capture_output=True, timeout=180, check=True).stdout
+    except Exception:
+        log.debug("Images clés indisponibles pour %s", video, exc_info=True)
+        return None
+    size = fw * fh * 3
+    count = min(len(raw) // size, len(times))
+    start = times[0] if times else 0.0
+    return [(times[i] - start, np.frombuffer(raw, np.uint8, size, i * size).reshape(fh, fw, 3))
+            for i in range(count)]

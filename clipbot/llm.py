@@ -98,9 +98,12 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
     result = data.get("result") or ""
     if proc.returncode != 0 or data.get("is_error"):
         raw = f"{result} {proc.stderr or ''}"
-        if re.search(r"log ?in|/login|not logged|authenticat|invalid api key", raw, re.I):
+        detail = " ".join(raw.split())[:220]
+        log.warning("Claude Code (code %s) : %s", proc.returncode, detail)
+        if re.search(r"/login|not logged|invalid api key|authenticat", raw, re.I):
             raise ClaudeError("Claude Code n'est pas connecté → ouvre un terminal, tape "
-                              "« claude » puis /login avec ton compte Claude.")
+                              "« claude » puis /login avec ton compte Claude "
+                              f"(réponse de Claude Code : {detail})")
         if re.search(r"usage limit|limit reached|rate limit|quota", raw, re.I):
             raise ClaudeError("Limite de ton abonnement Claude atteinte pour le moment → "
                               "ça repartira à la réinitialisation du quota.")

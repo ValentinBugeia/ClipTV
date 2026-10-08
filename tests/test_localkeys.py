@@ -13,13 +13,13 @@ def test_password_hash():
 
 
 def test_keys_saved_and_applied(tmp_path, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("YOUTUBE_CLIENT_ID", raising=False)
     cfg = Config()
     cfg.data_dir = tmp_path
     state = State(cfg.db_path)
-    changed = save_keys(state, cfg, {"TWITCH_CLIENT_ID": " abc ", "ANTHROPIC_API_KEY": "sk-1",
+    changed = save_keys(state, cfg, {"TWITCH_CLIENT_ID": " abc ", "YOUTUBE_CLIENT_ID": "yt-1",
                                      "TWITCH_CLIENT_SECRET": ""})
-    assert cfg.twitch_client_id == "abc" and os.environ["ANTHROPIC_API_KEY"] == "sk-1"
+    assert cfg.twitch_client_id == "abc" and os.environ["YOUTUBE_CLIENT_ID"] == "yt-1"
     assert len(changed) == 2
     # un champ vide garde la valeur existante
     save_keys(state, cfg, {"TWITCH_CLIENT_ID": ""})

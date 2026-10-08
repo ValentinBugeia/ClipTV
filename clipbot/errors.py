@@ -18,7 +18,6 @@ LABELS = {
     "TIKTOK_REDIRECT_URI": "la Redirect URI TikTok",
     "YOUTUBE_CLIENT_ID": "le Client ID YouTube",
     "YOUTUBE_CLIENT_SECRET": "le Client secret YouTube",
-    "ANTHROPIC_API_KEY": "la clé Claude",
 }
 
 KEYS = "Comptes → Clés API"

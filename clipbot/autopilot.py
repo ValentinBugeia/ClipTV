@@ -47,6 +47,7 @@ def default_settings(cfg: Config) -> dict:
         "min_views": 50,
         "then": "schedule",      # schedule | publish | manual (tu publies toi-même)
         "ai_caption": True,
+        "jury": True,               # Claude regarde les clips présélectionnés
         "subtitles": True,       # sous-titres animés de l'app
         "layout": "auto",        # auto (facecam en haut sinon zoom) | crop (zoom) | blur
         "ratio": 3.0,            # sensibilité de la détection de pics de chat
@@ -196,6 +197,7 @@ class Autopilot:
                   and tiktok_mode(self.state, self.base_opts) == "direct")
         return Options(**{**self.base_opts.__dict__,
                           "ai_caption": bool(settings["ai_caption"]),
+                          "jury": bool(settings.get("jury", True)),
                           "publish": settings["then"] == "publish" and not direct,
                           "schedule": settings["then"] == "schedule" and not direct,
                           "platforms": list(settings["platforms"]),

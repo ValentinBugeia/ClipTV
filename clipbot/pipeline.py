@@ -30,6 +30,7 @@ class Options:
     max_duration: float = 60.0
     caption_template: str = "{title} {mood}\n{cta}\n{icon} twitch.tv/{channel_tag}{tiktok}"
     ai_caption: bool = False
+    jury: bool = False              # Claude regarde les clips présélectionnés et écarte les moins bons
     publish: bool = False           # publie tout de suite après le rendu
     schedule: bool = False          # programme sur le prochain créneau libre
     platforms: list[str] = field(default_factory=list)  # vide = cfg.platforms
@@ -225,7 +226,6 @@ def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
             title=clip.title,
             channel=clip.broadcaster_name,
             transcript=" ".join(w.text for w in words),
-            model=cfg.llm_model,
             category=getattr(clip, "category", ""),
             tiktok=getattr(clip, "tiktok_handle", None),
         )
@@ -378,7 +378,9 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "standout": getattr(clip, "standout", None),
                                       "reaction": audio.get("reaction"),
                                       "peak_at": audio.get("peak_at"),
-                                      "chat_spike": getattr(clip, "chat_spike", None)})
+                                      "chat_spike": getattr(clip, "chat_spike", None),
+                                      "jury": (getattr(clip, "jury", None) or {}).get("score"),
+                                      "jury_reason": (getattr(clip, "jury", None) or {}).get("reason")})
         progress.step("caption")
         if "thread" in caption_job:
             caption_job["thread"].join()
@@ -434,7 +436,8 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         try:
             chosen = [c for c, _ in selection.pick_best(
                 [(c, channel) for c in shortlist],
-                {c.id: prefetch.source(c) for c in shortlist}, top)]
+                {c.id: prefetch.source(c) for c in shortlist}, top,
+                jury=selection.jury_for(opts))]
             for i, clip in enumerate(chosen, 1):
                 progress.clip(i, len(chosen), clip.title)
                 log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,

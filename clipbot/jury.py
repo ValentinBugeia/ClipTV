@@ -1,0 +1,134 @@
+"""Le juré : Claude regarde les clips présélectionnés et dit lesquels méritent TikTok.
+
+Pour chaque clip : 4 images (une planche), ce qui est dit (transcription rapide), le titre,
+le streamer et la catégorie. Un seul appel pour tous les clips de la recherche. Claude note
+chaque clip sur 10 et explique pourquoi ; les clips trop faibles sont écartés, même avec
+beaucoup de vues sur Twitch.
+"""
+
+from __future__ import annotations
+
+import logging
+import subprocess
+import tempfile
+from pathlib import Path
+
+log = logging.getLogger("clipbot.jury")
+
+MIN_SCORE = 4.5      # en dessous : clip écarté
+FRAMES = 4
+TRANSCRIPT_MAX = 700  # caractères par clip
+
+SYSTEM = """Tu es le directeur éditorial d'un compte TikTok francophone qui publie les
+meilleurs moments de streamers Twitch. Tu vois pour chaque clip 4 images prises à
+intervalles réguliers, ce qui est dit, le titre donné par les viewers, le streamer et la
+catégorie. Note chaque clip sur 10 selon sa capacité à faire des vues sur TikTok auprès de
+gens qui NE connaissent PAS le streamer :
+- compréhensible sans contexte (pas de blague interne, pas la suite d'une histoire) ;
+- une vraie chute ou réaction : fou rire, cri, rage, clash, exploit, malaise, moment absurde ;
+- ça accroche dès les premières secondes ;
+- à éviter : temps mort, attente, écran de pause / pub / alerte de don, musique seule,
+  gameplay sans réaction, son ou image inexploitable, contenu choquant ou sexuel.
+Sois exigeant : 5 = moyen, 7 = bon, 9 = excellent. Réponds en français, raison en une
+phrase courte."""
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "clips": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "score": {"type": "number"},
+                    "standalone": {"type": "boolean",
+                                   "description": "compréhensible sans connaître le streamer"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["id", "score", "standalone", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["clips"],
+    "additionalProperties": False,
+}
+
+
+def contact_sheet(video: Path, out: Path, frames: int = FRAMES) -> Path:
+    """Planche de ``frames`` images réparties sur tout le clip, côte à côte."""
+    from .render import probe_duration
+
+    duration = max(probe_duration(video), 1.0)
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-vf",
+         f"fps={frames / duration:.4f},scale=320:-2,tile={frames}x1", "-frames:v", "1",
+         "-q:v", "4", str(out)],
+        check=True, capture_output=True, timeout=120)
+    return out
+
+
+def quick_transcript(video: Path, language: str | None = None) -> str:
+    """Ce qui est dit, avec un modèle Whisper léger (rapide) : juste pour juger."""
+    from .subtitles import transcribe
+
+    try:
+        words = transcribe(video, model_size="base", language=language)
+    except Exception:
+        log.warning("Transcription rapide impossible pour %s", video.name, exc_info=True)
+        return ""
+    text = " ".join(w.text for w in words)
+    return text[:TRANSCRIPT_MAX] + ("…" if len(text) > TRANSCRIPT_MAX else "")
+
+
+def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]:
+    """``items`` = [(clip, chemin de la vidéo)] → {clip.id: {score, standalone, reason}}."""
+    from . import llm, progress
+
+    if not items or not llm.available():
+        return {}
+    with tempfile.TemporaryDirectory(prefix="cliptv-jury-") as tmp:
+        images, blocks = [], []
+        for i, (clip, path) in enumerate(items, 1):
+            progress.check()
+            progress.step("search", f"Le juré prépare les clips ({i}/{len(items)}) : images "
+                                    "et paroles")
+            sheet = None
+            try:
+                sheet = contact_sheet(Path(path), Path(tmp) / f"clip{i}.jpg")
+                images.append(sheet)
+            except Exception:
+                log.warning("Images impossibles pour %s", clip.id, exc_info=True)
+            said = quick_transcript(Path(path), language)
+            audio = getattr(clip, "audio", None) or {}
+            blocks.append(
+                f"### Clip id={clip.id}\n"
+                f"Image : {sheet.name if sheet else '(aucune)'}\n"
+                f"Streamer : {clip.broadcaster_name} · catégorie : "
+                f"{getattr(clip, 'category', '') or 'inconnue'} · durée {clip.duration:.0f} s\n"
+                f"Titre : {clip.title}\n"
+                f"Pic de son : ×{audio.get('reaction', '?')} à {audio.get('peak_at', '?')} s\n"
+                f"Paroles : {said or '(rien de détecté)'}")
+        progress.check()
+        progress.step("search", f"Le juré Claude regarde les {len(items)} clips présélectionnés…")
+        prompt = ("Voici les clips à juger. Chaque image montre 4 moments du clip, de gauche "
+                  "à droite.\n\n" + "\n\n".join(blocks))
+        data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, images=images)
+    out = {}
+    for row in data.get("clips") or []:
+        try:
+            out[str(row["id"])] = {"score": max(0.0, min(float(row["score"]), 10.0)),
+                                   "standalone": bool(row.get("standalone", True)),
+                                   "reason": str(row.get("reason") or "")[:200]}
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def factor(verdict: dict | None) -> float:
+    """Poids de l'avis de Claude dans le choix final (×0,3 à ×1,9)."""
+    if not verdict:
+        return 1.0
+    f = 0.25 + 1.5 * (verdict["score"] / 10) ** 2
+    return f if verdict.get("standalone", True) else f * 0.6

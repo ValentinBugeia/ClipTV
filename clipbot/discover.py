@@ -193,7 +193,8 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
     twitch.annotate_categories([clip for clip, _ in found])
     prefetch = Prefetcher(cfg, [clip for clip, _ in found])  # téléchargements anticipés
     try:
-        found = selection.pick_best(found, {c.id: prefetch.source(c) for c, _ in found}, top)
+        found = selection.pick_best(found, {c.id: prefetch.source(c) for c, _ in found}, top,
+                                    jury=selection.jury_for(opts, kwargs.get("language")))
         for i, (clip, login) in enumerate(found, 1):
             progress.clip(i, len(found), f"{login} · {clip.title}")
             log.info("→ %s · %s (%d vues, %.0f vues/h) %s", login, clip.title,

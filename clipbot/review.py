@@ -1257,13 +1257,19 @@ class Handler(BaseHTTPRequestHandler):
             "tiktok_keys": bool(cfg.tiktok_client_key and cfg.tiktok_client_secret
                                 and cfg.tiktok_redirect_uri),
             "tiktok_connected": cfg.tiktok_token_path.exists(),
-            "claude": bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "claude": self._claude_ok(),
             "autopilot": bool(settings.get("enabled")),
         }
         from .captions import last_error
         if status["claude"] and last_error:  # clé présente mais Claude refuse
             status["claude"], status["claude_error"] = False, last_error
         self._page(help_page.render(status), "/help", narrow=True)
+
+    @staticmethod
+    def _claude_ok() -> bool:
+        from . import llm
+
+        return llm.available()
 
     # ---------- page Statistiques ----------
     def _stats_page(self):
@@ -1402,6 +1408,9 @@ class Handler(BaseHTTPRequestHandler):
     Ajouter des sous-titres animés (décoche si tes streamers ont déjà les leurs)</label>
   <label class="check full"><input type="checkbox" name="ai_caption" value="1"{" checked" if s["ai_caption"] else ""}>
     Légendes et hashtags écrits par Claude</label>
+  <label class="check full"><input type="checkbox" name="jury" value="1"{" checked" if s.get("jury", True) else ""}>
+    Juré Claude : regarde les clips présélectionnés (images + paroles) et écarte ceux qui ne
+    marchent pas sans contexte, les temps morts et les clips sans vraie réaction</label>
   <label class="check full"><input type="checkbox" name="smart_timing" value="1"{" checked" if s.get("smart_timing", True) else ""}>
     Horaires intelligents : cherche 2× plus souvent le soir (18 h - 2 h, quand les gros lives
     tournent) et 3× moins la nuit et le matin</label>
@@ -1545,10 +1554,10 @@ mentionner.</p>
                     ("Token enregistré (prolongé automatiquement)" if ok else
                      "Compte pro + token longue durée du tableau de bord Meta") + form, dest=dest)
 
-        claude = bool(os.environ.get("ANTHROPIC_API_KEY"))  # .env ou Clés API
-        row("Claude (légendes)", "✅" if claude else "—",
-            "Clé configurée" if claude else
-            "Renseigne la clé dans « Clés API » ci-dessous (sinon légende standard)")
+        from . import llm
+
+        ok, how = llm.describe()
+        row("Claude (juré et légendes)", "✅" if ok else "—", e(how))
 
         checks = ""
         if self.app.checks:
@@ -1609,8 +1618,8 @@ mentionner.</p>
                               f'autocomplete="off" autocapitalize="none"></label>')
         return f"""<details class="panel"{" open" if not self.cfg.twitch_client_id else ""}>
 <summary>🔑 Clés API</summary>
-<p class="info">À créer une fois sur dev.twitch.tv, developers.tiktok.com et
-console.anthropic.com (voir le README). Elles sont gardées sur ce PC uniquement.</p>
+<p class="info">À créer une fois sur dev.twitch.tv et developers.tiktok.com (voir le
+README). Elles sont gardées sur ce PC uniquement.</p>
 <form method="post" action="/keys"><div class="grid">{''.join(fields)}</div>
 <div class="row" style="margin-top:12px"><button>Enregistrer les clés</button></div></form>
 </details>"""
@@ -1928,7 +1937,9 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
         from .autopilot import load_settings
 
         layout = load_settings(self.state, self.cfg).get("layout", "auto")
+        settings = load_settings(self.state, self.cfg)
         opts = Options(**{**self.opts.__dict__, "ai_caption": form.get("ai") == "1",
+                          "jury": bool(settings.get("jury", True)),
                           "layout": layout,
                           "subtitles": load_settings(self.state, self.cfg).get("subtitles", True),
                           "publish": then == "publish", "schedule": then == "schedule"})
@@ -1977,6 +1988,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 "max_queue": max(int(one.get("max_queue", 0)), 0),
                 "platforms": [p for p in form.get("platforms", []) if p in PLATFORMS],
                 "ai_caption": one.get("ai_caption") == "1",
+                "jury": one.get("jury") == "1",
                 "subtitles": one.get("subtitles") == "1",
                 "smart_timing": one.get("smart_timing") == "1",
             }

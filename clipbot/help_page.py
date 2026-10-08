@@ -52,9 +52,10 @@ def render(status: dict) -> str:
                "Pour envoyer les vidéos sur ton compte.", "#tiktok", "Comment faire"),
         _check(s["tiktok_connected"], "3. Compte TikTok connecté",
                "Page Comptes → Connecter.", "/accounts", "Aller dans Comptes"),
-        _check(s["claude"], "4. Clé Claude (facultatif)",
+        _check(s["claude"], "4. Claude (facultatif)",
                html.escape(s["claude_error"]) if s.get("claude_error") else
-               "Pour des légendes et hashtags écrits par l'IA. Sans elle : légende standard.",
+               "Pour le juré qui trie les clips et les légendes écrites par l'IA, avec ton "
+               "abonnement Claude (Claude Code installé sur ce PC).",
                "#claude", "Comment faire", optional=True),
         _check(s["autopilot"], "5. Pilote automatique activé",
                "Pour que l'app trouve et prépare les clips toute seule.", "/auto",
@@ -63,7 +64,7 @@ def render(status: dict) -> str:
     return f"""{STYLE}<div class="help">
 <nav class="toc" aria-label="Sommaire">
   <a href="#config">Ta configuration</a><a href="#fonctionnement">Comment ça marche</a>
-  <a href="#twitch">Clés Twitch</a><a href="#tiktok">Clés TikTok</a><a href="#claude">Clé Claude</a>
+  <a href="#twitch">Clés Twitch</a><a href="#tiktok">Clés TikTok</a><a href="#claude">Claude</a>
   <a href="#utiliser">Utiliser l'app</a><a href="#problemes">Problèmes fréquents</a>
 </nav>
 
@@ -134,16 +135,12 @@ ouverte et le PC allumé pendant que l'app travaille.</p></div>
 <div class="note">Tant que TikTok n'a pas validé ton app, les vidéos arrivent <strong>en
 brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où tu publies d'un tap.</div></div>
 
-<div class="panel" id="claude"><h2>Créer la clé Claude (facultatif, payant à l'usage)</h2>
+<div class="panel" id="claude"><h2>Claude (facultatif)</h2>
 <ol>
-  <li>Ouvre <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>
-  et crée un compte.</li>
-  <li>Dans <strong>Billing</strong>, ajoute quelques euros de crédit : une légende coûte une
-  fraction de centime à quelques centimes.</li>
-  <li><strong>API Keys → Create Key</strong>, copie la clé (elle commence par <code>sk-ant-</code>,
-  affichée une seule fois).</li>
-  <li>Dans cliptv : <a href="/accounts">Comptes</a> → <strong>Clés API</strong> → colle-la →
-  <strong>Enregistrer les clés</strong>.</li>
+  <li>Installe Claude Code sur ce PC : <code>curl -fsSL https://claude.ai/install.sh | bash</code></li>
+  <li>Dans un terminal, tape <code>claude</code> puis <code>/login</code> et connecte ton compte.</li>
+  <li>C'est tout : cliptv l'utilise tout seul (quota de ton abonnement, pas de crédit API).
+  La page <a href="/accounts">Comptes</a> indique s'il est trouvé.</li>
 </ol></div>
 
 <div class="panel" id="utiliser"><h2>Utiliser l'app</h2>

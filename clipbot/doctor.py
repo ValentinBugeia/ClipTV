@@ -52,8 +52,7 @@ def check_local(cfg: Config, fonts_dir: Path, render: bool = True) -> list[Check
 
     for mod, label, level in (("yt_dlp", "yt-dlp", FAIL),
                               ("faster_whisper", "faster-whisper", FAIL),
-                              ("cv2", "opencv (cadrage auto)", WARN),
-                              ("anthropic", "anthropic (--ai-caption)", WARN)):
+                              ("cv2", "opencv (cadrage auto)", WARN)):
         out.append(Check(OK, label) if _module(mod) else
                      Check(level, label, 'non installé (pip install -e ".[all]")'))
 
@@ -196,16 +195,18 @@ def check_online(cfg: Config, ai: bool = True) -> list[Check]:
             out.append(_online("Instagram", instagram))
 
     if ai:
-        if not _module("anthropic"):
-            out.append(Check(WARN, "Claude (--ai-caption)", "paquet anthropic non installé"))
+        from . import llm
+
+        if not llm.available():
+            out.append(Check(WARN, "Claude (abonnement)", llm.describe()[1]))
         else:
             def claude():
-                import anthropic
+                llm.ask_json(system="Test de connexion.", prompt="Réponds {\"ok\": true}.",
+                             schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
+                             timeout=90)
+                return "Claude Code répond (ton abonnement)"
 
-                anthropic.Anthropic().models.retrieve(cfg.llm_model)
-                return f"modèle {cfg.llm_model} disponible"
-
-            out.append(_online("Claude (--ai-caption)", claude))
+            out.append(_online("Claude (abonnement)", claude))
     return out
 
 

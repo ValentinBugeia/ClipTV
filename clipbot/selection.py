@@ -120,15 +120,28 @@ def audio_factor(profile: dict) -> float:
     return (0.6 + 0.8 * reaction) * (0.6 + 0.4 * early)
 
 
-def pick_best(candidates: list, sources: dict, top: int) -> list:
+def jury_for(opts, language: str | None = None):
+    """Le juré Claude si activé et disponible (Claude Code sur ce PC), sinon None."""
+    from . import llm
+
+    if not getattr(opts, "jury", False) or not llm.available():
+        return None
+    from . import jury
+
+    return lambda items: jury.judge(items, language=language)
+
+
+def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
     """Écoute les candidats [(clip, login)] et garde les ``top`` meilleurs.
 
     ``sources[clip.id]()`` renvoie le chemin de la vidéo téléchargée. Les vidéos écartées
     sont supprimées. Le profil audio est gardé sur le clip (indicateur de potentiel).
+    ``jury(items)`` : avis de Claude {clip.id: {score, standalone, reason}} ; les clips
+    sous la note minimale sont écartés même s'il en reste moins que ``top``.
     """
     from . import progress
 
-    if len(candidates) <= top:
+    if len(candidates) <= top and jury is None:
         return candidates
     progress.step("search", f"Écoute des {len(candidates)} clips présélectionnés "
                             "(réactions fortes, moment fort au début)…")
@@ -150,10 +163,41 @@ def pick_best(candidates: list, sources: dict, top: int) -> list:
         if clip.audio:
             log.info("  %s · réaction ×%.1f à %.0f s → %.2f", clip.title, clip.audio["reaction"],
                      clip.audio["peak_at"], prior * factor)
+    if jury is not None:
+        scored = _apply_jury(scored, jury)
     scored.sort(key=lambda s: s[0], reverse=True)
     for _, clip, _, path in scored[top:]:  # vidéos non retenues : place libérée
         if path:
             Path(path).unlink(missing_ok=True)
     kept = [(clip, login) for _, clip, login, _ in scored[:top]]
     log.info("Retenus après écoute : %s", ", ".join(c.title for c, _ in kept))
+    return kept
+
+
+def _apply_jury(scored: list, jury) -> list:
+    """Combine l'avis de Claude au score ; supprime les clips jugés trop faibles."""
+    from . import jury as jury_mod
+    from . import progress
+
+    items = [(clip, path) for _, clip, _, path in scored if path]
+    try:
+        verdicts = jury(items)
+    except progress.Cancelled:
+        raise
+    except Exception as exc:
+        log.warning("Juré Claude indisponible (%s) : choix sur le son et les vues", exc)
+        return scored
+    kept = []
+    for value, clip, login, path in scored:
+        verdict = verdicts.get(clip.id)
+        clip.jury = verdict
+        if verdict:
+            log.info("  Juré : %s → %.1f/10 (%s)", clip.title, verdict["score"], verdict["reason"])
+        if verdict and verdict["score"] < jury_mod.MIN_SCORE:
+            if path:
+                Path(path).unlink(missing_ok=True)
+            continue
+        kept.append((value * jury_mod.factor(verdict), clip, login, path))
+    if len(kept) < len(scored):
+        log.info("Juré : %d clip(s) écarté(s) sur %d", len(scored) - len(kept), len(scored))
     return kept

@@ -101,7 +101,7 @@ celles du `.env`.
 | **TikTok** | https://developers.tiktok.com → Login Kit + Content Posting API, scopes `video.upload` (+ `video.publish`) | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI=https://<domaine>/tiktok/callback` |
 | **YouTube** | console Google Cloud → API YouTube Data v3 → identifiants OAuth de type « TV et appareils à entrée limitée » | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_PRIVACY` |
 | **Instagram** | compte **professionnel** + app Meta (produit Instagram, `instagram_business_content_publish`) → token longue durée à coller dans la page Comptes | — |
-| **Claude** (légendes) | https://console.anthropic.com | `ANTHROPIC_API_KEY` |
+| **Claude** (juré + légendes) | ton abonnement Claude : installe Claude Code (`curl -fsSL https://claude.ai/install.sh \| bash`) puis `claude` → `/login` | — |
 
 > ⚠️ **TikTok** : tant que l'app n'a pas passé l'**audit**, la publication directe est forcée
 > en privé. Le mode par défaut (`draft`) envoie la vidéo dans ta boîte de réception TikTok :

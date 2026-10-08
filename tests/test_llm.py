@@ -42,6 +42,7 @@ def fake_claude(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{exe.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_LOG", str(tmp_path / "call.json"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-ne-doit-pas-servir")
+    llm.reset_pause()  # une erreur d'un autre test ne met pas Claude en pause ici
 
     def last_call():
         return json.loads((tmp_path / "call.json").read_text())
@@ -81,7 +82,7 @@ def test_caption_via_subscription(fake_claude, monkeypatch):
                                                   "question": "Tu t'attendais à ça ? 👇",
                                                   "hashtags": ["fyp"]}))
     text = captions.generate_caption(title="t", channel="Nico_La", transcript="")
-    assert text.splitlines()[:2] == ["Il découvre son score", "Tu t'attendais à ça ? 👇"]
+    assert text.splitlines()[:2] == ["Il découvre son score 👀", "Tu t'attendais à ça ? 👇"]
 
 
 def test_jury_drops_weak_clips(fake_claude, monkeypatch, tmp_path):
@@ -125,7 +126,7 @@ def test_jury_writes_publication(fake_claude, monkeypatch):
                                  "overlay": "ELLE NE SAVAIT PAS…", "reaction": "cry",
                                  "moderation": ""})
     text = make_caption(clip, [], None, Options(ai_caption=True))
-    assert text.splitlines()[:2] == ["Sa mère débarque en plein live", "Vous auriez fait quoi ? 👇"]
+    assert text.splitlines()[:2] == ["Sa mère débarque en plein live 😭", "Vous auriez fait quoi ? 👇"]
     assert reaction_emoji([], 1.0, "mdr", preferred="cry").stem == "cry"
     assert reaction_emoji([], 1.0, "mdr", preferred="none") is None
 
@@ -169,3 +170,16 @@ def test_searches_left_estimate(tmp_path):
     w = claude_usage.summary(state)["windows"][0]
     assert w["searches_left"] == 34  # 68 % restant / 2 % par recherche
     assert claude_usage.short_line(state) == "68 % restant · ≈ 34 recherches"
+
+
+def test_failure_pauses_claude_for_the_search(fake_claude, monkeypatch):
+    """Claude Code bloqué ou déconnecté : on n'attend pas à chaque clip de la recherche."""
+    monkeypatch.setenv("FAKE_MODE", "login")
+    with pytest.raises(llm.ClaudeError):
+        llm.ask_json(system="s", prompt="p", schema={})
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    monkeypatch.setenv("FAKE_RESULT", '{"ok": true}')
+    with pytest.raises(llm.ClaudeError, match="pause"):
+        llm.ask_json(system="s", prompt="p", schema={})
+    llm.reset_pause()  # nouvelle recherche
+    assert llm.ask_json(system="s", prompt="p", schema={}) == {"ok": True}

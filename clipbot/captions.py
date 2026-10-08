@@ -15,17 +15,18 @@ last_error: str | None = None  # dernier problème avec Claude (affiché dans l'
 
 
 SYSTEM = """Tu es community manager TikTok spécialisé dans les clips de streamers Twitch.
-À partir du titre du clip et de sa transcription, écris une légende courte qui donne
-envie de regarder jusqu'au bout : une accroche (max 90 caractères, pas de spoiler de la
-chute), une question courte qui fait commenter et qui porte précisément sur ce qui se
-passe dans CE clip (ce que dit ou fait le streamer), puis 4 à 6 hashtags pertinents
+À partir du titre du clip et de sa transcription, écris une légende COURTE qui donne
+envie de regarder jusqu'au bout : une accroche (max 60 caractères, pas de spoiler de la
+chute) terminée par 1 ou 2 emojis qui collent au moment (😂 😱 😡 💀 😭 🔥 😳 🤯 👀…), une
+question très courte (max 45 caractères) terminée par un emoji, qui fait commenter et qui
+porte précisément sur ce qui se passe dans CE clip, puis 4 à 6 hashtags pertinents
 (jeu, streamer, type de moment, + #fyp). Pas de question générique ni hors sujet.
 Reste fidèle au contenu, n'invente pas de faits. Écris dans la langue de la transcription."""
 
 SCHEMA = {
     "type": "object",
     "properties": {
-        "hook": {"type": "string", "description": "accroche, max 90 caractères"},
+        "hook": {"type": "string", "description": "accroche, max 60 caractères, finit par 1-2 emojis"},
         "question": {"type": "string",
                      "description": "question aux spectateurs sur CE clip, max 60 caractères"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
@@ -141,8 +142,26 @@ def merge_hashtags(*groups: list[str], limit: int = MAX_HASHTAGS) -> list[str]:
     return ["#" + t for t in out[:limit]]
 
 
+REACTION_EMOJI = {"laugh": "😂", "scream": "😱", "rage": "😡", "skull": "💀", "cry": "😭",
+                  "fire": "🔥"}
+HOOK_MAX, QUESTION_MAX = 70, 55   # au-delà, coupé au mot (TikTok n'affiche que le début)
+
+
+def _has_emoji(text: str) -> bool:
+    import unicodedata
+
+    return any(unicodedata.category(c) == "So" for c in text or "")
+
+
+def _shorten(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:!-")
+    return cut + "…"
+
+
 def format_caption(hook: str, hashtags: list[str], channel: str, category: str = "",
-                   question: str = "", tiktok: str | None = None) -> str:
+                   question: str = "", tiktok: str | None = None, reaction: str = "") -> str:
     """Accroche, crédit du streamer, puis jusqu'à 8 hashtags : ceux choisis pour le contenu
     d'abord, complétés par le streamer, le jeu et les hashtags de niche."""
     base = base_hashtags(channel, category)
@@ -151,9 +170,14 @@ def format_caption(hook: str, hashtags: list[str], channel: str, category: str =
     credit = f"{credit_emoji(category)} twitch.tv/{channel.lower()}"
     if tiktok:  # le streamer est prévenu s'il est mentionné : like, repost possibles
         credit += f" · @{tiktok}"
-    hook = hook.strip()
-    question = (question or "").strip()
-    if hook.endswith("?"):
+    hook = _shorten(hook.strip(), HOOK_MAX)
+    if not _has_emoji(hook):  # toujours un emoji qui colle au moment
+        mood = REACTION_EMOJI.get(reaction) or title_mood(hook) or "👀"
+        hook = f"{hook} {mood}"
+    question = _shorten((question or "").strip(), QUESTION_MAX)
+    if question and not _has_emoji(question):
+        question += " 👇"
+    if hook.rstrip(" " + "".join(c for c in hook if _has_emoji(c))).endswith("?"):
         cta = ""
     else:
         cta = "\n" + (question or call_to_action(title_mood(hook), seed=hook))
@@ -175,7 +199,8 @@ def generate_caption(*, title: str, channel: str, transcript: str, category: str
         f"Transcription :\n{transcript or '(pas de parole détectée)'}"
     )
     try:
-        data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, purpose="légende")
+        data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, purpose="légende",
+                            timeout=60)
     except llm.ClaudeError as exc:
         last_error = str(exc)
         log.warning("Claude indisponible : %s · légende modèle utilisée", exc)

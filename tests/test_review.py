@@ -404,7 +404,7 @@ def test_progress_in_status(server):
     s = json.loads(urllib.request.urlopen(base + "/status").read())
     assert s["progress"]["active"] and s["progress"]["step"] == "transcribe"
     assert s["progress"]["clip"] == "Clip 1/2 : Clip test"
-    assert [k for k, _, _ in s["steps"]][:2] == ["search", "download"]
+    assert [k for k, _, _ in s["steps"]][:2] == ["search", "radar"]
     progress.end("Terminé")
     s = json.loads(urllib.request.urlopen(base + "/status").read())
     assert not s["progress"]["active"] and s["progress"]["message"] == "Terminé"

@@ -23,7 +23,11 @@ SHORTLIST = 3     # clips écoutés pour chaque clip gardé
 MAX_SHORTLIST = 12
 
 
-def shortlist_size(top: int) -> int:
+def shortlist_size(top: int, radar: bool = False) -> int:
+    """Clips présélectionnés (téléchargés et écoutés). Avec le Radar, qui trie bien mieux
+    que les chiffres Twitch, 2 par clip gardé suffisent (8 au plus) : plus rapide."""
+    if radar:
+        return min(max(top * 2, top), 8)
     return min(max(top * SHORTLIST, top), MAX_SHORTLIST)
 
 
@@ -160,7 +164,7 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
             if jury is not None:  # pendant que les clips suivants se téléchargent
                 from .jury import quick_transcript
 
-                progress.step("search", f"Écoute des clips présélectionnés ({rank + 1}/"
+                progress.step("radar", f"Écoute des clips présélectionnés ({rank + 1}/"
                                         f"{len(candidates)})")
                 clip.quick_text = quick_transcript(Path(path), getattr(jury, "language", None))
         except progress.Cancelled:

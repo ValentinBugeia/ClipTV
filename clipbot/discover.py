@@ -187,7 +187,8 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
     top = int(kwargs.pop("top", 3))
     # présélection large (données Twitch), puis écoute pour ne garder que les meilleurs
     found = discover(twitch, state, max_duration=opts.max_duration,
-                     top=selection.shortlist_size(top), **kwargs)
+                     top=selection.shortlist_size(
+                         top, radar=selection.jury_for(opts) is not None), **kwargs)
     if not found:
         progress.step("search", "Aucun nouveau clip assez viral pour le moment")
     twitch.annotate_categories([clip for clip, _ in found])

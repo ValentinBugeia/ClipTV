@@ -34,9 +34,10 @@ phrase courte.
 
 Pour chaque clip noté 5 ou plus, prépare aussi sa publication, fidèle à ce que tu vois et
 entends (n'invente rien) :
-- hook : accroche de la description, max 90 caractères, donne envie de regarder jusqu'au
-  bout sans dévoiler la chute ;
-- question : question courte aux spectateurs sur CE moment précis, qui fait commenter ;
+- hook : accroche de la description, COURTE (max 60 caractères), qui se termine par 1 ou 2
+  emojis qui collent au moment (😂 😱 😡 💀 😭 🔥 😳 🤯 👀…), sans dévoiler la chute ;
+- question : question très courte aux spectateurs sur CE moment (max 45 caractères), qui
+  fait commenter, terminée par un emoji (👇 😭 🤔…) ;
 - hashtags : 4 à 6 hashtags pertinents (jeu, streamer, type de moment), sans #fyp ;
 - overlay : texte affiché en gros pendant les 3 premières secondes, max 40 caractères,
   intrigant (pas le titre Twitch recopié) ;
@@ -129,7 +130,7 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
         transcripts = []
         for i, (clip, path) in enumerate(items, 1):
             progress.check()
-            progress.step("search", f"Le Radar écoute les clips ({i}/{len(items)})")
+            progress.step("radar", f"Écoute des clips ({i}/{len(items)})")
             said = getattr(clip, "quick_text", None)  # déjà fait pendant les téléchargements
             transcripts.append(said if said is not None else quick_transcript(Path(path), language))
         sheets = list(sheets)
@@ -147,11 +148,11 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
                 f"Pic de son : ×{audio.get('reaction', '?')} à {audio.get('peak_at', '?')} s\n"
                 f"Paroles : {said or '(rien de détecté)'}")
         progress.check()
-        progress.step("search", f"Le Radar regarde les {len(items)} clips présélectionnés…")
+        progress.step("radar", f"Claude regarde les {len(items)} clips présélectionnés…")
         prompt = ("Voici les clips à juger. Chaque image montre 4 moments du clip, de gauche "
                   "à droite.\n\n" + "\n\n".join(blocks))
         data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, images=images,
-                            purpose="radar", effort="medium")
+                            purpose="radar", effort="medium", timeout=150)
     out = {}
     for row in data.get("clips") or []:
         try:

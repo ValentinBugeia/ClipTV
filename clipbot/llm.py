@@ -68,10 +68,27 @@ recorder = None
 
 
 def ask_json(*, system: str, prompt: str, schema: dict, images: list[Path] = (),
-             timeout: float = 300, effort: str = "low", purpose: str = "autre") -> dict:
+             timeout: float = 150, effort: str = "low", purpose: str = "autre") -> dict:
     """Pose la question à Claude et renvoie sa réponse JSON (conforme à ``schema``).
-    ``purpose`` : à quoi sert l'appel (juré, légende…), pour le suivi des tokens."""
-    return _ask_cli(system, prompt, schema, list(images), timeout, effort, purpose)
+    ``purpose`` : à quoi sert l'appel (radar, légende…), pour le suivi des tokens."""
+    import time
+
+    global _down_until, _down_reason
+    if time.time() < _down_until:
+        raise ClaudeError(f"{_down_reason} (Claude mis en pause pour cette recherche)")
+    started = time.time()
+    try:
+        return _ask_cli(system, prompt, schema, list(images), timeout, effort, purpose)
+    except ClaudeError as exc:
+        _down_until, _down_reason = time.time() + PAUSE_AFTER_FAILURE, str(exc)
+        log.warning("Claude indisponible après %.0f s : %s → pause de %d min", time.time() - started,
+                    exc, PAUSE_AFTER_FAILURE // 60)
+        raise
+
+
+def reset_pause() -> None:
+    global _down_until
+    _down_until = 0.0
 
 
 def _record(purpose: str, data: dict, limits: dict | None = None) -> None:
@@ -93,7 +110,12 @@ def _record(purpose: str, data: dict, limits: dict | None = None) -> None:
 
 
 # options récentes de Claude Code : retirées si la version installée ne les connaît pas
-FAST_FLAGS = ["--tools", "", "--no-session-persistence"]
+FAST_FLAGS = ["--tools", "", "--no-session-persistence", "--strict-mcp-config"]
+# Claude Code n'a pas répondu (bloqué, déconnecté, quota) : plus d'appel pendant ce délai,
+# pour ne pas faire attendre chaque clip de la recherche
+PAUSE_AFTER_FAILURE = 15 * 60
+_down_until = 0.0
+_down_reason = ""
 
 
 def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout: float,
@@ -123,7 +145,8 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
                 proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
                                       timeout=timeout, input=message + "\n")
             except subprocess.TimeoutExpired:
-                raise ClaudeError("Claude Code met trop de temps à répondre → réessaie plus tard.")
+                raise ClaudeError(f"Claude Code n'a pas répondu en {timeout:.0f} s → vérifie qu'il "
+                                  "marche dans un terminal : claude -p \"bonjour\"")
             if not re.search(r"unknown option|unknown argument|invalid choice",
                              proc.stderr or "", re.I):
                 break  # sinon : ancienne version de Claude Code, on retire des options

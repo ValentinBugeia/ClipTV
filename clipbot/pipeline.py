@@ -229,7 +229,8 @@ def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
         return format_caption(verdict["hook"], verdict.get("hashtags") or [],
                               clip.broadcaster_name, getattr(clip, "category", ""),
                               question=verdict.get("question", ""),
-                              tiktok=getattr(clip, "tiktok_handle", None))
+                              tiktok=getattr(clip, "tiktok_handle", None),
+                              reaction=verdict.get("reaction", ""))
     if opts.ai_caption:
         from .captions import generate_caption
 
@@ -444,7 +445,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         from . import selection
 
-        shortlist = ranked[:selection.shortlist_size(top)]
+        shortlist = ranked[:selection.shortlist_size(top, radar=selection.jury_for(opts) is not None)]
         twitch.annotate_categories(shortlist)
         prefetch = Prefetcher(cfg, shortlist)
         try:

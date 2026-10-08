@@ -194,19 +194,19 @@ def _apply_jury(scored: list, jury) -> list:
     except progress.Cancelled:
         raise
     except Exception as exc:
-        log.warning("Juré Claude indisponible (%s) : choix sur le son et les vues", exc)
+        log.warning("Radar indisponible (%s) : choix sur le son et les vues", exc)
         return scored
     kept = []
     for value, clip, login, path in scored:
         verdict = verdicts.get(clip.id)
         clip.jury = verdict
         if verdict:
-            log.info("  Juré : %s → %.1f/10 (%s)", clip.title, verdict["score"], verdict["reason"])
+            log.info("  Radar : %s → %.1f/10 (%s)", clip.title, verdict["score"], verdict["reason"])
         if verdict and verdict["score"] < jury_mod.MIN_SCORE:
             if path:
                 Path(path).unlink(missing_ok=True)
             continue
         kept.append((value * jury_mod.factor(verdict), clip, login, path))
     if len(kept) < len(scored):
-        log.info("Juré : %d clip(s) écarté(s) sur %d", len(scored) - len(kept), len(scored))
+        log.info("Radar : %d clip(s) écarté(s) sur %d", len(scored) - len(kept), len(scored))
     return kept

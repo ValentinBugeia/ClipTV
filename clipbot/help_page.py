@@ -54,7 +54,7 @@ def render(status: dict) -> str:
                "Page Comptes → Connecter.", "/accounts", "Aller dans Comptes"),
         _check(s["claude"], "4. Claude (facultatif)",
                html.escape(s["claude_error"]) if s.get("claude_error") else
-               "Pour le juré qui trie les clips et les légendes écrites par l'IA, avec ton "
+               "Pour le Radar qui trie les clips et les légendes écrites par l'IA, avec ton "
                "abonnement Claude (Claude Code installé sur ce PC).",
                "#claude", "Comment faire", optional=True),
         _check(s["autopilot"], "5. Pilote automatique activé",

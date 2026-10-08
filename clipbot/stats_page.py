@@ -54,6 +54,12 @@ STYLE = """<style>
   details.tv summary { color:var(--t2); font-size:12px; cursor:pointer; margin-top:8px }
   .vtable td.title { min-width:120px }
   .panel .kpi { background:rgba(0,0,0,.25) }
+  .lims { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin:6px 0 10px }
+  .lim { background:rgba(0,0,0,.25); border:1px solid var(--line); border-radius:14px; padding:14px 16px }
+  .limtop { display:flex; justify-content:space-between; align-items:baseline; gap:8px }
+  .limv { font-size:22px; font-weight:800 }
+  .limbar { height:8px; border-radius:4px; background:rgba(255,255,255,.08); margin:10px 0 8px; overflow:hidden }
+  .limbar i { display:block; height:100%; border-radius:4px }
   @media (max-width:600px) {
     .vtable .opt { display:none }
     .vtable img { width:27px; height:48px }
@@ -253,21 +259,55 @@ def render(summary: dict, *, days: int, sort: str, tz: str) -> str:
 
     parts.append(heatmap(summary.get("slots", []), summary["videos"], tz, apply_button=False))
 
-    parts.append(claude_panel(summary.get("claude") or [], days))
+    parts.append(claude_panel(summary.get("claude") or [], days, summary.get("claude_limits"),
+                              tz))
     parts.append("</div>" + SCRIPT)
     return "".join(parts)
 
 
-PURPOSES = {"juré": "Juré (tri des clips)", "légende": "Légendes",
+PURPOSES = {"radar": "Radar (tri des clips)", "juré": "Radar (tri des clips)", "légende": "Légendes",
             "test": "Test de connexion", "autre": "Autre"}
 
 
-def claude_panel(rows: list[dict], days: int) -> str:
-    """Tokens Claude utilisés sur la période (abonnement : rien de facturé en plus)."""
+def limits_html(limits: dict | None, tz: str) -> str:
+    """Ce qu'il reste de chaque limite de l'abonnement, avec une barre."""
+    from .schedule import format_when
+
+    windows = (limits or {}).get("windows") or []
+    if not windows:
+        return ('<p class="info">Le pourcentage restant de ton abonnement s\'affichera après le '
+                "prochain appel à Claude (une recherche suffit).</p>")
+    rows = []
+    for w in windows:
+        left = 1 - w["used"]
+        color = "#3ddc84" if left > 0.4 else "#ffb547" if left > 0.15 else "#ff6b7a"
+        est = (f"≈ <b>{w['searches_left']}</b> recherche{'s' if w['searches_left'] > 1 else ''} "
+               "possibles" if w["searches_left"] is not None else
+               "estimation des recherches possibles après quelques recherches")
+        resets = format_when(w["resets"], tz) if w.get("resets") else ""
+        rows.append(
+            f'<div class="lim"><div class="limtop"><b>{e(w["label"])}</b>'
+            f'<span class="limv" style="color:{color}">{round(left * 100)} % restant</span></div>'
+            f'<div class="limbar"><i style="width:{w["used"] * 100:.0f}%;background:{color}"></i></div>'
+            f'<div class="meta">{est}{" · réinitialisation " + e(resets) if resets else ""}</div></div>')
+    ago = ""
+    if limits.get("at"):
+        ago = f" · relevé il y a {max(int((time.time() - limits['at']) / 60), 0)} min"
+    per = limits.get("per_search_tokens")
+    per_txt = f" Une recherche utilise ≈ {compact(per)} tokens." if per else ""
+    return (f'<div class="lims">{"".join(rows)}</div><p class="info">Relevé fait par Claude Code '
+            f"à chaque appel{ago}.{per_txt} Ton utilisation de Claude ailleurs (claude.ai, "
+            "Claude Code) compte aussi dans ces limites.</p>")
+
+
+def claude_panel(rows: list[dict], days: int, limits: dict | None = None,
+                 tz: str = "Europe/Paris") -> str:
+    """Ce qu'il reste de l'abonnement, puis les tokens utilisés sur la période."""
     period = f"sur les {days} derniers jours" if days else "depuis le début"
+    head = f'<div class="panel"><h2>🤖 Ton abonnement Claude</h2>{limits_html(limits, tz)}'
     if not rows:
-        return ('<div class="panel"><h2>🤖 Utilisation de Claude</h2><p class="info">Aucun '
-                f"appel à Claude {e(period)}.</p></div>")
+        return head + f'<p class="info">Aucun appel à Claude {e(period)}.</p></div>'
+
     total_in = sum(r["tokens_in"] for r in rows)
     total_out = sum(r["tokens_out"] for r in rows)
     calls = sum(r["calls"] for r in rows)
@@ -284,10 +324,8 @@ def claude_panel(rows: list[dict], days: int) -> str:
         f'<td class="n">{compact(r["tokens_out"])}</td>'
         f'<td class="n">{compact((r["tokens_in"] + r["tokens_out"]) / max(r["calls"], 1))}</td></tr>'
         for r in rows)
-    return (f'<div class="panel"><h2>🤖 Utilisation de Claude</h2><p class="info">Tokens '
-            "consommés sur ton abonnement Claude (via Claude Code). La limite de ton abonnement "
-            "est visible sur claude.ai → Paramètres → Utilisation.</p>"
-            f'<div class="kpis">{tiles}</div><div class="tablewrap"><table class="vtable">'
+    return (head + f'<details class="tv"><summary>Détail des tokens {e(period)}</summary>'
+            f'<div class="kpis" style="margin-top:10px">{tiles}</div><div class="tablewrap"><table class="vtable">'
             '<tr><th>Usage</th><th class="n">Appels</th><th class="n">Lus</th>'
             '<th class="n">Écrits</th><th class="n">Moy. / appel</th></tr>'
-            f"{lines}</table></div></div>")
+            f"{lines}</table></div></details></div>")

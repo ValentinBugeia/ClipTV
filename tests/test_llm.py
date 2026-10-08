@@ -24,6 +24,9 @@ if os.environ.get("FAKE_MODE") == "login":
     print(json.dumps({"type": "result", "is_error": True,
                       "result": "Invalid API key · Please run /login"}))
     sys.exit(1)
+print(json.dumps({"type": "rate_limit_event", "rate_limit_info": {"status": "allowed",
+    "unifiedWindows": {"five_hour": {"utilization": 0.36, "resetsAt": 9999999999},
+                       "seven_day": {"utilization": 0.1, "resetsAt": 9999999999}}}}))
 print(json.dumps({"type": "result", "is_error": False, "result": os.environ["FAKE_RESULT"],
                   "usage": {"input_tokens": 100, "cache_read_input_tokens": 1400,
                             "output_tokens": 40}, "total_cost_usd": 0.01, "duration_ms": 900}))
@@ -135,12 +138,34 @@ def test_usage_recorded(fake_claude, monkeypatch, tmp_path):
     cfg = Config()
     cfg.data_dir = tmp_path
     state = State(cfg.db_path)
-    monkeypatch.setattr(llm, "recorder", state.add_claude_usage)
+    from clipbot import claude_usage
+
+    monkeypatch.setattr(llm, "recorder", lambda *a: claude_usage.record(state, *a))
     monkeypatch.setenv("FAKE_RESULT", '{"ok": true}')
     progress.begin("test")
-    llm.ask_json(system="s", prompt="p", schema={}, purpose="juré")
+    llm.ask_json(system="s", prompt="p", schema={}, purpose="radar")
     rows = state.claude_usage(0)
-    assert rows[0]["purpose"] == "juré" and rows[0]["calls"] == 1
+    assert rows[0]["purpose"] == "radar" and rows[0]["calls"] == 1
     assert rows[0]["tokens_in"] == 1500 and rows[0]["tokens_out"] == 40
     assert progress.snapshot()["tokens"] == 1540
     progress.end("ok")
+    limits = claude_usage.summary(state)["windows"]
+    assert [round(w["used"], 2) for w in limits] == [0.36, 0.1]  # relevé de l'abonnement
+
+
+def test_searches_left_estimate(tmp_path):
+    from clipbot import claude_usage
+    from clipbot.config import Config
+    from clipbot.state import State
+
+    cfg = Config()
+    cfg.data_dir = tmp_path
+    state = State(cfg.db_path)
+    win = lambda u: {"unifiedWindows": {"five_hour": {"utilization": u, "resetsAt": 9999999999}}}
+    claude_usage.record(state, "radar", 9000, 1000, 0, 0, win(0.30))
+    claude_usage.record(state, "radar", 9000, 1000, 0, 0, win(0.32))  # 10 k tokens = 2 %
+    for _ in range(3):
+        claude_usage.search_done(state, 10000)
+    w = claude_usage.summary(state)["windows"][0]
+    assert w["searches_left"] == 34  # 68 % restant / 2 % par recherche
+    assert claude_usage.short_line(state) == "68 % restant · ≈ 34 recherches"

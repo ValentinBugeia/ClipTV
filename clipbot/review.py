@@ -106,6 +106,7 @@ PAGE = """<!doctype html>
   details.panel summary::after {{ content:""; margin-left:auto; width:8px; height:8px; border-right:2px solid var(--muted);
             border-bottom:2px solid var(--muted); transform:rotate(45deg); transition:.2s }}
   details.panel[open] summary::after {{ transform:rotate(225deg) }}
+  details.panel summary:has(.meta)::after {{ margin-left:14px }}
   .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-top:14px }}
   .full {{ grid-column:1/-1 }}
   label {{ display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:500; color:var(--muted) }}
@@ -603,7 +604,7 @@ MENU = """<details class="more"><summary class="iconbtn" title="Plus d'actions" 
 </details>"""
 
 SEARCH = """<details class="panel">
-<summary>🔎 Recherche ponctuelle</summary>
+<summary>🔎 Recherche ponctuelle{claude}</summary>
 <form method="post" action="/search">
   <div class="grid">
     <label class="full">Chaînes Twitch (laisse vide pour trouver seul les temps forts du moment)
@@ -1042,7 +1043,14 @@ class Handler(BaseHTTPRequestHandler):
             '<label>Ensuite <select name="then"><option value="review">À valider ici</option>'
             '<option value="schedule">Programmer automatiquement</option>'
             '<option value="publish">Publier tout de suite</option></select></label>')
+        from .claude_usage import short_line
+
+        line = short_line(self.state)
+        claude = (f'<span class="meta" style="margin-left:auto;font-weight:400" title="Ce qu’il '
+                  f'reste de ton abonnement Claude (détail dans Statistiques)">🤖 Claude : '
+                  f'{e(line)}</span>') if line else ""
         return SEARCH.format(channels=e(channels), hours=_options(HOURS, 24), then_field=then_field,
+                             claude=claude,
                              disabled=" disabled" if self.app.job.running else "")
 
     def _auto_publish(self) -> bool:
@@ -1294,6 +1302,9 @@ class Handler(BaseHTTPRequestHandler):
         summary = stats.summary(self.state, since=since, tz=self.cfg.timezone)
         summary["slots"] = list(self.cfg.post_slots)
         summary["claude"] = self.state.claude_usage(since)
+        from .claude_usage import summary as claude_limits
+
+        summary["claude_limits"] = claude_limits(self.state)
         self._page(stats_page.render(summary, days=days, sort=sort, tz=self.cfg.timezone),
                    "/stats")
 
@@ -1419,7 +1430,7 @@ class Handler(BaseHTTPRequestHandler):
   <label class="check full"><input type="checkbox" name="ai_caption" value="1"{" checked" if s["ai_caption"] else ""}>
     Légendes et hashtags écrits par Claude</label>
   <label class="check full"><input type="checkbox" name="jury" value="1"{" checked" if s.get("jury", True) else ""}>
-    Juré Claude : regarde les clips présélectionnés (images + paroles) et écarte ceux qui ne
+    Radar : Claude regarde les clips présélectionnés (images + paroles) et écarte ceux qui ne
     marchent pas sans contexte, les temps morts et les clips sans vraie réaction</label>
   <label class="check full"><input type="checkbox" name="smart_timing" value="1"{" checked" if s.get("smart_timing", True) else ""}>
     Horaires intelligents : cherche 2× plus souvent le soir (18 h - 2 h, quand les gros lives
@@ -1567,7 +1578,7 @@ mentionner.</p>
         from . import llm
 
         ok, how = llm.describe()
-        row("Claude (juré et légendes)", "✅" if ok else "—", e(how))
+        row("Claude (Radar et légendes)", "✅" if ok else "—", e(how))
 
         checks = ""
         if self.app.checks:
@@ -2148,5 +2159,9 @@ def make_server(cfg: Config, opts: Options, host: str = "127.0.0.1", port: int =
     app = App(cfg=cfg, opts=opts, state=state or State(cfg.db_path), autopilot=autopilot)
     from . import llm
 
-    llm.recorder = app.state.add_claude_usage  # suivi des tokens (page Statistiques)
+    from . import claude_usage, progress
+
+    # suivi des tokens et de ce qu'il reste de l'abonnement (page Statistiques)
+    llm.recorder = lambda *a: claude_usage.record(app.state, *a)
+    progress.on_tokens = lambda n: claude_usage.search_done(app.state, n)
     return ThreadingHTTPServer((host, port), partial(Handler, app=app))

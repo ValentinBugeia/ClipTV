@@ -143,7 +143,7 @@ def score(clip: dict, hist: dict) -> dict:
         reasons.append("Estimation de départ (élan Twitch + format) : moins de "
                        f"{MIN_HISTORY} TikToks avec des vues pour comparer")
     if sig.get("jury") is not None:  # affiché seulement : la note reste basée sur ton compte
-        reasons.append(f"Avis du juré Claude : {sig['jury']:.0f}/10"
+        reasons.append(f"Avis du Radar : {sig['jury']:.0f}/10"
                        + (f" — {sig['jury_reason']}" if sig.get("jury_reason") else ""))
     note = round(min(max(note, 0), 10), 1)
     rarity, rarity_label = next((r, lb) for th, r, lb in RARITIES if note >= th)

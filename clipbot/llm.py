@@ -74,7 +74,7 @@ def ask_json(*, system: str, prompt: str, schema: dict, images: list[Path] = (),
     return _ask_cli(system, prompt, schema, list(images), timeout, effort, purpose)
 
 
-def _record(purpose: str, data: dict) -> None:
+def _record(purpose: str, data: dict, limits: dict | None = None) -> None:
     usage = data.get("usage") or {}
     tokens_in = sum(int(usage.get(k) or 0) for k in
                     ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
@@ -87,7 +87,7 @@ def _record(purpose: str, data: dict) -> None:
     if recorder:
         try:
             recorder(purpose, tokens_in, tokens_out, float(data.get("total_cost_usd") or 0),
-                     int(data.get("duration_ms") or 0))
+                     int(data.get("duration_ms") or 0), limits)
         except Exception:
             log.warning("Suivi des tokens impossible", exc_info=True)
 
@@ -128,6 +128,7 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
                              proc.stderr or "", re.I):
                 break  # sinon : ancienne version de Claude Code, on retire des options
     data: dict = {}
+    limits = None  # % utilisé de ton abonnement (fenêtre de 5 h, semaine)
     for line in (proc.stdout or "").splitlines():
         try:
             item = json.loads(line)
@@ -135,6 +136,8 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
             continue
         if isinstance(item, dict) and item.get("type") == "result":
             data = item
+        elif isinstance(item, dict) and item.get("type") == "rate_limit_event":
+            limits = item.get("rate_limit_info") or limits
     result = data.get("result") or ""
     if proc.returncode != 0 or data.get("is_error") or not data:
         raw = f"{result} {proc.stderr or ''}" if data else f"{proc.stdout or ''} {proc.stderr or ''}"
@@ -148,5 +151,5 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
             raise ClaudeError("Limite de ton abonnement Claude atteinte pour le moment → "
                               "ça repartira à la réinitialisation du quota.")
         raise ClaudeError(f"Claude Code a échoué : {detail}")
-    _record(purpose, data)
+    _record(purpose, data, limits)
     return _extract_json(result)

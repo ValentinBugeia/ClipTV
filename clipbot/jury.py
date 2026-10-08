@@ -1,4 +1,4 @@
-"""Le juré : Claude regarde les clips présélectionnés et dit lesquels méritent TikTok.
+"""Le Radar (le « juré ») : Claude regarde les clips présélectionnés et dit lesquels méritent TikTok.
 
 Pour chaque clip : 4 images (une planche), ce qui est dit (transcription rapide), le titre,
 le streamer et la catégorie. Un seul appel pour tous les clips de la recherche. Claude note
@@ -129,7 +129,7 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
         transcripts = []
         for i, (clip, path) in enumerate(items, 1):
             progress.check()
-            progress.step("search", f"Le juré écoute les clips ({i}/{len(items)})")
+            progress.step("search", f"Le Radar écoute les clips ({i}/{len(items)})")
             said = getattr(clip, "quick_text", None)  # déjà fait pendant les téléchargements
             transcripts.append(said if said is not None else quick_transcript(Path(path), language))
         sheets = list(sheets)
@@ -147,11 +147,11 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
                 f"Pic de son : ×{audio.get('reaction', '?')} à {audio.get('peak_at', '?')} s\n"
                 f"Paroles : {said or '(rien de détecté)'}")
         progress.check()
-        progress.step("search", f"Le juré Claude regarde les {len(items)} clips présélectionnés…")
+        progress.step("search", f"Le Radar regarde les {len(items)} clips présélectionnés…")
         prompt = ("Voici les clips à juger. Chaque image montre 4 moments du clip, de gauche "
                   "à droite.\n\n" + "\n\n".join(blocks))
         data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, images=images,
-                            purpose="juré", effort="medium")
+                            purpose="radar", effort="medium")
     out = {}
     for row in data.get("clips") or []:
         try:

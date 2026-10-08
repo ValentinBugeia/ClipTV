@@ -29,6 +29,7 @@ STEPS = [
 _lock = threading.Lock()
 _state: dict = {"active": False, "run": 0}
 _cancel = threading.Event()
+on_tokens = None  # appelé en fin de recherche avec les tokens Claude utilisés
 
 
 class Cancelled(BaseException):
@@ -101,8 +102,14 @@ def end(message: str) -> None:
         _close_step()
         _state.update(active=False, step=None, step_started=None, message=message,
                       ended=time.time(), stopping=False)
+        tokens = _state.get("tokens", 0)
         spent = ", ".join(f"{k} {v:.0f} s" for k, v in _state.get("durations", {}).items())
     _cancel.clear()
+    if tokens and on_tokens:
+        try:
+            on_tokens(tokens)
+        except Exception:
+            pass
     if spent:
         logging.getLogger("clipbot").info("Durée par étape : %s", spent)
 

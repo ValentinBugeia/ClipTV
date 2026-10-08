@@ -185,7 +185,7 @@ MOOD_EMOJI = {"😂": "laugh", "😱": "scream", "😡": "rage", "💀": "skull"
               "🔥": "fire"}
 
 
-def reaction_emoji(words: list, at: float, title: str = "") -> Path | None:
+def reaction_emoji(words: list, at: float, title: str = "", preferred: str = "") -> Path | None:
     """Emoji qui surgit sur la réaction la plus forte : d'après ce qui se dit à ce
     moment-là (rire, cri, rage), sinon d'après le titre. Rien si on ne sait pas : un emoji
     à côté de la plaque ferait pire que pas d'emoji."""
@@ -194,6 +194,10 @@ def reaction_emoji(words: list, at: float, title: str = "") -> Path | None:
     from .captions import title_mood
     from .live import LAUGH_RE
 
+    if preferred == "none":  # le juré a vu le clip : pas de réaction marquée
+        return None
+    if preferred and (EMOJI_DIR / f"{preferred}.png").exists():
+        return EMOJI_DIR / f"{preferred}.png"
     near = " ".join(w.text.lower() for w in words if at - 1.5 <= w.start <= at + 1.5)
     tokens = _re.findall(r"[\w']+", near)
     name = None

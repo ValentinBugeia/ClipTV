@@ -65,7 +65,7 @@ def begin(title: str) -> None:
     with _lock:
         _state.update(active=True, run=_state["run"] + 1, title=title, step=None, detail="",
                       clip="", started=time.time(), message="", ended=None, durations={},
-                      step_started=None, stopping=False)
+                      step_started=None, stopping=False, tokens=0)
 
 
 def step(key: str, detail: str = "") -> None:
@@ -74,7 +74,7 @@ def step(key: str, detail: str = "") -> None:
         if not _state["active"]:  # étape hors recherche (ex. clip de live) : on démarre
             _state.update(active=True, run=_state["run"] + 1, title="Traitement d'un clip",
                           clip="", started=time.time(), message="", ended=None, durations={},
-                          step_started=None)
+                          step_started=None, tokens=0)
         _close_step()
         _state.update(step=key, detail=detail, step_started=time.time())
 
@@ -114,3 +114,9 @@ def snapshot() -> dict:
     snap["elapsed"] = int((snap.get("ended") or time.time()) - snap.get("started", time.time())) \
         if snap.get("started") else 0
     return snap
+
+
+def add_tokens(n: int) -> None:
+    """Tokens Claude utilisés pendant la recherche en cours (affichés à la fin)."""
+    with _lock:
+        _state["tokens"] = _state.get("tokens", 0) + n

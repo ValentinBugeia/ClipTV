@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS chat_activity (
     weight  REAL NOT NULL,          -- activité pondérée du chat (réactions fortes x2)
     PRIMARY KEY (channel, bucket)
 );
+CREATE TABLE IF NOT EXISTS claude_usage (
+    at         INTEGER NOT NULL,    -- timestamp
+    purpose    TEXT NOT NULL,       -- juré, légende…
+    tokens_in  INTEGER NOT NULL,    -- lus (dont cache)
+    tokens_out INTEGER NOT NULL,    -- écrits
+    cost       REAL NOT NULL,       -- équivalent API en $ (non facturé avec l'abonnement)
+    ms         INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL             -- JSON
@@ -191,6 +199,22 @@ class State:
             self._write("UPDATE clips SET status='purged', output_path=NULL WHERE clip_id=?",
                         (row["clip_id"],))
         return len(old)
+
+    # ---------- utilisation de Claude (tokens) ----------
+    def add_claude_usage(self, purpose: str, tokens_in: int, tokens_out: int, cost: float,
+                         ms: int) -> None:
+        self._write("INSERT INTO claude_usage VALUES (?,?,?,?,?,?)",
+                    (int(time.time()), purpose, tokens_in, tokens_out, cost, ms))
+
+    def claude_usage(self, since: float) -> list[dict]:
+        """Par usage : appels, tokens lus / écrits, équivalent API, depuis ``since``."""
+        with self.lock:
+            rows = self.conn.execute(
+                """SELECT purpose, COUNT(*), SUM(tokens_in), SUM(tokens_out), SUM(cost)
+                   FROM claude_usage WHERE at >= ? GROUP BY purpose ORDER BY 3 DESC""",
+                (int(since),)).fetchall()
+        return [{"purpose": p, "calls": n, "tokens_in": i or 0, "tokens_out": o or 0,
+                 "cost": c or 0.0} for p, n, i, o, c in rows]
 
     # ---------- activité du chat (enregistreur) ----------
     def add_chat_activity(self, rows: list[tuple[str, int, float]], keep: float = 48 * 3600) -> None:

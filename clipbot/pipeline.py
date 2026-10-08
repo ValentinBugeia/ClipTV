@@ -86,8 +86,11 @@ def whisper_language(code: str | None) -> str | None:
 
 def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                  allow_split: bool = True, language: str | None = None, on_words=None,
-                 title: str = "", info: dict | None = None) -> tuple[Path, list]:
+                 title: str = "", info: dict | None = None, overlay: str = "",
+                 reaction: str = "") -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
+
+    ``overlay`` / ``reaction`` : accroche à l'écran et type de réaction proposés par le juré.
 
     ``allow_split=False`` (catégories IRL, Just Chatting…) : jamais de découpage
     facecam / jeu, même si un visage est détecté dans la scène.
@@ -172,7 +175,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                 punch_at = round(at - start, 2)
                 log.info("Zoom « impact » sur la réaction à %.1f s", punch_at)
                 if opts.reaction_emoji:
-                    emoji = reaction_emoji(words, at, title)
+                    emoji = reaction_emoji(words, at, title, preferred=reaction)
                     if emoji:
                         log.info("Emoji %s sur la réaction", emoji.stem)
     duration = opts.max_duration
@@ -182,7 +185,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
     if burned:
         log.info("Sous-titres déjà présents dans le stream : pas de sous-titres ajoutés.")
         shown = []
-    hook = hook_text(title) if opts.hook_title else ""
+    hook = hook_text(overlay or title) if opts.hook_title else ""
 
     subs = None
     if (opts.subtitles and shown) or hook:
@@ -219,6 +222,14 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
 
 
 def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:
+    verdict = getattr(clip, "jury", None) or {}
+    if opts.ai_caption and verdict.get("hook"):  # déjà écrite par le juré (il a vu le clip)
+        from .captions import format_caption
+
+        return format_caption(verdict["hook"], verdict.get("hashtags") or [],
+                              clip.broadcaster_name, getattr(clip, "category", ""),
+                              question=verdict.get("question", ""),
+                              tiktok=getattr(clip, "tiktok_handle", None))
     if opts.ai_caption:
         from .captions import generate_caption
 
@@ -366,7 +377,9 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
         with _render_lock:
             render_video(src, dst, cfg, opts, allow_split=not is_non_gaming(category),
                          language=whisper_language(getattr(clip, "language", "")),
-                         title=clip.title, on_words=write_caption, info=info)
+                         title=clip.title, on_words=write_caption, info=info,
+                         overlay=(getattr(clip, "jury", None) or {}).get("overlay", ""),
+                         reaction=(getattr(clip, "jury", None) or {}).get("reaction", ""))
         import json
 
         try:
@@ -380,7 +393,8 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "peak_at": audio.get("peak_at"),
                                       "chat_spike": getattr(clip, "chat_spike", None),
                                       "jury": (getattr(clip, "jury", None) or {}).get("score"),
-                                      "jury_reason": (getattr(clip, "jury", None) or {}).get("reason")})
+                                      "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
+                                      "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None})
         progress.step("caption")
         if "thread" in caption_job:
             caption_job["thread"].join()

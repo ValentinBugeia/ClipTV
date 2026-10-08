@@ -30,7 +30,21 @@ gens qui NE connaissent PAS le streamer :
 - à éviter : temps mort, attente, écran de pause / pub / alerte de don, musique seule,
   gameplay sans réaction, son ou image inexploitable, contenu choquant ou sexuel.
 Sois exigeant : 5 = moyen, 7 = bon, 9 = excellent. Réponds en français, raison en une
-phrase courte."""
+phrase courte.
+
+Pour chaque clip noté 5 ou plus, prépare aussi sa publication, fidèle à ce que tu vois et
+entends (n'invente rien) :
+- hook : accroche de la description, max 90 caractères, donne envie de regarder jusqu'au
+  bout sans dévoiler la chute ;
+- question : question courte aux spectateurs sur CE moment précis, qui fait commenter ;
+- hashtags : 4 à 6 hashtags pertinents (jeu, streamer, type de moment), sans #fyp ;
+- overlay : texte affiché en gros pendant les 3 premières secondes, max 40 caractères,
+  intrigant (pas le titre Twitch recopié) ;
+- reaction : le type de moment fort parmi laugh (fou rire), scream (peur, cri), rage,
+  skull (fail, malaise absurde), cry (émotion, gênance), fire (exploit), none ;
+- moderation : vide, ou une phrase courte si TikTok risque de limiter la vidéo (insultes
+  graves, violence, contenu sexuel, propos haineux, drogue…).
+Pour les clips notés moins de 5, laisse ces champs vides."""
 
 SCHEMA = {
     "type": "object",
@@ -45,8 +59,17 @@ SCHEMA = {
                     "standalone": {"type": "boolean",
                                    "description": "compréhensible sans connaître le streamer"},
                     "reason": {"type": "string"},
+                    "hook": {"type": "string"},
+                    "question": {"type": "string"},
+                    "hashtags": {"type": "array", "items": {"type": "string"}},
+                    "overlay": {"type": "string"},
+                    "reaction": {"type": "string",
+                                 "enum": ["laugh", "scream", "rage", "skull", "cry", "fire",
+                                          "none", ""]},
+                    "moderation": {"type": "string"},
                 },
-                "required": ["id", "score", "standalone", "reason"],
+                "required": ["id", "score", "standalone", "reason", "hook", "question",
+                             "hashtags", "overlay", "reaction", "moderation"],
                 "additionalProperties": False,
             },
         },
@@ -127,13 +150,21 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
         progress.step("search", f"Le juré Claude regarde les {len(items)} clips présélectionnés…")
         prompt = ("Voici les clips à juger. Chaque image montre 4 moments du clip, de gauche "
                   "à droite.\n\n" + "\n\n".join(blocks))
-        data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, images=images)
+        data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, images=images,
+                            purpose="juré", effort="medium")
     out = {}
     for row in data.get("clips") or []:
         try:
-            out[str(row["id"])] = {"score": max(0.0, min(float(row["score"]), 10.0)),
-                                   "standalone": bool(row.get("standalone", True)),
-                                   "reason": str(row.get("reason") or "")[:200]}
+            out[str(row["id"])] = {
+                "score": max(0.0, min(float(row["score"]), 10.0)),
+                "standalone": bool(row.get("standalone", True)),
+                "reason": str(row.get("reason") or "")[:200],
+                "hook": str(row.get("hook") or "").strip()[:120],
+                "question": str(row.get("question") or "").strip()[:90],
+                "hashtags": [str(t) for t in (row.get("hashtags") or [])][:6],
+                "overlay": str(row.get("overlay") or "").strip()[:60],
+                "reaction": str(row.get("reaction") or ""),
+                "moderation": str(row.get("moderation") or "").strip()[:160]}
         except (KeyError, TypeError, ValueError):
             continue
     return out

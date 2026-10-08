@@ -253,5 +253,41 @@ def render(summary: dict, *, days: int, sort: str, tz: str) -> str:
 
     parts.append(heatmap(summary.get("slots", []), summary["videos"], tz, apply_button=False))
 
+    parts.append(claude_panel(summary.get("claude") or [], days))
     parts.append("</div>" + SCRIPT)
     return "".join(parts)
+
+
+PURPOSES = {"juré": "Juré (tri des clips)", "légende": "Légendes",
+            "test": "Test de connexion", "autre": "Autre"}
+
+
+def claude_panel(rows: list[dict], days: int) -> str:
+    """Tokens Claude utilisés sur la période (abonnement : rien de facturé en plus)."""
+    period = f"sur les {days} derniers jours" if days else "depuis le début"
+    if not rows:
+        return ('<div class="panel"><h2>🤖 Utilisation de Claude</h2><p class="info">Aucun '
+                f"appel à Claude {e(period)}.</p></div>")
+    total_in = sum(r["tokens_in"] for r in rows)
+    total_out = sum(r["tokens_out"] for r in rows)
+    calls = sum(r["calls"] for r in rows)
+    cost = sum(r["cost"] for r in rows)
+    tiles = (kpi("Tokens au total", compact(total_in + total_out), period)
+             + kpi("Lus", compact(total_in), "images, paroles, consignes")
+             + kpi("Écrits", compact(total_out), "notes, légendes")
+             + kpi("Appels", compact(calls), f"≈ {compact((total_in + total_out) / calls)} tokens / appel")
+             + kpi("Équivalent API", f"{cost:.2f} $".replace(".", ","),
+                   "indicatif : inclus dans ton abonnement"))
+    lines = "".join(
+        f'<tr><td>{e(PURPOSES.get(r["purpose"], r["purpose"]))}</td>'
+        f'<td class="n">{r["calls"]}</td><td class="n">{compact(r["tokens_in"])}</td>'
+        f'<td class="n">{compact(r["tokens_out"])}</td>'
+        f'<td class="n">{compact((r["tokens_in"] + r["tokens_out"]) / max(r["calls"], 1))}</td></tr>'
+        for r in rows)
+    return (f'<div class="panel"><h2>🤖 Utilisation de Claude</h2><p class="info">Tokens '
+            "consommés sur ton abonnement Claude (via Claude Code). La limite de ton abonnement "
+            "est visible sur claude.ai → Paramètres → Utilisation.</p>"
+            f'<div class="kpis">{tiles}</div><div class="tablewrap"><table class="vtable">'
+            '<tr><th>Usage</th><th class="n">Appels</th><th class="n">Lus</th>'
+            '<th class="n">Écrits</th><th class="n">Moy. / appel</th></tr>'
+            f"{lines}</table></div></div>")

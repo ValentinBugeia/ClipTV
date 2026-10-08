@@ -175,7 +175,7 @@ def generate_caption(*, title: str, channel: str, transcript: str, category: str
         f"Transcription :\n{transcript or '(pas de parole détectée)'}"
     )
     try:
-        data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA)
+        data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, purpose="légende")
     except llm.ClaudeError as exc:
         last_error = str(exc)
         log.warning("Claude indisponible : %s · légende modèle utilisée", exc)

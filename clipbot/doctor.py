@@ -203,7 +203,7 @@ def check_online(cfg: Config, ai: bool = True) -> list[Check]:
             def claude():
                 llm.ask_json(system="Test de connexion.", prompt="Réponds {\"ok\": true}.",
                              schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
-                             timeout=90)
+                             timeout=90, purpose="test")
                 return "Claude Code répond (ton abonnement)"
 
             out.append(_online("Claude (abonnement)", claude))

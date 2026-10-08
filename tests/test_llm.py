@@ -24,7 +24,9 @@ if os.environ.get("FAKE_MODE") == "login":
     print(json.dumps({"type": "result", "is_error": True,
                       "result": "Invalid API key · Please run /login"}))
     sys.exit(1)
-print(json.dumps({"type": "result", "is_error": False, "result": os.environ["FAKE_RESULT"]}))
+print(json.dumps({"type": "result", "is_error": False, "result": os.environ["FAKE_RESULT"],
+                  "usage": {"input_tokens": 100, "cache_read_input_tokens": 1400,
+                            "output_tokens": 40}, "total_cost_usd": 0.01, "duration_ms": 900}))
 """
 
 
@@ -106,3 +108,39 @@ def test_jury_drops_weak_clips(fake_claude, monkeypatch, tmp_path):
                                jury=selection.jury_for(opts))
     assert [c.id for c, _ in kept] == ["bon"] and kept[0][0].jury["score"] == 8
     assert not copies["nul"].exists()  # vidéo écartée supprimée
+
+
+def test_jury_writes_publication(fake_claude, monkeypatch):
+    """Le juré prépare aussi la description, l'accroche à l'écran, l'emoji et l'alerte."""
+    from clipbot.enhance import reaction_emoji
+    from clipbot.pipeline import Options, make_caption
+
+    clip = SimpleNamespace(id="c", title="kekw", broadcaster_name="Nico_La", category="",
+                           tiktok_handle=None,
+                           jury={"hook": "Sa mère débarque en plein live", "question":
+                                 "Vous auriez fait quoi ? 👇", "hashtags": ["nicola", "irl"],
+                                 "overlay": "ELLE NE SAVAIT PAS…", "reaction": "cry",
+                                 "moderation": ""})
+    text = make_caption(clip, [], None, Options(ai_caption=True))
+    assert text.splitlines()[:2] == ["Sa mère débarque en plein live", "Vous auriez fait quoi ? 👇"]
+    assert reaction_emoji([], 1.0, "mdr", preferred="cry").stem == "cry"
+    assert reaction_emoji([], 1.0, "mdr", preferred="none") is None
+
+
+def test_usage_recorded(fake_claude, monkeypatch, tmp_path):
+    from clipbot import progress
+    from clipbot.config import Config
+    from clipbot.state import State
+
+    cfg = Config()
+    cfg.data_dir = tmp_path
+    state = State(cfg.db_path)
+    monkeypatch.setattr(llm, "recorder", state.add_claude_usage)
+    monkeypatch.setenv("FAKE_RESULT", '{"ok": true}')
+    progress.begin("test")
+    llm.ask_json(system="s", prompt="p", schema={}, purpose="juré")
+    rows = state.claude_usage(0)
+    assert rows[0]["purpose"] == "juré" and rows[0]["calls"] == 1
+    assert rows[0]["tokens_in"] == 1500 and rows[0]["tokens_out"] == 40
+    assert progress.snapshot()["tokens"] == 1540
+    progress.end("ok")

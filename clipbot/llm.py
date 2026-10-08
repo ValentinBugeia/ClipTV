@@ -63,10 +63,33 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
+# appelé après chaque réponse : (usage, tokens entrée, tokens sortie, équivalent $, durée ms)
+recorder = None
+
+
 def ask_json(*, system: str, prompt: str, schema: dict, images: list[Path] = (),
-             timeout: float = 300, effort: str = "low") -> dict:
-    """Pose la question à Claude et renvoie sa réponse JSON (conforme à ``schema``)."""
-    return _ask_cli(system, prompt, schema, list(images), timeout, effort)
+             timeout: float = 300, effort: str = "low", purpose: str = "autre") -> dict:
+    """Pose la question à Claude et renvoie sa réponse JSON (conforme à ``schema``).
+    ``purpose`` : à quoi sert l'appel (juré, légende…), pour le suivi des tokens."""
+    return _ask_cli(system, prompt, schema, list(images), timeout, effort, purpose)
+
+
+def _record(purpose: str, data: dict) -> None:
+    usage = data.get("usage") or {}
+    tokens_in = sum(int(usage.get(k) or 0) for k in
+                    ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    tokens_out = int(usage.get("output_tokens") or 0)
+    from . import progress
+
+    progress.add_tokens(tokens_in + tokens_out)
+    log.info("Claude (%s) : %d tokens lus, %d écrits, %.1f s", purpose, tokens_in, tokens_out,
+             (data.get("duration_ms") or 0) / 1000)
+    if recorder:
+        try:
+            recorder(purpose, tokens_in, tokens_out, float(data.get("total_cost_usd") or 0),
+                     int(data.get("duration_ms") or 0))
+        except Exception:
+            log.warning("Suivi des tokens impossible", exc_info=True)
 
 
 # options récentes de Claude Code : retirées si la version installée ne les connaît pas
@@ -74,7 +97,7 @@ FAST_FLAGS = ["--tools", "", "--no-session-persistence"]
 
 
 def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout: float,
-             effort: str = "low") -> dict:
+             effort: str = "low", purpose: str = "autre") -> dict:
     """Un seul message (texte + images intégrées), un seul tour, aucun outil : rapide."""
     import base64
 
@@ -125,4 +148,5 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
             raise ClaudeError("Limite de ton abonnement Claude atteinte pour le moment → "
                               "ça repartira à la réinitialisation du quota.")
         raise ClaudeError(f"Claude Code a échoué : {detail}")
+    _record(purpose, data)
     return _extract_json(result)

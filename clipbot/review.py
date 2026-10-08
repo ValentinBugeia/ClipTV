@@ -419,6 +419,7 @@ PROGRESS_UI = """<style>
       li.append(ico, txt); ol.append(li);
     });
     drop.append(ol);
+    if (p.tokens) drop.append(el('div', 'pclip', '🤖 Claude : ' + tok(p.tokens) + ' tokens pour cette recherche'));
     if (!p.active && p.message) drop.append(el('div', 'pmsg', p.message));
     return drop;
   }
@@ -429,6 +430,7 @@ PROGRESS_UI = """<style>
     return n;
   }
   function fmt(s) { return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s'; }
+  function tok(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace('.', ',') + ' k' : String(n); }
   function render(p, steps) {
     last = [p, steps];
     const recent = !p.active && p.ended && (Date.now() / 1000 - p.ended) < 15;
@@ -451,7 +453,7 @@ PROGRESS_UI = """<style>
       text.title = (p.clip ? p.clip + '\\n' : '') + (st ? st[1] + ' : ' + (p.detail ? p.detail + ' — ' : '') + st[2] : '');
     } else {
       l1.append(el('b', '', '✅ Terminé'), el('span', 'pname', ''));
-      text.append(l1, el('div', 'pl2', p.message || ''));
+      text.append(l1, el('div', 'pl2', (p.message || '') + (p.tokens ? ' · Claude : ' + tok(p.tokens) + ' tokens' : '')));
       const spent = steps.filter(s => (p.durations || {})[s[0]]).map(s => s[1] + ' : ' + fmt(p.durations[s[0]]));
       text.title = (p.message || '') + (spent.length ? '\\n' + spent.join('\\n') : '');
     }
@@ -1171,6 +1173,13 @@ class Handler(BaseHTTPRequestHandler):
             badges += ('<span class="badge failed" title="Une vidéo de ton compte TikTok a le '
                        'même titre ou les mêmes mots-clés et le même streamer">⚠️ Déjà sur ton '
                        'TikTok</span>')
+        try:
+            moderation = json.loads(c.get("signals") or "{}").get("moderation")
+        except ValueError:
+            moderation = None
+        if moderation and status in ("rendered", "scheduled", "failed"):
+            badges += (f'<span class="badge failed" title="{e(moderation)}">⚠️ Risque de '
+                       f'modération : {e(moderation[:60])}</span>')
         corner = (self._potential_badge(c) if status in ("rendered", "scheduled", "failed")
                   else "")
         badges = f'<div class="badges">{badges}</div>' if badges else ""
@@ -1284,6 +1293,7 @@ class Handler(BaseHTTPRequestHandler):
         since = time.time() - days * 86400 if days else 0
         summary = stats.summary(self.state, since=since, tz=self.cfg.timezone)
         summary["slots"] = list(self.cfg.post_slots)
+        summary["claude"] = self.state.claude_usage(since)
         self._page(stats_page.render(summary, days=days, sort=sort, tz=self.cfg.timezone),
                    "/stats")
 
@@ -2136,4 +2146,7 @@ def make_server(cfg: Config, opts: Options, host: str = "127.0.0.1", port: int =
                 state: State | None = None, autopilot=None):
     cfg.ensure_dirs()
     app = App(cfg=cfg, opts=opts, state=state or State(cfg.db_path), autopilot=autopilot)
+    from . import llm
+
+    llm.recorder = app.state.add_claude_usage  # suivi des tokens (page Statistiques)
     return ThreadingHTTPServer((host, port), partial(Handler, app=app))

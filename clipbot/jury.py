@@ -95,8 +95,10 @@ def contact_sheet(video: Path, out: Path, frames: int = FRAMES) -> Path:
 
 def quick_transcript(video: Path, language: str | None = None) -> str:
     """Ce qui est dit, avec un modèle Whisper léger (rapide) : juste pour juger."""
-    from .subtitles import transcribe
+    from .subtitles import speed, transcribe
 
+    if speed.get("base", 9) < 1.0:  # PC trop lent : le Radar juge sur les images et le son
+        return ""
     try:
         words = transcribe(video, model_size="base", language=language, beam_size=1,
                            max_seconds=60)

@@ -43,6 +43,9 @@ def load_audio(video: Path):
 
 
 _models: dict = {}  # modèles Whisper déjà chargés (le chargement prend plusieurs secondes)
+# vitesse mesurée de la dernière transcription : secondes d'audio traitées par seconde
+# (< 1 = plus lent que la durée du clip : PC trop lent pour tout transcrire)
+speed: dict[str, float] = {}
 
 
 def _model(model_size: str, device: str):
@@ -52,8 +55,11 @@ def _model(model_size: str, device: str):
     key = (model_size, device)
     if key not in _models:
         compute_type = "int8" if device in ("auto", "cpu") else "float16"
+        # cœurs physiques plutôt que logiques : plus rapide quand d'autres tâches tournent
+        threads = os.cpu_count() or 4
+        threads = max(threads // 2, 4) if threads > 8 else threads
         _models[key] = WhisperModel(model_size, device=device, compute_type=compute_type,
-                                    cpu_threads=os.cpu_count() or 4)
+                                    cpu_threads=threads)
     return _models[key]
 
 
@@ -67,7 +73,11 @@ def transcribe(
     max_seconds: float | None = None,
 ) -> list[Word]:
     """``beam_size=1`` et ``max_seconds`` : transcription rapide (tri des clips)."""
+    import logging
+    import time
+
     model = _model(model_size, device)
+    started = time.time()
     audio = load_audio(video)
     if max_seconds:
         audio = audio[: int(max_seconds * SAMPLE_RATE)]
@@ -88,6 +98,12 @@ def transcribe(
             text = w.word.strip()
             if text:
                 words.append(Word(text=text, start=float(w.start), end=float(w.end)))
+    spent = max(time.time() - started, 0.01)
+    seconds = audio.size / SAMPLE_RATE
+    speed[model_size] = seconds / spent
+    logging.getLogger("clipbot.subtitles").info(
+        "Transcription (%s) : %.0f s de son en %.0f s (×%.1f la vitesse réelle)",
+        model_size, seconds, spent, speed[model_size])
     return words
 
 

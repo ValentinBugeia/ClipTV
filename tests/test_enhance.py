@@ -170,3 +170,20 @@ def test_emoji_filter_and_render(tmp_path):
     emoji = Path(__file__).parent.parent / "clipbot" / "emoji" / "laugh.png"
     out = render_vertical(src, tmp_path / "o.mp4", layout="blur", emoji=emoji, emoji_at=1.0)
     assert 2.5 <= probe_duration(out) <= 3.5  # l'image en boucle ne prolonge pas la vidéo
+
+
+def test_slow_pc_uses_light_models(monkeypatch):
+    from clipbot import subtitles
+    from clipbot.config import Config
+    from clipbot.jury import quick_transcript
+    from clipbot.pipeline import Options, subs_model
+
+    cfg = Config()
+    cfg.whisper_model = "small"
+    monkeypatch.setattr(subtitles, "speed", {})
+    assert subs_model(cfg, Options()) == "small"            # vitesse encore inconnue
+    subtitles.speed["small"] = 0.4                           # 2,5× plus lent que le clip
+    assert subs_model(cfg, Options()) == "base"
+    assert subs_model(cfg, Options(subs_quality="precise")) == "small"
+    subtitles.speed["base"] = 0.8                            # même le modèle léger rame
+    assert quick_transcript(None) == ""                      # le Radar juge sans les paroles

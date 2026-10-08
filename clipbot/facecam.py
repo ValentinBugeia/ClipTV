@@ -169,6 +169,7 @@ def _make_detector(cv2):
 
 
 def _detect(cv2, detector, video: Path, min_hits: float) -> Face | None:
+    cv2.setNumThreads(2)  # tourne pendant la transcription : laisse le processeur à Whisper
     cap = cv2.VideoCapture(str(video))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0

@@ -30,7 +30,8 @@ class Options:
     max_duration: float = 60.0
     caption_template: str = "{title} {mood}\n{cta}\n{icon} twitch.tv/{channel_tag}{tiktok}"
     ai_caption: bool = False
-    jury: bool = False              # Claude regarde les clips présélectionnés et écarte les moins bons
+    jury: bool = False
+    subs_quality: str = "auto"     # auto (rapide si le PC est lent), precise, fast              # Claude regarde les clips présélectionnés et écarte les moins bons
     publish: bool = False           # publie tout de suite après le rendu
     schedule: bool = False          # programme sur le prochain créneau libre
     platforms: list[str] = field(default_factory=list)  # vide = cfg.platforms
@@ -123,7 +124,7 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
             log.info("Transcription de %s (whisper %s)…", src.name, cfg.whisper_model)
             progress.step("transcribe", "en parallèle de la détection du visage"
                           if face_job else "")
-            words = transcribe(src, model_size=cfg.whisper_model, device=cfg.whisper_device,
+            words = transcribe(src, model_size=subs_model(cfg, opts), device=cfg.whisper_device,
                                language=opts.language or language, beam_size=3)
         face = face_job.result() if face_job else None
         burned = bool(burned_job.result()) if burned_job else False
@@ -219,6 +220,22 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         info.update(speech=len(words) >= 3, hook=bool(hook), burned=burned,
                     **speech_energy(words))
     return dst, words
+
+
+def subs_model(cfg: Config, opts: Options) -> str:
+    """Modèle Whisper des sous-titres. « auto » : le modèle précis, sauf si ce PC le fait
+    tourner plus lentement que la durée du clip (on passe alors au modèle léger, ~3× plus
+    rapide)."""
+    from .subtitles import speed
+
+    if opts.subs_quality == "fast":
+        return "base"
+    if opts.subs_quality == "auto" and speed.get(cfg.whisper_model, 9) < 1.0 \
+            and cfg.whisper_model not in ("tiny", "base"):
+        log.info("Transcription trop lente sur ce PC (×%.1f) : modèle léger pour les sous-titres",
+                 speed[cfg.whisper_model])
+        return "base"
+    return cfg.whisper_model
 
 
 def make_caption(clip, words: list, cfg: Config, opts: Options) -> str:

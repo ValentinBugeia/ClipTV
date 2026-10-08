@@ -524,6 +524,8 @@ LAYOUTS_REDO = [("auto", "Cadrage auto"), ("crop", "Zoom plein écran"),
                 ("split", "Facecam en haut / jeu en bas"), ("blur", "Fond flouté")]
 LAYOUTS = [("auto", "Auto : facecam en haut si détectée, sinon zoom"),
            ("crop", "Zoom plein écran"), ("blur", "Vidéo entière sur fond flouté")]
+SUBS_QUALITY = [("auto", "Auto : précis, ou rapide si le PC est lent"),
+                ("precise", "Précis (plus lent)"), ("fast", "Rapide (un peu moins précis)")]
 RATIOS = [(2.0, "Très sensible (x2)"), (3.0, "Normale (x3)"), (5.0, "Peu sensible (x5)")]
 PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube Shorts", "instagram": "Instagram Reels",
                   "manuel": "Publié à la main"}
@@ -1423,6 +1425,7 @@ class Handler(BaseHTTPRequestHandler):
   <label>Vues minimum <input name="min_views" type="number" min="0" value="{e(s['min_views'])}"></label>
   {then_field}
   <label class="full">Cadrage des vidéos <select name="layout">{_options(LAYOUTS, s.get('layout', 'auto'))}</select></label>
+  <label>Sous-titres <select name="subs_quality">{_options(SUBS_QUALITY, s.get('subs_quality', 'auto'))}</select></label>
   <label>Sensibilité des lives <select name="ratio">{_options(RATIOS, float(s['ratio']))}</select></label>
   {publish_fields}
   <label class="check full"><input type="checkbox" name="subtitles" value="1"{" checked" if s.get("subtitles", True) else ""}>
@@ -1963,6 +1966,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                           "jury": bool(settings.get("jury", True)),
                           "layout": layout,
                           "subtitles": load_settings(self.state, self.cfg).get("subtitles", True),
+                          "subs_quality": settings.get("subs_quality") or "auto",
                           "publish": then == "publish", "schedule": then == "schedule"})
         job = self.app.job
         first = channels[0] if channels else "temps forts du moment"
@@ -2010,6 +2014,7 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                 "platforms": [p for p in form.get("platforms", []) if p in PLATFORMS],
                 "ai_caption": one.get("ai_caption") == "1",
                 "jury": one.get("jury") == "1",
+                "subs_quality": one.get("subs_quality") if one.get("subs_quality") in dict(SUBS_QUALITY) else "auto",
                 "subtitles": one.get("subtitles") == "1",
                 "smart_timing": one.get("smart_timing") == "1",
             }

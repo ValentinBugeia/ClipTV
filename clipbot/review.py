@@ -247,7 +247,8 @@ PAGE = """<!doctype html>
 </style></head><body>
 <header><div class="top"><a class="brand" href="/" aria-label="cliptv"><span class="logo"><svg viewBox="0 0 24 24" fill="#fff"><path d="M6 3.5v17l14-8.5z"/></svg></span><span class="word">clip<b>tv</b></span></a>
 <nav class="main">{nav}</nav>
-<span id="status" class="pill{status_cls}">{status}</span></div>
+<span id="status" class="pill{status_cls}">{status}</span>
+<div id="progress" role="status" aria-live="polite"></div></div>
 <div id="fresh" class="flash" style="display:none">Nouveaux clips prêts ·
 <a href="" onclick="location.reload();return false">actualiser</a></div>
 </header>
@@ -340,38 +341,38 @@ setInterval(async () => {{
 </body></html>"""
 
 PROGRESS_UI = """<style>
-  #progress { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:20;
-              width:min(480px, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto;
-              background:rgba(19,19,26,.96); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,.12); border-radius:20px; padding:20px;
-              box-shadow:0 20px 60px rgba(0,0,0,.6); display:none }
-  #progress h3 { margin:0 0 2px; font-size:18px }
-  #progress .pclip { color:#9b9bab; font-size:13px; margin-bottom:12px; overflow-wrap:anywhere }
-  #progress ol { list-style:none; margin:0; padding:0 }
-  #progress li { display:flex; gap:10px; padding:7px 0; color:#6b6b73; align-items:flex-start }
-  #progress li.st-done { color:#9b9bab }
-  #progress li.st-now { color:#f4f4f7; font-weight:600; background:rgba(155,92,255,.12); border-radius:10px;
-                        margin:2px -8px; padding:8px }
-  #progress .ico { width:20px; flex:none; text-align:center }
-  #progress .help { font-weight:400; color:#9b9bab; font-size:13px; margin-top:2px }
-  #progress .spin { display:inline-block; width:14px; height:14px; border:2px solid #9b5cff;
+  #progress { display:none; align-items:center; gap:12px; flex:0 1 460px; min-width:0; margin-left:auto;
+              padding:7px 8px 7px 14px; border-radius:14px; background:rgba(61,220,132,.07);
+              border:1px solid rgba(61,220,132,.28) }
+  #progress.done { background:rgba(155,92,255,.1); border-color:rgba(155,92,255,.35) }
+  #progress .ptext { flex:1; min-width:0 }
+  #progress .pl1 { display:flex; align-items:center; gap:8px; font-size:13px; color:#f4f4f7; white-space:nowrap }
+  #progress .pl1 b { color:#bff5d4; font-weight:700 }
+  #progress.done .pl1 b { color:#d8c2ff }
+  #progress .pname { overflow:hidden; text-overflow:ellipsis; font-weight:600 }
+  #progress .ptime { margin-left:auto; color:#9b9bab; font-variant-numeric:tabular-nums; padding-left:6px }
+  #progress .pl2 { font-size:12px; color:#9b9bab; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+                   margin-top:1px }
+  #progress .pbar { display:flex; gap:3px; margin-top:6px }
+  #progress .pbar i { flex:1; height:3px; border-radius:2px; background:rgba(255,255,255,.12) }
+  #progress .pbar i.ok { background:#3ddc84 }
+  #progress .pbar i.now { background:linear-gradient(90deg,#3ddc84,rgba(61,220,132,.25));
+                          animation:blink 1.2s ease-in-out infinite }
+  #progress.done .pbar i { background:linear-gradient(90deg,#9b5cff,#ff4fa3) }
+  @keyframes blink { 50% { opacity:.45 } }
+  #progress .spin { display:inline-block; width:12px; height:12px; flex:none; border:2px solid #3ddc84;
                     border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite }
   @keyframes spin { to { transform:rotate(360deg) } }
-  @media (prefers-reduced-motion: reduce) { #progress .spin { animation:none } }
-  #progress .pfoot { display:flex; justify-content:space-between; align-items:center; margin-top:12px;
-                     color:#9b9bab; font-size:13px; gap:8px }
-  #progress .pfoot button { flex:0 0 auto; min-height:34px; padding:4px 12px; background:rgba(255,255,255,.08); box-shadow:inset 0 0 0 1px rgba(255,255,255,.12) }
-  #progress .pfoot span { flex:1 }
-  #progress .pfoot button.stop { background:rgba(255,107,122,.18); box-shadow:inset 0 0 0 1px rgba(255,107,122,.4); color:#ffd0d5 }
-  #progress .pdone { padding:10px 12px; border-radius:10px; background:rgba(61,220,132,.1); margin-top:8px }
+  @media (prefers-reduced-motion: reduce) { #progress .spin, #progress .pbar i.now { animation:none } }
+  #progress button { flex:none; min-height:32px; width:32px; padding:0; border-radius:10px; font-size:13px;
+                     background:rgba(255,107,122,.16); box-shadow:inset 0 0 0 1px rgba(255,107,122,.4); color:#ffd0d5 }
+  #progress button:disabled { opacity:.5 }
+  header .top.busy #status { display:none }
 </style>
-<div id="progress" role="status" aria-live="polite"></div>
 <script>
-// panneau de progression : étapes de la recherche en cours (textContent : données non fiables)
+// étape de la recherche en cours, en haut à droite (textContent : données non fiables)
 (function () {
-  const box = document.getElementById('progress');
-  const key = 'cliptv-progress-hidden';
-  let hidden = null;
-  try { hidden = sessionStorage.getItem(key); } catch (e) {}
+  const box = document.getElementById('progress'), top = box.closest('.top');
   function el(tag, cls, text) {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -380,43 +381,44 @@ PROGRESS_UI = """<style>
   }
   function fmt(s) { return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s'; }
   function render(p, steps) {
-    const recent = !p.active && p.ended && (Date.now() / 1000 - p.ended) < 12;
-    if (!(p.active || recent) || String(p.run) === hidden) { box.style.display = 'none'; return; }
+    const recent = !p.active && p.ended && (Date.now() / 1000 - p.ended) < 15;
+    const show = p.active || recent;
+    box.style.display = show ? 'flex' : 'none';
+    top.classList.toggle('busy', !!show);
+    if (!show) return;
+    box.classList.toggle('done', !p.active);
     box.replaceChildren();
-    box.append(el('h3', '', p.active ? '🔎 ' + (p.title || 'Recherche en cours') : '✅ Terminé'));
-    if (p.active) box.append(el('div', 'pclip', p.clip || 'Préparation…'));
-    const ol = el('ol');
+    const text = el('div', 'ptext'), l1 = el('div', 'pl1');
     const current = steps.findIndex(s => s[0] === p.step);
-    steps.forEach((s, i) => {
-      const state = !p.active || i < current ? 'st-done' : i === current ? 'st-now' : '';
-      const li = el('li', state);
-      const ico = el('span', 'ico');
-      if (state === 'st-now') ico.append(el('span', 'spin')); else ico.textContent = state ? '✓' : '○';
-      const txt = el('div', '', s[1]);
-      const spent = (p.durations || {})[s[0]];
-      if (state === 'st-done' && spent) txt.append(el('span', 'help', '  · ' + fmt(spent)));
-      if (state === 'st-now') txt.append(el('div', 'help', p.detail ? p.detail + ' — ' + s[2] : s[2]));
-      li.append(ico, txt); ol.append(li);
-    });
-    box.append(ol);
-    if (!p.active && p.message) box.append(el('div', 'pdone', p.message));
-    const foot = el('div', 'pfoot');
-    foot.append(el('span', '', (p.active ? 'En cours depuis ' : 'Durée : ') + fmt(p.elapsed || 0)));
     if (p.active) {
-      const stop = el('button', 'stop', p.stopping ? 'Arrêt…' : '⏹ Arrêter');
-      stop.type = 'button'; stop.disabled = !!p.stopping;
+      const st = steps[current];
+      l1.append(el('span', 'spin'), el('b', '', current >= 0 ? 'Étape ' + (current + 1) + '/' + steps.length : '🔎'),
+                el('span', 'pname', p.stopping ? 'Arrêt en cours…' : st ? st[1] : (p.title || 'Recherche en cours')));
+      const detail = [p.clip, p.detail || (st ? st[2] : '')].filter(Boolean).join(' · ');
+      text.append(l1, el('div', 'pl2', detail || 'Préparation…'));
+      text.title = (p.clip ? p.clip + '\\n' : '') + (st ? st[1] + ' : ' + (p.detail ? p.detail + ' — ' : '') + st[2] : '');
+    } else {
+      l1.append(el('b', '', '✅ Terminé'), el('span', 'pname', ''));
+      text.append(l1, el('div', 'pl2', p.message || ''));
+      const spent = steps.filter(s => (p.durations || {})[s[0]]).map(s => s[1] + ' : ' + fmt(p.durations[s[0]]));
+      text.title = (p.message || '') + (spent.length ? '\\n' + spent.join('\\n') : '');
+    }
+    l1.append(el('span', 'ptime', fmt(p.elapsed || 0)));
+    const bar = el('div', 'pbar');
+    steps.forEach((s, i) => bar.append(el('i', !p.active || i < current ? 'ok' : i === current ? 'now' : '')));
+    text.append(bar);
+    box.append(text);
+    if (p.active) {
+      const stop = el('button', '', '⏹');
+      stop.type = 'button'; stop.title = 'Arrêter la recherche (les clips déjà prêts sont gardés)';
+      stop.setAttribute('aria-label', 'Arrêter la recherche');
+      stop.disabled = !!p.stopping;
       stop.onclick = async () => {
-        stop.disabled = true; stop.textContent = 'Arrêt…';
+        stop.disabled = true;
         try { await fetch('/stop', {method: 'POST', credentials: 'same-origin'}); } catch (e) {}
       };
-      foot.append(stop);
+      box.append(stop);
     }
-    const btn = el('button', '', p.active ? 'Masquer' : 'Fermer');
-    btn.type = 'button';
-    btn.onclick = () => { hidden = String(p.run); try { sessionStorage.setItem(key, hidden); } catch (e) {}
-                          box.style.display = 'none'; };
-    foot.append(btn); box.append(foot);
-    box.style.display = 'block';
   }
   async function poll() {
     let delay = 5000;

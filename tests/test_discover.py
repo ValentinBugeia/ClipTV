@@ -124,3 +124,23 @@ def test_morning_search_uses_last_night_categories(tmp_path):
                                   {f"id-rp{i}": f"rp{i}" for i in range(10)})
     found = discover(twitch, st, language="fr", streamers=5, top=2, min_views=0)
     assert [login for _, login in found] == ["rp0", "rp1"]
+
+
+def test_last_night_hit_beats_small_fresh_clip():
+    from clipbot.discover import standout_score
+
+    fresh = clip("fresh", "a", 400, hours_ago=1)
+    hit = clip("hit", "b", 5000, hours_ago=20)  # moment fort de la veille au soir
+    score = standout_score([fresh, hit])
+    assert fresh.virality() > hit.virality()       # l'ancien classement se trompait
+    assert score(hit) > score(fresh)
+
+
+def test_audience_share_levels_big_and_small_streamers():
+    from clipbot.discover import standout_score
+
+    big = clip("big", "gros", 2000, hours_ago=3)     # 30 000 spectateurs : 7 %, banal
+    small = clip("small", "petit", 500, hours_ago=3)  # 800 spectateurs : 62 %, énorme
+    viewers = {"gros": 30000, "petit": 800}
+    score = standout_score([big, small], lambda c: viewers[c.broadcaster_name])
+    assert small.audience_share > 0.6 and score(small) > score(big)

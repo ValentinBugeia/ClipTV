@@ -43,6 +43,15 @@ class Clip:
             broadcaster_id=data.get("broadcaster_id", ""),
         )
 
+    def momentum(self, now: datetime | None = None) -> float:
+        """Vues avec un âge atténué (÷ racine de l'âge en heures + 2) : un clip fait l'essentiel
+        de ses vues pendant le live puis plafonne ; diviser par l'âge entier écraserait les
+        vrais moments forts de la veille (5 000 vues en 20 h passeraient derrière 400 vues
+        en 1 h)."""
+        now = now or datetime.now(timezone.utc)
+        age_hours = max((now - self.created_at).total_seconds() / 3600, 0.0)
+        return self.view_count / (age_hours + 2) ** 0.5
+
     def virality(self, now: datetime | None = None) -> float:
         """Vues par heure depuis la création du clip (avec un plancher d'1h).
 

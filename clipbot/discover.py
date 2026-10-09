@@ -99,10 +99,21 @@ def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
     return channels
 
 
-def standout_score(clips: list[Clip]):
-    """Score d'un clip : vues par heure × à quel point il dépasse les clips habituels de
-    son streamer. Un petit streamer dont un clip explose passe devant un gros streamer
-    dont le clip fait un score moyen pour lui."""
+TYPICAL_SHARE = 0.08  # vues d'un clip ≈ 8 % des spectateurs du live : clip « normal »
+
+
+def audience_factor(share: float | None) -> float:
+    """Part de l'audience qui a vu le clip (vues ÷ spectateurs du streamer) : 8 % = ×1,
+    32 % = ×2,3, 2 % = ×0,4. Met gros et petits streamers sur un pied d'égalité."""
+    if not share:
+        return 1.0
+    return min(max((share / TYPICAL_SHARE) ** 0.6, 0.4), 4.0)
+
+
+def standout_score(clips: list[Clip], audience=lambda clip: None):
+    """Score d'un clip : élan (vues, âge atténué) × à quel point il dépasse les clips
+    habituels de son streamer × part de son audience qui l'a vu (si on connaît le nombre de
+    spectateurs du streamer). ``audience(clip)`` : spectateurs du streamer, ou None."""
     from statistics import median
 
     by_channel: dict[str, list[int]] = {}
@@ -115,10 +126,15 @@ def standout_score(clips: list[Clip]):
         # +50 vues de chaque côté : 49 vues contre 10 d'habitude n'est pas un exploit (×1,6
         # au lieu de ×4,9), alors que 5 000 contre 1 000 le reste (×4,8)
         clip.standout = round((clip.view_count + 50) / (base + 50), 2) if base else None
+        viewers = audience(clip)
+        clip.audience_share = round(clip.view_count / viewers, 3) if viewers else None
 
     def score(clip: Clip) -> float:
         ratio = clip.standout ** 0.5 if clip.standout else 1.0
-        return clip.virality() * min(max(ratio, 0.5), 4.0)
+        # vues à la puissance 0,7 : les vues brutes (surtout la taille du streamer) ne
+        # doivent pas écraser la part de l'audience ni le « hors norme »
+        return (clip.momentum() ** 0.7 * min(max(ratio, 0.5), 4.0)
+                * audience_factor(clip.audience_share))
     return score
 
 
@@ -144,12 +160,12 @@ def tiktok_check(state):
 def pick_clips(clips: list[Clip], *, top: int, per_channel: int = 1, min_views: int = 0,
                max_duration: float = 60, language: str | None = None,
                is_done=lambda cid: False, on_tiktok=lambda clip: False,
-               boost=lambda clip: 1.0) -> list[Clip]:
+               boost=lambda clip: 1.0, audience=lambda clip: None) -> list[Clip]:
     """Meilleurs clips tous streamers confondus, en limitant le nombre par streamer."""
     if language:
         clips = [c for c in clips if not c.language or c.language.startswith(language)]
     picked, per = [], {}
-    base = standout_score(clips)
+    base = standout_score(clips, audience)
     for clip in sorted(rank_clips(clips, min_views=min_views, max_duration=max_duration),
                        key=lambda c: base(c) * boost(c), reverse=True):
         key = clip.broadcaster_name.lower()
@@ -207,6 +223,17 @@ def category_clips(twitch: TwitchClient, pool, state, *, language: str | None, h
     return out
 
 
+def audience_of(state, owner: dict):
+    """Spectateurs (pic relevé) du streamer d'un clip, d'après les lives mémorisés."""
+    memory = state.get_settings().get(MEMORY_KEY) or {}
+
+    def viewers(clip: Clip) -> int | None:
+        login = owner.get(clip.id) or clip.broadcaster_name.lower()
+        v = (memory.get(login) or {}).get("viewers")
+        return int(v) if v and int(v) >= 20 else None  # trop peu de spectateurs : non fiable
+    return viewers
+
+
 def views_floor(clips: list[Clip], top: int, max_duration: float) -> int:
     """Vues minimum : 100 si le vivier a assez de clips au-dessus (un clip à 30 vues est
     rarement un moment fort), sinon 30."""
@@ -248,7 +275,8 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
     min_views = max(min_views, views_floor(clips, top, max_duration))
     picked = pick_clips(clips, top=top, per_channel=per_channel, min_views=min_views,
                         max_duration=max_duration, language=language, is_done=state.is_done,
-                        on_tiktok=tiktok_check(state), boost=preselection_boost(state))
+                        on_tiktok=tiktok_check(state), boost=preselection_boost(state),
+                        audience=audience_of(state, owner))
     log.info("%d clips trouvés, %d retenus", len(clips), len(picked))
     return [(c, owner[c.id]) for c in picked]
 
@@ -278,8 +306,9 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
                                     jury=selection.jury_for(opts, kwargs.get("language")))
         for i, (clip, login) in enumerate(found, 1):
             progress.clip(i, len(found), f"{login} · {clip.title}")
-            log.info("→ %s · %s (%d vues, %.0f vues/h) %s", login, clip.title,
-                     clip.view_count, clip.virality(), clip.url)
+            share = getattr(clip, "audience_share", None)
+            log.info("→ %s · %s (%d vues%s) %s", login, clip.title, clip.view_count,
+                     f", vu par {share:.0%} de ses spectateurs" if share else "", clip.url)
             try:
                 ok = process_clip(clip, login, cfg, state, opts, source=prefetch.source(clip))
             except Exception:

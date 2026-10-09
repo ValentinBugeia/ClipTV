@@ -426,6 +426,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
         audio = getattr(clip, "audio", None) or {}
         meta["signals"] = json.dumps({**info, "vph": vph,
                                       "standout": getattr(clip, "standout", None),
+                                      "audience_share": getattr(clip, "audience_share", None),
                                       "reaction": audio.get("reaction"),
                                       "peak_at": audio.get("peak_at"),
                                       "chat_spike": getattr(clip, "chat_spike", None),
@@ -481,7 +482,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         from .discover import preselection_boost
 
         boost = preselection_boost(state)  # vues de tes TikToks, titre, chat
-        ranked.sort(key=lambda c: c.virality() * boost(c), reverse=True)
+        ranked.sort(key=lambda c: c.momentum() * boost(c), reverse=True)
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         from . import selection
 

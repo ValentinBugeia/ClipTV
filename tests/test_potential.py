@@ -97,3 +97,11 @@ def test_backfill_old_clips(tmp_path):
     sig = json.loads(state.get("old")["signals"])
     assert 3.5 <= sig["duration"] <= 4.5
     assert potential.backfill(cfg, state) == 0  # déjà fait
+
+
+def test_score_survives_text_where_number_expected(tmp_path):
+    """Ancienne version : « reaction » contenait le type du Radar (« laugh »)."""
+    state = make_state(tmp_path)
+    hist = potential.history(state)
+    clip = {"channel": "a", "signals": sig(reaction="laugh", peak_at=2, jury="8")}
+    assert 0 <= potential.score(clip, hist)["note"] <= 10

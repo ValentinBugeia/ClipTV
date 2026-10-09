@@ -434,9 +434,10 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
                                       "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None,
                                       # choix du Radar gardés pour « Refaire le montage »
-                                      **{k: (getattr(clip, "jury", None) or {}).get(k) or None
-                                         for k in ("overlay", "reaction", "hook_theme",
-                                                   "hook_color")}})
+                                      # (préfixe radar_ : « reaction » est déjà la mesure du son)
+                                      **{f"radar_{k}": (getattr(clip, "jury", None) or {}).get(k)
+                                         or None for k in ("overlay", "reaction", "hook_theme",
+                                                           "hook_color")}})
         progress.step("caption")
         if "thread" in caption_job:
             caption_job["thread"].join()

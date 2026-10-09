@@ -90,12 +90,27 @@ def _start_score(sig: dict, reasons: list[str]) -> float:
     return min(pts / 6.5, 10)  # sur 65 points → /10 (l'audience n'est pas encore connue)
 
 
+NUMERIC = ("vph", "standout", "duration", "chat_spike", "reaction", "peak_at", "talk_rate",
+           "hype_words", "jury", "audience_share")
+
+
+def _clean(sig: dict) -> dict:
+    """Indices numériques uniquement là où on attend des nombres (une ancienne version
+    enregistrait le type de réaction du Radar, « laugh », à la place de la mesure du son)."""
+    out = dict(sig)
+    for k in NUMERIC:
+        if k in out and not isinstance(out[k], (int, float)) or isinstance(out.get(k), bool):
+            out.pop(k, None)
+    return out
+
+
 def score(clip: dict, hist: dict) -> dict:
     """{note, rarity, rarity_label, reasons} pour une ligne de la table clips."""
     try:
         sig = json.loads(clip.get("signals") or "{}")
     except ValueError:
         sig = {}
+    sig = _clean(sig)
     reasons: list[str] = []
     channel = (clip.get("channel") or "").lower()
     category = (clip.get("category") or "").lower()

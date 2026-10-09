@@ -792,8 +792,10 @@ def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
             render_video(src, Path(clip["output_path"]), app.cfg, opts,
                          allow_split=not is_non_gaming(clip.get("category") or ""),
                          title=clip.get("title") or "", info=info,
-                         overlay=old.get("overlay") or "", reaction=old.get("reaction") or "",
-                         hook_style=resolve(old.get("hook_theme"), old.get("hook_color"),
+                         overlay=old.get("radar_overlay") or old.get("overlay") or "",
+                         reaction=old.get("radar_reaction") or "",
+                         hook_style=resolve(old.get("radar_hook_theme") or old.get("hook_theme"),
+                                            old.get("radar_hook_color") or old.get("hook_color"),
                                             clip.get("category") or ""))
             app.state.set_signals(clip["clip_id"], json.dumps({**old, **info}))
         error = None

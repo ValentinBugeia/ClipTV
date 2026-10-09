@@ -18,8 +18,13 @@ def build_filter(
     cam_height: int | None = None,
     punch_at: float | None = None,
     emoji_at: float | None = None,
+    safe_bottom: int = 0,
 ) -> str:
     """Construit le filtergraph ffmpeg.
+
+    ``safe_bottom`` (px) : en ``crop`` et ``split``, l'image utile est montée dans le haut
+    de la vidéo et cette bande du bas est remplie d'un fond flouté. Pour les streams qui ont
+    déjà leurs sous-titres en bas de l'image : sans ça, la description TikTok les cache.
 
     ``emoji_at`` : un emoji (2e entrée, image PNG) surgit au-dessus des sous-titres à cette
     seconde pendant 1,2 s.
@@ -39,12 +44,15 @@ def build_filter(
     # fps=30 en premier : les sources Twitch sont souvent en 60 i/s, on ne traite que les
     # images gardées. Partout on recadre AVANT d'agrandir : même image finale, mais
     # ffmpeg ne calcule plus une image géante (3413x1920) dont il jette les deux tiers.
+    # fond flou calculé en petit (il est flou de toute façon) puis agrandi
+    blur_bg = (f"crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale={WIDTH // 4}:{HEIGHT // 4},"
+               f"boxblur=5:2,eq=brightness=-0.08,scale={WIDTH}:{HEIGHT}")
+    safe = max(int(safe_bottom), 0) if layout in ("crop", "split") else 0
+    top_h = (HEIGHT - safe) // 2 * 2  # hauteur de l'image utile
     if layout == "blur":
         graph = (
             f"[0:v]fps=30,split=2[bg][fg];"
-            # fond flou calculé en petit (il est flou de toute façon) puis agrandi
-            f"[bg]crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale={WIDTH // 4}:{HEIGHT // 4},"
-            f"boxblur=5:2,eq=brightness=-0.08,scale={WIDTH}:{HEIGHT}[bgb];"
+            f"[bg]{blur_bg}[bgb];"
             f"[fg]scale={WIDTH}:-2[fgs];"
             f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[v]"
         )
@@ -55,18 +63,24 @@ def build_filter(
             f"{crop_track[0][1]:.4f}" if crop_track else None)
         if center is not None:
             x = f":'min(max(({center})*iw-ow/2,0),iw-ow)':0"
-        graph = (f"[0:v]fps=30,crop='min(iw,ih*9/16)':ih{x},"
-                 f"scale={WIDTH}:{HEIGHT},setsar=1[v]")
+        if safe:
+            graph = (f"[0:v]fps=30,split=2[bg][fg];[bg]{blur_bg}[bgb];"
+                     f"[fg]crop='min(iw,ih*{WIDTH}/{top_h})':ih{x},scale={WIDTH}:{top_h}[fgs];"
+                     f"[bgb][fgs]overlay=0:0,setsar=1[v]")
+        else:
+            graph = (f"[0:v]fps=30,crop='min(iw,ih*9/16)':ih{x},"
+                     f"scale={WIDTH}:{HEIGHT},setsar=1[v]")
     elif layout == "split":
         cam_h = cam_height or HEIGHT * 2 // 5
-        game_h = HEIGHT - cam_h
+        game_h = top_h - cam_h
         cam = "{}:{}:{}:{}".format(*cam_box) if cam_box else "iw/4:ih/4:iw*3/4:0"
         graph = (
-            f"[0:v]fps=30,split=2[a][b];"
+            f"[0:v]fps=30,split={3 if safe else 2}[a][b]{'[bg]' if safe else ''};"
             f"[a]crop={cam},scale={WIDTH}:{cam_h}:force_original_aspect_ratio=increase,"
             f"crop={WIDTH}:{cam_h}[cam];"
             f"[b]crop='min(iw,ih*{WIDTH}/{game_h})':ih,scale={WIDTH}:{game_h}[game];"
-            f"[cam][game]vstack,setsar=1[v]"
+            + (f"[bg]{blur_bg}[bgb];[cam][game]vstack[stk];[bgb][stk]overlay=0:0,setsar=1[v]"
+               if safe else "[cam][game]vstack,setsar=1[v]")
         )
     else:
         raise ValueError(f"Layout inconnu : {layout}")
@@ -124,6 +138,7 @@ def render_vertical(
     punch_at: float | None = None,
     emoji: Path | None = None,
     emoji_at: float | None = None,
+    safe_bottom: int = 0,
 ) -> Path:
     """``start`` : secondes coupées au début ; ``normalize_audio`` : volume égalisé
     (-14 LUFS, le niveau des vidéos TikTok) pour qu'aucun clip ne soit trop faible ou saturé."""
@@ -135,7 +150,7 @@ def render_vertical(
     graph = build_filter(layout, str(subtitles.resolve()) if subtitles else None,
                          cam_box=cam_box, crop_center=crop_center, crop_track=crop_track,
                          cam_height=cam_height, punch_at=punch_at,
-                         emoji_at=emoji_at if emoji else None)
+                         emoji_at=emoji_at if emoji else None, safe_bottom=safe_bottom)
     if subtitles and fonts_dir:
         graph = graph.replace("ass=", f"ass=fontsdir={_escape_filter_path(str(fonts_dir.resolve()))}:filename=", 1)
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]

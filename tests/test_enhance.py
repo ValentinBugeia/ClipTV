@@ -187,3 +187,14 @@ def test_slow_pc_uses_light_models(monkeypatch):
     assert subs_model(cfg, Options(subs_quality="precise")) == "small"
     subtitles.speed["base"] = 0.8                            # même le modèle léger rame
     assert quick_transcript(None) == ""                      # le Radar juge sans les paroles
+
+
+def test_burned_subtitles_kept_above_tiktok_caption():
+    from clipbot.render import build_filter
+
+    crop = build_filter("crop", None, safe_bottom=400)
+    assert "scale=1080:1520" in crop and "overlay=0:0" in crop   # image utile en haut
+    split = build_filter("split", None, cam_height=700, safe_bottom=400)
+    assert "scale=1080:820" in split and "split=3" in split       # jeu raccourci de 400 px
+    assert "overlay" not in build_filter("crop", None)            # sans sous-titres incrustés
+    assert build_filter("blur", None, safe_bottom=400) == build_filter("blur", None)

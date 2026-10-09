@@ -208,7 +208,10 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                     fonts_dir=opts.fonts_dir, cam_box=cam_box, crop_center=crop_center,
                     crop_track=crop_track, cam_height=cam_height, start=start,
                     normalize_audio=opts.normalize_audio, punch_at=punch_at,
-                    emoji=emoji, emoji_at=punch_at)
+                    emoji=emoji, emoji_at=punch_at,
+                    # sous-titres du stream en bas de l'image : remontés au-dessus de la
+                    # description TikTok (les 400 px du bas sont cachés par elle)
+                    safe_bottom=SAFE_BOTTOM if burned else 0)
     if info is not None:  # indices pour l'indicateur de potentiel
         from .render import probe_duration
 
@@ -221,6 +224,9 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         info.update(speech=len(words) >= 3, hook=bool(hook), burned=burned,
                     **speech_energy(words))
     return dst, words
+
+
+SAFE_BOTTOM = 400  # px (sur 1920) couverts par la description et les boutons de TikTok
 
 
 def _hook_style(clip, category: str) -> dict:

@@ -19,7 +19,7 @@ from .twitch import Clip, TwitchClient, get_top_streams, rank_clips
 
 log = logging.getLogger("clipbot.discover")
 
-MEMORY_DAYS = 3        # durée pendant laquelle un streamer repéré reste scanné
+MEMORY_DAYS = 7        # un streamer repéré en live reste scanné 7 jours (même hors ligne)
 MEMORY_KEY = "discovered"
 
 
@@ -53,7 +53,7 @@ def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
     memory = {login: v for login, v in memory.items()
               if now - v["seen"] < MEMORY_DAYS * 86400}
     # garde les plus récemment vus si la mémoire grossit trop
-    keep = sorted(memory.items(), key=lambda kv: kv[1]["seen"], reverse=True)[:streamers * 3]
+    keep = sorted(memory.items(), key=lambda kv: kv[1]["seen"], reverse=True)[:streamers * 4]
     memory = dict(keep)
     state.save_settings({MEMORY_KEY: memory})
     channels = {login: v["id"] for login, v in memory.items()}
@@ -91,7 +91,9 @@ def standout_score(clips: list[Clip]):
 
     for clip in clips:  # gardé sur le clip pour l'indicateur de potentiel
         base = typical.get(clip.broadcaster_name.lower())
-        clip.standout = round(clip.view_count / max(base, 1), 2) if base else None
+        # +50 vues de chaque côté : 49 vues contre 10 d'habitude n'est pas un exploit (×1,6
+        # au lieu de ×4,9), alors que 5 000 contre 1 000 le reste (×4,8)
+        clip.standout = round((clip.view_count + 50) / (base + 50), 2) if base else None
 
     def score(clip: Clip) -> float:
         ratio = clip.standout ** 0.5 if clip.standout else 1.0
@@ -142,6 +144,57 @@ def pick_clips(clips: list[Clip], *, top: int, per_channel: int = 1, min_views: 
     return picked
 
 
+TOP_CATEGORIES = 8
+
+
+def category_clips(twitch: TwitchClient, pool, state, *, language: str | None, hours: float,
+                   favorites=(), known=()) -> list[tuple[Clip, str]]:
+    """Clips les plus vus des catégories les plus regardées en ce moment (dans la langue),
+    y compris chez des streamers hors ligne : les vrais moments viraux de la journée."""
+    try:
+        viewers: dict[str, int] = {}
+        for s in get_top_streams(twitch, language=language, first=100):
+            if s.get("game_id"):
+                viewers[s["game_id"]] = viewers.get(s["game_id"], 0) + int(s.get("viewer_count") or 0)
+        games = sorted(viewers, key=viewers.get, reverse=True)[:TOP_CATEGORIES]
+    except Exception:
+        log.warning("Catégories du moment indisponibles", exc_info=True)
+        return []
+
+    def fetch(game_id):
+        try:
+            return twitch.get_game_clips(game_id, since_hours=hours, limit=100)
+        except Exception:
+            log.warning("Clips de la catégorie %s indisponibles", game_id)
+            return []
+    found = [c for batch in pool.map(fetch, games) for c in batch
+             if c.id not in known and (not language or not c.language
+                                       or c.language.startswith(language))]
+    if not found:
+        return []
+    try:
+        logins = twitch.logins(c.broadcaster_id for c in found)
+    except Exception:
+        log.warning("Noms des chaînes indisponibles", exc_info=True)
+        return []
+    _, bad = proven_channels(state)
+    out, seen = [], set()
+    for c in found:
+        login = logins.get(c.broadcaster_id)
+        if not login or c.id in seen or (login in bad and login not in favorites):
+            continue
+        seen.add(c.id)
+        out.append((c, login))
+    return out
+
+
+def views_floor(clips: list[Clip], top: int, max_duration: float) -> int:
+    """Vues minimum : 100 si le vivier a assez de clips au-dessus (un clip à 30 vues est
+    rarement un moment fort), sinon 30."""
+    ok = [c for c in clips if c.view_count >= 100 and c.duration <= max_duration]
+    return 100 if len(ok) >= top * 5 else 30
+
+
 def discover(twitch: TwitchClient, state, *, language: str | None = "fr", streamers: int = 30,
              hours: float = 24, top: int = 3, min_views: int = 50, max_duration: float = 60,
              favorites: list[str] = (), per_channel: int = 1) -> list[tuple[Clip, str]]:
@@ -166,6 +219,14 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
             for c in found:
                 owner[c.id] = login
             clips += found
+        extra = category_clips(twitch, pool, state, language=language, hours=hours,
+                               favorites=favorites, known=owner)
+    for c, login in extra:
+        owner[c.id] = login
+        clips.append(c)
+    log.info("Découverte : %d clips des lives + %d des catégories du moment",
+             len(clips) - len(extra), len(extra))
+    min_views = max(min_views, views_floor(clips, top, max_duration))
     picked = pick_clips(clips, top=top, per_channel=per_channel, min_views=min_views,
                         max_duration=max_duration, language=language, is_done=state.is_done,
                         on_tiktok=tiktok_check(state), boost=preselection_boost(state))

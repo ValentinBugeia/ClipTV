@@ -25,6 +25,7 @@ class Clip:
     language: str = ""
     game_id: str = ""
     category: str = ""  # nom de la catégorie Twitch (rempli par annotate_categories)
+    broadcaster_id: str = ""
 
     @classmethod
     def from_api(cls, data: dict) -> "Clip":
@@ -39,6 +40,7 @@ class Clip:
             duration=float(data.get("duration", 0)),
             language=data.get("language", ""),
             game_id=data.get("game_id", ""),
+            broadcaster_id=data.get("broadcaster_id", ""),
         )
 
     def virality(self, now: datetime | None = None) -> float:
@@ -141,10 +143,24 @@ class TwitchClient:
             raise ValueError(f"Chaîne Twitch introuvable : {login}")
         return data[0]["id"]
 
-    def get_clips(self, broadcaster_id: str, *, since_hours: float = 24, limit: int = 100) -> list[Clip]:
+    def logins(self, broadcaster_ids) -> dict[str, str]:
+        """{id: login} des chaînes (par paquets de 100)."""
+        ids = [i for i in dict.fromkeys(broadcaster_ids) if i]
+        out: dict[str, str] = {}
+        for i in range(0, len(ids), 100):
+            data = self._get("/users", [("id", x) for x in ids[i:i + 100]])["data"]
+            out.update({u["id"]: u["login"] for u in data})
+        return out
+
+    def get_game_clips(self, game_id: str, *, since_hours: float = 24, limit: int = 100) -> list[Clip]:
+        """Clips les plus vus d'une catégorie, toutes chaînes confondues (même hors ligne)."""
+        return self.get_clips("", game_id=game_id, since_hours=since_hours, limit=limit)
+
+    def get_clips(self, broadcaster_id: str, *, since_hours: float = 24, limit: int = 100,
+                  game_id: str = "") -> list[Clip]:
         now = datetime.now(timezone.utc)
         params = {
-            "broadcaster_id": broadcaster_id,
+            **({"game_id": game_id} if game_id else {"broadcaster_id": broadcaster_id}),
             "started_at": (now - timedelta(hours=since_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "ended_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "first": min(limit, 100),

@@ -68,3 +68,41 @@ def test_discover_ranks_across_streamers(tmp_path):
                clip("z2", "zerator", 350, hours_ago=1)]})
     result = discover(tw, st, language="fr", top=2, min_views=50)
     assert [(c.id, login) for c, login in result] == [("z1", "zerator"), ("k1", "kamet0")]
+
+
+class FakeTwitchCategories(FakeTwitch):
+    """Lives + clips les plus vus par catégorie (chaînes hors ligne comprises)."""
+
+    def __init__(self, streams, clips, game_clips, logins):
+        super().__init__(streams, clips)
+        self.game_clips, self._logins = game_clips, logins
+
+    def get_game_clips(self, game_id, *, since_hours, limit):
+        return self.game_clips.get(game_id, [])
+
+    def logins(self, ids):
+        return {i: self._logins[i] for i in ids if i in self._logins}
+
+
+def test_discover_adds_viral_category_clips(tmp_path):
+    streams = [{"user_login": "petit", "user_id": "id-petit", "game_id": "jc",
+                "viewer_count": 900}]
+    small = [clip(f"p{i}", "petit", 40 + i) for i in range(3)]  # 40 vues : pas un moment fort
+    viral = [clip(f"v{i}", f"star{i}", 8000 - i * 500) for i in range(12)]
+    for i, c in enumerate(viral):
+        c.broadcaster_id = f"id-star{i}"
+    viral.append(clip("en", "anglais", 99999, lang="en"))
+    twitch = FakeTwitchCategories(streams, {"id-petit": small}, {"jc": viral},
+                                  {f"id-star{i}": f"star{i}" for i in range(12)})
+    found = discover(twitch, state(tmp_path), language="fr", streamers=5, top=3, min_views=0)
+    assert [login for _, login in found] == ["star0", "star1", "star2"]  # hors ligne compris
+    assert all(c.language == "fr" for c, _ in found)
+
+
+def test_standout_ignores_tiny_numbers():
+    from clipbot.discover import standout_score
+
+    clips = [clip("a", "petit", 10), clip("b", "petit", 12), clip("c", "petit", 11),
+             clip("d", "petit", 49)]
+    standout_score(clips)
+    assert clips[-1].standout < 2  # 49 vues contre ~11 : pas « hors norme »

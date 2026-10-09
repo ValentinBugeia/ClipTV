@@ -138,7 +138,7 @@ def jury_for(opts, language: str | None = None):
     return run
 
 
-def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
+def pick_best(candidates: list, sources: dict, top: int, jury=None, note=None) -> list:
     """Écoute les candidats [(clip, login)] et garde les ``top`` meilleurs.
 
     ``sources[clip.id]()`` renvoie le chemin de la vidéo téléchargée. Les vidéos écartées
@@ -146,6 +146,7 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
     ``jury(items)`` : avis de Claude {clip.id: {score, standalone, reason}} ; les clips
     sous la note minimale passent après tous les autres, mais complètent la sélection
     s'il en manque : on rend toujours ``top`` clips quand il y a assez de candidats.
+    ``note(clip)`` : note sur 10 (engagement attendu) ; si donnée, c'est elle qui classe.
     """
     from . import progress
 
@@ -180,9 +181,21 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None) -> list:
     below: list = []
     if jury is not None:
         scored, below = _apply_jury(scored, jury)
+    if note is not None:  # classement final : la note sur 10 (engagement attendu)
+        def with_note(entry):
+            try:
+                entry[1].note = note(entry[1])
+            except Exception:
+                log.warning("Note impossible pour %s", entry[1].id, exc_info=True)
+                entry[1].note = None
+            return (entry[1].note if entry[1].note is not None else entry[0], *entry[1:])
+        scored, below = [with_note(x) for x in scored], [with_note(x) for x in below]
+        for value, clip, _, _ in scored + below:
+            log.info("  Note %.1f/10 : %s", value, clip.title)
     scored.sort(key=lambda s: s[0], reverse=True)
     if len(scored) < top and below:  # pas assez de bons clips : les moins mauvais complètent
-        below.sort(key=lambda s: (s[1].jury or {}).get("score", 0), reverse=True)
+        below.sort(key=lambda s: s[0] if note is not None else
+                   (s[1].jury or {}).get("score", 0), reverse=True)
         extra = below[: top - len(scored)]
         log.info("Radar : %d clip(s) sous la note minimale ajouté(s) pour atteindre %d",
                  len(extra), top)

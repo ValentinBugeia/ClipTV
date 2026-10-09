@@ -51,7 +51,8 @@ def test_score_from_account_history(tmp_path):
     assert star["note"] > new["note"] > other["note"]
     assert 4.5 <= new["note"] <= 5.5  # streamer jamais publié : « comme d'habitude »
     assert any("Tes 3 TikTok de nico_la" in r for r in star["reasons"])
-    assert any("Vues attendues" in r for r in star["reasons"])
+    assert any("Engagement attendu" in r for r in star["reasons"])
+    assert star["estimate"]["views"] > other["estimate"]["views"]
 
 
 def test_on_tiktok_detects_existing_video(tmp_path):
@@ -105,3 +106,33 @@ def test_score_survives_text_where_number_expected(tmp_path):
     hist = potential.history(state)
     clip = {"channel": "a", "signals": sig(reaction="laugh", peak_at=2, jury="8")}
     assert 0 <= potential.score(clip, hist)["note"] <= 10
+
+
+def test_engagement_beats_raw_views(tmp_path):
+    """Même nombre de vues, mais beaucoup plus de partages et commentaires : meilleure note."""
+    state = make_state(tmp_path)
+    rows = [("a twitch.tv/engage", 1000, 120, 40, 30), ("b twitch.tv/engage", 1000, 110, 35, 25),
+            ("c twitch.tv/engage", 1000, 130, 45, 35), ("d twitch.tv/plat", 1000, 20, 0, 0),
+            ("e twitch.tv/plat", 1000, 15, 1, 0), ("f twitch.tv/plat", 1000, 18, 0, 1)]
+    state.save_videos([{"video_id": f"v{i}", "title": "", "description": d, "create_time": 1,
+                        "cover": None, "share_url": None, "views": v, "likes": l,
+                        "comments": c, "shares": s, "duration": 20, "clip_id": None}
+                       for i, (d, v, l, c, s) in enumerate(rows)])
+    hist = potential.history(state)
+    good = potential.score({"channel": "engage", "signals": sig()}, hist)
+    flat = potential.score({"channel": "plat", "signals": sig()}, hist)
+    assert good["note"] > flat["note"]
+    est = good["estimate"]
+    assert est["views"] > 0 and est["likes"] is not None and est["shares"] is not None
+
+
+def test_search_ranks_by_note():
+    from types import SimpleNamespace
+
+    from clipbot import selection
+
+    clips = [SimpleNamespace(id=c, title=c, audio=None) for c in ("a", "b", "c")]
+    notes = {"a": 4.0, "b": 8.5, "c": 6.0}
+    kept = selection.pick_best([(c, "x") for c in clips], {c.id: (lambda: None) for c in clips},
+                               2, note=lambda clip: notes[clip.id])
+    assert [c.id for c, _ in kept] == ["b", "c"]

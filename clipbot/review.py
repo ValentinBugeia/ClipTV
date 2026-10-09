@@ -217,6 +217,7 @@ PAGE = """<!doctype html>
   .pot .why {{ position:absolute; right:0; margin-top:6px; width:250px; background:rgba(26,26,35,.97);
     border:1px solid var(--r); border-radius:12px; padding:10px 12px; font-size:12px; box-shadow:0 20px 50px rgba(0,0,0,.6) }}
   .pot .why strong {{ color:var(--r) }}
+  .pot .est {{ margin-top:6px; font-size:13px; font-weight:700; color:var(--fg) }}
   .pot ul {{ margin:6px 0 0; padding-left:18px; color:var(--muted); font-size:12px }}
   .flash {{ padding:12px 16px; border-radius:12px; background:rgba(61,220,132,.1); border:1px solid rgba(61,220,132,.28);
             color:#c9f7da; margin-bottom:18px; animation:drop .35s ease-out }}
@@ -975,7 +976,13 @@ class Handler(BaseHTTPRequestHandler):
             for s, label in tab_list)
         if tab == "published":
             return self._published_page(tabs, tiktok_videos)
-        cards = "".join(self._card(c, manual=manual) for c in self.state.list(tab)) or \
+        clips = self.state.list(tab)
+        if tab == "rendered":  # les meilleures notes (engagement attendu) en premier
+            from . import potential
+
+            self._pot_hist = potential.history(self.state)
+            clips.sort(key=lambda c: potential.score(c, self._pot_hist)["note"], reverse=True)
+        cards = "".join(self._card(c, manual=manual) for c in clips) or \
             '<p class="empty">Rien ici pour le moment.</p>'
         info = e(f"Publication : {', '.join(PLATFORM_NAMES.get(p, p) for p in self.platforms)}"
                  f" · créneaux {', '.join(self.cfg.post_slots)} ({self.cfg.timezone})")
@@ -1269,9 +1276,19 @@ class Handler(BaseHTTPRequestHandler):
         p = potential.score(c, self._pot_hist)
         reasons = "".join(f"<li>{e(r)}</li>" for r in p["reasons"])
         tip = e(f"{p['rarity_label']} · " + " · ".join(p["reasons"]))
+        est = p.get("estimate")
+        estimate = ""
+        if est:  # engagement attendu sur TikTok pour ce clip
+            from .stats_page import compact
+
+            parts = [f"👁 {compact(est['views'])}"] + [
+                f"{icon} {compact(est[k])}" for k, icon in (("likes", "♥"), ("comments", "💬"),
+                                                           ("shares", "↗"))
+                if est.get(k) is not None]
+            estimate = f'<div class="est">Estimé sur TikTok : {e(" · ".join(parts))}</div>'
         return (f'<details class="pot r-{p["rarity"]}"><summary title="{tip}">'
                 f'{p["note"]:.1f}</summary><div class="why"><strong>{e(p["rarity_label"])} · '
-                f'{p["note"]:.1f}/10</strong><ul>{reasons}</ul></div></details>')
+                f'{p["note"]:.1f}/10</strong>{estimate}<ul>{reasons}</ul></div></details>')
 
     # ---------- page Aide ----------
     def _help_page(self):

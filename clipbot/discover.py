@@ -281,6 +281,12 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
     return [(c, owner[c.id]) for c in picked]
 
 
+def note_for(state):
+    from .potential import note_for as _note_for
+
+    return _note_for(state)
+
+
 def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tuple[str, bool]]:
     from . import progress
     from .pipeline import Prefetcher, process_clip
@@ -303,7 +309,8 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
     prefetch = Prefetcher(cfg, [clip for clip, _ in found])  # téléchargements anticipés
     try:
         found = selection.pick_best(found, {c.id: prefetch.source(c) for c, _ in found}, top,
-                                    jury=selection.jury_for(opts, kwargs.get("language")))
+                                    jury=selection.jury_for(opts, kwargs.get("language")),
+                                    note=note_for(state))
         for i, (clip, login) in enumerate(found, 1):
             progress.clip(i, len(found), f"{login} · {clip.title}")
             share = getattr(clip, "audience_share", None)

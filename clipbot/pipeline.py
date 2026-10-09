@@ -229,6 +229,12 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
 SAFE_BOTTOM = 400  # px (sur 1920) couverts par la description et les boutons de TikTok
 
 
+def potential_note(state):
+    from .potential import note_for
+
+    return note_for(state)
+
+
 def _hook_style(clip, category: str) -> dict:
     """Style de l'accroche : choisi par le Radar (thème + couleur du jeu), sinon d'après
     la catégorie Twitch."""
@@ -494,7 +500,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
             chosen = [c for c, _ in selection.pick_best(
                 [(c, channel) for c in shortlist],
                 {c.id: prefetch.source(c) for c in shortlist}, top,
-                jury=selection.jury_for(opts))]
+                jury=selection.jury_for(opts), note=potential_note(state))]
             for i, clip in enumerate(chosen, 1):
                 progress.clip(i, len(chosen), clip.title)
                 log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,

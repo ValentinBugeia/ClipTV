@@ -23,11 +23,6 @@ MEMORY_DAYS = 7        # un streamer repéré en live reste scanné 7 jours (mê
 MEMORY_KEY = "discovered"
 CATEGORY_KEY = "categories_seen"  # catégories vues dans les lives FR ces 7 derniers jours
 MEMORY_MAX = 120                  # chaînes gardées (les plus regardées)
-# gros streamers FR toujours scannés, même hors ligne et même si l'app n'a pas tourné la
-# veille : leurs clips de la nuit sont trouvés par une recherche du matin
-BIG_FR = ["gotaga", "squeezie", "kamet0", "zerator", "domingo", "locklear", "joueurdugrenier",
-          "inoxtag", "aminematue", "mistermv", "ponce", "etoiles", "sardoche", "michou",
-          "maghla", "baghera", "rivenzi", "lebouseuh", "antoinedaniellive", "mynthos"]
 
 
 def proven_channels(state, limit: int = 10) -> tuple[list[str], list[str]]:
@@ -83,12 +78,6 @@ def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
     memory = remember_streams(state, get_top_streams(twitch, language=language,
                                                      first=max(streamers, 100)))
     channels = {login: v["id"] for login, v in memory.items()}
-    if (language or "").startswith("fr"):
-        missing = [b for b in BIG_FR if b not in channels]
-        try:
-            channels.update(twitch.ids_for(missing) if missing else {})
-        except Exception:
-            log.warning("Gros streamers FR indisponibles", exc_info=True)
     # streamers qui marchent sur ton compte TikTok : toujours scannés ; ceux qui y font peu
     # de vues : écartés, sauf s'ils sont dans tes favoris
     good, bad = proven_channels(state)

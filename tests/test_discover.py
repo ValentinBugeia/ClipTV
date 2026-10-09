@@ -49,7 +49,7 @@ def test_pick_clips_one_per_streamer_and_language():
 
 def test_candidates_remember_recent_streamers(tmp_path):
     st = state(tmp_path)
-    old = time.time() - 4 * 86400
+    old = time.time() - 8 * 86400  # au-delà de 7 jours : oublié
     st.save_settings({"discovered": {"vieux": {"id": "1", "seen": old},
                                       "hier": {"id": "2", "seen": time.time() - 86400}}})
     tw = FakeTwitch([{"user_login": "Kamet0", "user_id": "3"}], {})

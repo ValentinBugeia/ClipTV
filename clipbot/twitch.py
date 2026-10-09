@@ -143,6 +143,15 @@ class TwitchClient:
             raise ValueError(f"Chaîne Twitch introuvable : {login}")
         return data[0]["id"]
 
+    def ids_for(self, logins) -> dict[str, str]:
+        """{login: id} des chaînes (par paquets de 100) ; les chaînes inconnues sont ignorées."""
+        names = [n.lower() for n in dict.fromkeys(logins) if n]
+        out: dict[str, str] = {}
+        for i in range(0, len(names), 100):
+            data = self._get("/users", [("login", x) for x in names[i:i + 100]])["data"]
+            out.update({u["login"]: u["id"] for u in data})
+        return out
+
     def logins(self, broadcaster_ids) -> dict[str, str]:
         """{id: login} des chaînes (par paquets de 100)."""
         ids = [i for i in dict.fromkeys(broadcaster_ids) if i]

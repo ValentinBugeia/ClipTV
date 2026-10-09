@@ -152,13 +152,14 @@ class Autopilot:
             return
         self._chat_synced = time.time()
         try:
-            from .discover import proven_channels
+            from .discover import proven_channels, remember_streams
             from .twitch import TwitchClient, get_top_streams
 
             twitch = TwitchClient(self.cfg.twitch_client_id, self.cfg.twitch_client_secret)
-            live = [s["user_login"] for s in get_top_streams(
-                twitch, language=settings.get("language") or None,
-                first=int(settings.get("streamers", 30)))]
+            streams = get_top_streams(twitch, language=settings.get("language") or None,
+                                      first=100)
+            remember_streams(self.state, streams)  # pour les recherches du lendemain matin
+            live = [s["user_login"] for s in streams[: int(settings.get("streamers", 30))]]
             wanted = set(live) | set(settings.get("channels") or []) \
                 | set(settings.get("live_channels") or []) | set(proven_channels(self.state)[0])
             self.chat.set_channels(wanted)

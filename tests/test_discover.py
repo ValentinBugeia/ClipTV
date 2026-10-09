@@ -55,7 +55,7 @@ def test_candidates_remember_recent_streamers(tmp_path):
     tw = FakeTwitch([{"user_login": "Kamet0", "user_id": "3"}], {})
     chans = candidate_channels(tw, st, language="fr", streamers=30, favorites=["perso"])
     assert chans == {"hier": "2", "kamet0": "3", "perso": "id-perso"}
-    assert tw.calls[0][1] == {"first": 30, "type": "live", "language": "fr"}
+    assert tw.calls[0][1] == {"first": 100, "type": "live", "language": "fr"}
     assert set(st.get_settings()["discovered"]) == {"hier", "kamet0"}
 
 
@@ -106,3 +106,21 @@ def test_standout_ignores_tiny_numbers():
              clip("d", "petit", 49)]
     standout_score(clips)
     assert clips[-1].standout < 2  # 49 vues contre ~11 : pas « hors norme »
+
+
+def test_morning_search_uses_last_night_categories(tmp_path):
+    """Relevé de la veille au soir (app ouverte) : à 8 h, plus aucun live dans la catégorie,
+    mais ses meilleurs clips des dernières 24 h sont quand même cherchés."""
+    from clipbot.discover import remember_streams
+
+    st = state(tmp_path)
+    remember_streams(st, [{"user_login": "soiree", "user_id": "id-soiree", "game_id": "gta",
+                           "viewer_count": 20000}])
+    viral = [clip(f"g{i}", f"rp{i}", 9000 - i * 300) for i in range(10)]
+    for i, c in enumerate(viral):
+        c.broadcaster_id = f"id-rp{i}"
+    morning = [{"user_login": "matin", "user_id": "id-matin", "viewer_count": 50}]  # pas de GTA
+    twitch = FakeTwitchCategories(morning, {}, {"gta": viral},
+                                  {f"id-rp{i}": f"rp{i}" for i in range(10)})
+    found = discover(twitch, st, language="fr", streamers=5, top=2, min_views=0)
+    assert [login for _, login in found] == ["rp0", "rp1"]

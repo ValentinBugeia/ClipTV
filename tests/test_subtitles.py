@@ -65,3 +65,11 @@ def test_strong_words_stand_out():
     first, second = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
     assert "{\\c&H000000FF}QUOI" in first                        # en couleur dans tout le bloc
     assert "{\\c&H000000FF\\fscx130\\fscy130" in second           # et grossit quand il est dit
+
+
+def test_hook_is_an_animated_sticker():
+    ass = build_ass([], hook="ELLE NE SAVAIT PAS")
+    back, front = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+    assert "\\3c&H007B4FFF" in back and "\\1a&HFF&" in back       # ombre rose seule
+    assert "\\3c&H0000E6FF" in front and "\\frz-2.5" in front      # encadré jaune penché
+    assert front.count("\\t(") >= 2 + 4                            # pop + mots un à un

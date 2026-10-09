@@ -217,9 +217,9 @@ def build_ass(
             hook_margin=hook_margin,
         )
     ]
-    if hook:  # bandeau noir, texte blanc : lisible sur n'importe quelle image
-        out.append(f"Dialogue: 1,{_ts(0)},{_ts(hook_seconds)},Hook,,0,0,0,,"
-                   f"{{\\fad(0,250)}}{_escape(hook)}\n")
+    if hook:
+        out += hook_events(hook, width=width, y=hook_margin, seconds=hook_seconds,
+                           box=highlight, shadow=strong or "#FF4F7B")
     hl = _ass_color(highlight)
     st = _ass_color(strong) if strong else None
     white = "&H00FFFFFF&"
@@ -249,6 +249,25 @@ def build_ass(
                 f"Dialogue: 0,{_ts(start)},{_ts(end)},Caption,,0,0,0,,{prefix}{' '.join(parts)}\n"
             )
     return "".join(out)
+
+
+def hook_events(hook: str, *, width: int, y: int, seconds: float, box: str = "#FFE600",
+                shadow: str = "#FF4F7B") -> list[str]:
+    """Accroche façon « sticker » TikTok : encadré jaune, texte noir, ombre rose décalée,
+    légèrement penché ; l'encadré surgit (pop) puis les mots apparaissent un à un."""
+    words = _escape(hook).split()
+    x = width // 2
+    pop = "\\fscx40\\fscy40\\t(0,140,\\fscx112\\fscy112)\\t(140,240,\\fscx100\\fscy100)"
+    common = f"\\frz-2.5{pop}\\fad(0,250)"
+    start, end = _ts(0), _ts(seconds)
+    # ombre : même texte invisible (seul son encadré rose se voit), décalée en bas à droite
+    back = (f"Dialogue: 1,{start},{end},Hook,,0,0,0,,{{\\pos({x + 12},{y + 14}){common}"
+            f"\\1a&HFF&\\3c{_ass_color(shadow)}}}{' '.join(words)}\n")
+    shown = " ".join(
+        f"{{\\1a&HFF&\\t({120 + i * 90},{180 + i * 90},\\1a&H00&)}}{w}" for i, w in enumerate(words))
+    front = (f"Dialogue: 2,{start},{end},Hook,,0,0,0,,{{\\pos({x},{y}){common}"
+             f"\\c&H00000000&\\3c{_ass_color(box)}}}{shown}\n")
+    return [back, front]
 
 
 def write_ass(words: list[Word], path: Path, **kwargs) -> Path:

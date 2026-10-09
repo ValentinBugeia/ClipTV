@@ -41,6 +41,12 @@ entends (n'invente rien) :
 - hashtags : 4 à 6 hashtags pertinents (jeu, streamer, type de moment), sans #fyp ;
 - overlay : texte affiché en gros pendant les 3 premières secondes, max 40 caractères,
   intrigant (pas le titre Twitch recopié) ;
+- hook_theme : style graphique de l'accroche à l'écran, d'après le jeu et l'ambiance des
+  images : pop (défaut, coloré), comic (bande dessinée, humour), cartoon (jeux colorés
+  type Fortnite), action (FPS, compétition), horror (jeu d'horreur, peur), retro (pixel,
+  Minecraft, jeux rétro), neon (ambiance sombre, soirée, néons) ;
+- hook_color : couleur vive emblématique du jeu ou dominante de la scène, en #RRGGBB
+  (ex. rouge Valorant #FF4655, violet Fortnite #9D4DFF, vert Minecraft #5BB33C) ;
 - reaction : le type de moment fort parmi laugh (fou rire), scream (peur, cri), rage,
   skull (fail, malaise absurde), cry (émotion, gênance), fire (exploit), none ;
 - moderation : vide, ou une phrase courte si TikTok risque de limiter la vidéo (insultes
@@ -68,9 +74,14 @@ SCHEMA = {
                                  "enum": ["laugh", "scream", "rage", "skull", "cry", "fire",
                                           "none", ""]},
                     "moderation": {"type": "string"},
+                    "hook_theme": {"type": "string",
+                                   "enum": ["pop", "comic", "cartoon", "action", "horror",
+                                            "retro", "neon", ""]},
+                    "hook_color": {"type": "string"},
                 },
                 "required": ["id", "score", "standalone", "reason", "hook", "question",
-                             "hashtags", "overlay", "reaction", "moderation"],
+                             "hashtags", "overlay", "reaction", "moderation", "hook_theme",
+                             "hook_color"],
                 "additionalProperties": False,
             },
         },
@@ -167,7 +178,9 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
                 "hashtags": [str(t) for t in (row.get("hashtags") or [])][:6],
                 "overlay": str(row.get("overlay") or "").strip()[:60],
                 "reaction": str(row.get("reaction") or ""),
-                "moderation": str(row.get("moderation") or "").strip()[:160]}
+                "moderation": str(row.get("moderation") or "").strip()[:160],
+                "hook_theme": str(row.get("hook_theme") or ""),
+                "hook_color": str(row.get("hook_color") or "")}
         except (KeyError, TypeError, ValueError):
             continue
     return out

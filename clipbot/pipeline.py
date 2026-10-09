@@ -88,7 +88,7 @@ def whisper_language(code: str | None) -> str | None:
 def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                  allow_split: bool = True, language: str | None = None, on_words=None,
                  title: str = "", info: dict | None = None, overlay: str = "",
-                 reaction: str = "") -> tuple[Path, list]:
+                 reaction: str = "", hook_style: dict | None = None) -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
 
     ``overlay`` / ``reaction`` : accroche à l'écran et type de réaction proposés par le juré.
@@ -197,7 +197,8 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         subs = write_ass(shown if opts.subtitles else [], dst.with_suffix(".ass"),
                          font=opts.font, highlight=opts.highlight,
                          margin_v=420 if layout == "split" else 560, hook=hook,
-                         hook_margin=((cam_height or 768) + 40) if layout == "split" else 260)
+                         hook_margin=((cam_height or 768) + 40) if layout == "split" else 260,
+                         hook_style=hook_style)
     elif opts.subtitles:
         log.info("Aucune parole détectée, pas de sous-titres.")
     log.info("Rendu vertical (%s) → %s", layout, dst)
@@ -220,6 +221,17 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         info.update(speech=len(words) >= 3, hook=bool(hook), burned=burned,
                     **speech_energy(words))
     return dst, words
+
+
+def _hook_style(clip, category: str) -> dict:
+    """Style de l'accroche : choisi par le Radar (thème + couleur du jeu), sinon d'après
+    la catégorie Twitch."""
+    from .hookstyle import resolve
+
+    verdict = getattr(clip, "jury", None) or {}
+    style = resolve(verdict.get("hook_theme"), verdict.get("hook_color"), category)
+    log.info("Accroche : style %s (%s, encadré %s)", style["theme"], style["font"], style["box"])
+    return style
 
 
 def subs_model(cfg: Config, opts: Options) -> str:
@@ -397,7 +409,8 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                          language=whisper_language(getattr(clip, "language", "")),
                          title=clip.title, on_words=write_caption, info=info,
                          overlay=(getattr(clip, "jury", None) or {}).get("overlay", ""),
-                         reaction=(getattr(clip, "jury", None) or {}).get("reaction", ""))
+                         reaction=(getattr(clip, "jury", None) or {}).get("reaction", ""),
+                         hook_style=_hook_style(clip, category))
         import json
 
         try:
@@ -412,7 +425,11 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "chat_spike": getattr(clip, "chat_spike", None),
                                       "jury": (getattr(clip, "jury", None) or {}).get("score"),
                                       "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
-                                      "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None})
+                                      "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None,
+                                      # choix du Radar gardés pour « Refaire le montage »
+                                      **{k: (getattr(clip, "jury", None) or {}).get(k) or None
+                                         for k in ("overlay", "reaction", "hook_theme",
+                                                   "hook_color")}})
         progress.step("caption")
         if "thread" in caption_job:
             caption_job["thread"].join()

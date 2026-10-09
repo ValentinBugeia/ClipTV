@@ -780,16 +780,21 @@ def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
         with _render_lock:
             from .twitch import is_non_gaming
 
-            info: dict = {}
-            render_video(src, Path(clip["output_path"]), app.cfg, opts,
-                         allow_split=not is_non_gaming(clip.get("category") or ""),
-                         title=clip.get("title") or "", info=info)
             import json
+
+            from .hookstyle import resolve
 
             try:  # garde les indices Twitch, met à jour ceux du montage
                 old = json.loads(clip.get("signals") or "{}")
             except ValueError:
                 old = {}
+            info: dict = {}
+            render_video(src, Path(clip["output_path"]), app.cfg, opts,
+                         allow_split=not is_non_gaming(clip.get("category") or ""),
+                         title=clip.get("title") or "", info=info,
+                         overlay=old.get("overlay") or "", reaction=old.get("reaction") or "",
+                         hook_style=resolve(old.get("hook_theme"), old.get("hook_color"),
+                                            clip.get("category") or ""))
             app.state.set_signals(clip["clip_id"], json.dumps({**old, **info}))
         error = None
     except Exception as exc:

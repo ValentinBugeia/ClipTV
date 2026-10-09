@@ -73,3 +73,17 @@ def test_hook_is_an_animated_sticker():
     assert "\\3c&H007B4FFF" in back and "\\1a&HFF&" in back       # ombre rose seule
     assert "\\3c&H0000E6FF" in front and "\\frz-2.5" in front      # encadré jaune penché
     assert front.count("\\t(") >= 2 + 4                            # pop + mots un à un
+
+
+def test_hook_style_follows_game():
+    from clipbot.hookstyle import resolve
+
+    assert resolve(category="Phasmophobia")["theme"] == "horror"
+    assert resolve(category="Minecraft")["font"] == "Press Start 2P"
+    v = resolve(category="VALORANT")
+    assert v["theme"] == "action" and v["box"] == "#FF4655" and v["text"] == "#FFFFFF"
+    radar = resolve("neon", "#ff00d4", "Just Chatting")  # choix du Radar prioritaire
+    assert radar["text"] == "#FF00D4" and radar["box"] == "#140A24"
+    assert resolve("inconnu", "pas une couleur", "")["theme"] == "pop"
+    ass = build_ass([], hook="BOUM", hook_style=v)
+    assert "\\fnAnton" in ass and "\\3c&H005546FF" in ass

@@ -144,3 +144,33 @@ def test_audience_share_levels_big_and_small_streamers():
     viewers = {"gros": 30000, "petit": 800}
     score = standout_score([big, small], lambda c: viewers[c.broadcaster_name])
     assert small.audience_share > 0.6 and score(small) > score(big)
+
+
+class FakeTwitchSearch(FakeTwitchCategories):
+    def _get(self, path, params):
+        if path == "/search/categories":
+            names = {"valorant": [{"id": "val", "name": "VALORANT"}],
+                     "just": [{"id": "jc", "name": "Just Chatting"}]}
+            return {"data": names.get(params["query"].lower().split()[0], [])}
+        return super()._get(path, params)
+
+    def get_broadcaster_id(self, login):
+        if login.lower() != "gotaga":
+            raise ValueError("introuvable")
+        return "id-gotaga"
+
+
+def test_free_text_search_resolves_channel_game_and_keyword(tmp_path):
+    from clipbot.discover import resolve_query
+
+    tw = FakeTwitchSearch([], {}, {}, {})
+    q = resolve_query(tw, ["Valorant", "gotaga", "fou rire", "just chat"])
+    assert q["games"] == {"val": "VALORANT", "jc": "Just Chatting"}
+    assert q["channels"] == {"gotaga": "id-gotaga"} and q["keywords"] == ["fou rire"]
+
+
+def test_channel_search_returns_several_clips_of_that_channel(tmp_path):
+    clips = [clip(f"g{i}", "Gotaga", 300 - i * 10, lang="en") for i in range(5)]
+    tw = FakeTwitchSearch([], {"id-gotaga": clips}, {}, {})
+    found = discover(tw, state(tmp_path), language="fr", top=3, min_views=0, query=["gotaga"])
+    assert [c.id for c, _ in found] == ["g0", "g1", "g2"]  # même chaîne, toute langue

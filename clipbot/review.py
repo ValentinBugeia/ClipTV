@@ -610,9 +610,10 @@ SEARCH = """<details class="panel">
 <summary>🔎 Recherche ponctuelle{claude}</summary>
 <form method="post" action="/search">
   <div class="grid">
-    <label class="full">Chaînes Twitch (laisse vide pour trouver seul les temps forts du moment)
-      <input name="channels" value="{channels}" placeholder="vide = découverte automatique"
-             autocapitalize="none" autocorrect="off"></label>
+    <label class="full">Rechercher : chaîne, jeu ou mot-clé, séparés par des virgules (vide =
+      les temps forts du moment)
+      <input name="channels" value="{channels}" placeholder="ex. gotaga, Valorant, fou rire"
+             autocapitalize="none" autocorrect="off" maxlength="300"></label>
     <label>Période <select name="hours">{hours}</select></label>
     <label>Clips par chaîne <input name="top" type="number" min="1" max="20" value="3"></label>
     {then_field}
@@ -715,21 +716,17 @@ def run_search(job: SearchJob, cfg: Config, state: State, opts: Options, channel
 
 
 def _run_search(job, cfg, state, opts, channels, hours, top, twitch) -> str:
-    from .pipeline import run_channels
+    """``channels`` : termes de la recherche libre (chaînes, jeux, mots-clés) ; vide =
+    temps forts du moment."""
+    from .autopilot import load_settings
+    from .discover import run_discovery
 
     started = time.time()
-    results: list[tuple[str, bool]] = []
-    if not channels:  # découverte automatique des temps forts
-        from .autopilot import load_settings
-        from .discover import run_discovery
-
-        lang = load_settings(state, cfg).get("language") or None
-        results = run_discovery(cfg, state, opts, twitch, language=lang, hours=hours, top=top,
-                                min_views=0)
-    for i, channel in enumerate(channels, 1):
-        job.message = f"Recherche en cours : {channel} ({i}/{len(channels)})…"
-        results += run_channels([channel], cfg, state, opts, twitch, hours=hours, top=top,
-                                min_views=0)
+    lang = load_settings(state, cfg).get("language") or None
+    if channels:
+        job.message = f"Recherche en cours : {', '.join(channels)}…"
+    results = run_discovery(cfg, state, opts, twitch, language=lang, hours=hours, top=top,
+                            min_views=0, query=channels or None)
     ok = sum(r[1] for r in results)
     ko = len(results) - ok
     if not results:
@@ -1973,9 +1970,9 @@ seront publiés en double. Les autres PC peuvent simplement ouvrir son adresse.<
                               "dans une minute environ.")
 
     def _search(self, form: dict[str, str]):
-        channels = _split_channels(form.get("channels", ""))
-        if not all(CHANNEL_RE.fullmatch(c) for c in channels):
-            return self._redirect("Nom de chaîne invalide → écris le nom tel qu'il apparaît dans l'adresse twitch.tv/nom (lettres, chiffres, _), ou laisse vide pour la découverte automatique.", err=True)
+        # recherche libre : chaînes, jeux ou mots-clés, séparés par des virgules
+        channels = [t.strip() for t in (form.get("channels", "") or "")[:300].split(",")
+                    if t.strip()][:10]
         try:
             hours = min(max(float(form.get("hours", 24)), 1), 24 * 30)
             top = min(max(int(form.get("top", 3)), 1), 20)

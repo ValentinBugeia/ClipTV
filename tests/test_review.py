@@ -143,14 +143,24 @@ def test_search_from_browser(server, monkeypatch):
             break
         time.sleep(0.05)
     assert "Recherche terminée : 2 clip(s) prêt(s)" in status
-    assert seen == {"channels": ["kamet0", "zerator"], "hours": 72.0, "top": 2,
+    assert seen == {"channels": ["Kamet0", "zerator"], "hours": 72.0, "top": 2,
                     "schedule": True, "ai": True}
 
 
-def test_search_rejects_bad_channel(server):
+def test_search_accepts_free_text(server, monkeypatch):
+    """Recherche libre (chaîne, jeu, mot-clé) : tout texte est accepté, sans danger."""
+    from clipbot import review
+
+    seen = {}
+    monkeypatch.setattr(review, "run_search", lambda job, cfg, state, opts, terms, h, t:
+                        seen.setdefault("terms", terms) and "ok")
     base, _ = server
-    body = _post(base + "/search", b"channels=%3Cscript%3E").read().decode()
-    assert "Nom de chaîne invalide" in body
+    body = _post(base + "/search",
+                 "channels=Just Chatting, fou rire, <script>".encode()).read().decode()
+    assert "<script>" not in body.split("<script>", 1)[0] or "&lt;script&gt;" not in body
+    import time
+    time.sleep(0.2)
+    assert seen["terms"] == ["Just Chatting", "fou rire", "<script>"]
 
 
 def test_auto_settings_saved_and_validated(server):

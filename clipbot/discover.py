@@ -185,13 +185,16 @@ TOP_CATEGORIES = 10
 
 
 def category_clips(twitch: TwitchClient, pool, state, *, language: str | None, hours: float,
-                   favorites=(), known=()) -> list[tuple[Clip, str]]:
+                   favorites=(), known=(), games: list[str] | None = None) -> list[tuple[Clip, str]]:
     """Clips les plus vus des catégories les plus regardées en ce moment (dans la langue),
-    y compris chez des streamers hors ligne : les vrais moments viraux de la journée."""
-    # catégories des 7 derniers jours (relevées en continu), pas seulement celles des lives
-    # en cours : à 8 h, celles de la veille au soir comptent
-    seen = state.get_settings().get(CATEGORY_KEY) or {}
-    games = sorted(seen, key=lambda g: seen[g].get("viewers", 0), reverse=True)[:TOP_CATEGORIES]
+    y compris chez des streamers hors ligne : les vrais moments viraux de la journée.
+    ``games`` : catégories imposées (recherche « Valorant »…) au lieu de celles du moment."""
+    if games is None:
+        # catégories des 7 derniers jours (relevées en continu), pas seulement celles des
+        # lives en cours : à 8 h, celles de la veille au soir comptent
+        seen = state.get_settings().get(CATEGORY_KEY) or {}
+        games = sorted(seen, key=lambda g: seen[g].get("viewers", 0),
+                       reverse=True)[:TOP_CATEGORIES]
     if not games:
         return []
 
@@ -234,6 +237,85 @@ def audience_of(state, owner: dict):
     return viewers
 
 
+def _plain(text: str) -> str:
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", text or "").lower()
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
+def resolve_query(twitch: TwitchClient, terms: list[str]) -> dict:
+    """Devine ce que chaque terme désigne : un jeu / une catégorie (nom exact), une chaîne
+    Twitch, un jeu au nom approchant, sinon un mot-clé à chercher dans les titres des clips."""
+    import re
+
+    out: dict = {"channels": {}, "games": {}, "keywords": []}
+    for term in (t.strip() for t in terms):
+        if not term:
+            continue
+        try:
+            cats = twitch._get("/search/categories", {"query": term, "first": 5})["data"]
+        except Exception:
+            cats = []
+        exact = next((c for c in cats if _plain(c["name"]) == _plain(term)), None)
+        if exact:
+            out["games"][exact["id"]] = exact["name"]
+            continue
+        if re.fullmatch(r"\w{2,25}", term):
+            try:
+                out["channels"][term.lower()] = twitch.get_broadcaster_id(term)
+                continue
+            except Exception:
+                pass
+        close = next((c for c in cats if len(term) >= 3 and _plain(term) in _plain(c["name"])),
+                     None)
+        if close:
+            out["games"][close["id"]] = close["name"]
+        else:
+            out["keywords"].append(term)
+    log.info("Recherche : chaînes %s · jeux %s · mots-clés %s", list(out["channels"]) or "—",
+             list(out["games"].values()) or "—", out["keywords"] or "—")
+    return out
+
+
+def query_pool(twitch: TwitchClient, pool, state, q: dict, *, language: str | None,
+               hours: float, streamers: int, favorites=()) -> tuple[list, dict]:
+    """Clips correspondant à la recherche : ceux des chaînes demandées, les plus vus des
+    jeux demandés, et pour les mots-clés, les clips du moment dont le titre les contient."""
+    clips, owner = [], {}
+
+    def fetch(item):
+        login, bid = item
+        try:
+            return login, twitch.get_clips(bid, since_hours=hours, limit=100)
+        except Exception:
+            log.warning("Clips indisponibles pour %s", login)
+            return login, []
+    for login, found in pool.map(fetch, q["channels"].items()):
+        for c in found:
+            owner[c.id] = login
+            clips.append(c)
+    if q["games"]:
+        for c, login in category_clips(twitch, pool, state, language=language, hours=hours,
+                                       favorites=favorites, known=owner,
+                                       games=list(q["games"])):
+            owner[c.id] = login
+            clips.append(c)
+    if q["keywords"]:  # mots-clés : dans les clips du moment (chaînes et catégories suivies)
+        words = [_plain(k) for k in q["keywords"]]
+        chans = candidate_channels(twitch, state, language=language, streamers=streamers,
+                                   favorites=favorites)
+        found = list(pool.map(fetch, chans.items()))
+        extra = category_clips(twitch, pool, state, language=language, hours=hours,
+                               favorites=favorites, known=owner)
+        pool_clips = [(c, login) for login, batch in found for c in batch] + extra
+        for c, login in pool_clips:
+            if c.id not in owner and any(w in _plain(c.title) for w in words):
+                owner[c.id] = login
+                clips.append(c)
+    return clips, owner
+
+
 def views_floor(clips: list[Clip], top: int, max_duration: float) -> int:
     """Vues minimum : 100 si le vivier a assez de clips au-dessus (un clip à 30 vues est
     rarement un moment fort), sinon 30."""
@@ -243,12 +325,33 @@ def views_floor(clips: list[Clip], top: int, max_duration: float) -> int:
 
 def discover(twitch: TwitchClient, state, *, language: str | None = "fr", streamers: int = 30,
              hours: float = 24, top: int = 3, min_views: int = 50, max_duration: float = 60,
-             favorites: list[str] = (), per_channel: int = 1) -> list[tuple[Clip, str]]:
-    """Retourne [(clip, login)] des meilleurs temps forts du moment."""
+             favorites: list[str] = (), per_channel: int = 1,
+             query: list[str] | None = None) -> list[tuple[Clip, str]]:
+    """Retourne [(clip, login)] des meilleurs temps forts du moment, ou de la recherche
+    ``query`` (chaînes, jeux ou mots-clés tapés dans « Recherche ponctuelle »)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    if query:
+        q = resolve_query(twitch, query)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            clips, owner = query_pool(twitch, pool, state, q, language=language, hours=hours,
+                                      streamers=streamers, favorites=favorites)
+        only_channels = bool(q["channels"]) and not q["games"] and not q["keywords"]
+        if only_channels:  # chaîne demandée : ses clips, quelle que soit la langue
+            per_channel, language = top, None
+        else:
+            per_channel = max(per_channel, 2)
+            min_views = max(min_views, views_floor(clips, top, max_duration))
+        picked = pick_clips(clips, top=top, per_channel=per_channel, min_views=min_views,
+                            max_duration=max_duration, language=language,
+                            is_done=state.is_done, on_tiktok=tiktok_check(state),
+                            boost=preselection_boost(state), audience=audience_of(state, owner))
+        log.info("Recherche « %s » : %d clips trouvés, %d retenus", ", ".join(query),
+                 len(clips), len(picked))
+        return [(c, owner[c.id]) for c in picked]
     channels = candidate_channels(twitch, state, language=language, streamers=streamers,
                                   favorites=favorites)
     log.info("Découverte : %d chaînes scannées (%s)", len(channels), language or "toutes langues")
-    from concurrent.futures import ThreadPoolExecutor
 
     def fetch(item):
         login, broadcaster_id = item

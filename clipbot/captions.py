@@ -51,7 +51,6 @@ FALLBACK_MOODS = ["🔥", "😂", "😱", "💀", "😭", "👀"]
 
 def title_mood(title: str) -> str:
     """Ambiance annoncée par le titre (emoji), ou "" si le titre n'en dit rien."""
-    import re
 
     low = (title or "").lower()
     for pattern, emoji in MOODS:
@@ -63,7 +62,6 @@ def title_mood(title: str) -> str:
 def mood_emoji(title: str, seed: str = "") -> str:
     """Emoji qui colle au titre du clip ; sinon un emoji varié (stable pour un même clip).
     Rien si le titre contient déjà un emoji."""
-    import re
     import unicodedata
     from zlib import crc32
 
@@ -113,7 +111,6 @@ DEFAULT_TAGS = ["twitchfr", "twitch", "streamerfr", "clip", "pourtoi", "fyp"]
 
 def clean_tag(text: str) -> str:
     """« Just Chatting » → « justchatting », « Pokémon » → « pokemon » (format hashtag)."""
-    import re
     import unicodedata
 
     text = unicodedata.normalize("NFKD", text or "")

@@ -75,12 +75,14 @@ def render(status: dict) -> str:
 
 <div class="panel" id="fonctionnement"><h2>Comment ça marche</h2>
 <div class="steps">
-  <div class="step"><b>1. Trouver</b>L'app regarde les lives Twitch les plus suivis et repère
-  les clips que les spectateurs partagent le plus en ce moment.</div>
-  <div class="step"><b>2. Monter</b>Elle télécharge le clip, le met au format téléphone
-  (vertical), cadre le streamer et ajoute des sous-titres animés.</div>
-  <div class="step"><b>3. Écrire</b>Elle prépare la légende avec des hashtags (par l'IA Claude
-  si tu as mis sa clé).</div>
+  <div class="step"><b>1. Trouver</b>L'app rassemble les clips Twitch de la période (streamers
+  repérés en live, même hors ligne depuis, et clips les plus vus des catégories du moment), puis
+  garde ceux qui font le plus réagir.</div>
+  <div class="step"><b>2. Trier</b>Le <strong>Radar</strong> (Claude) regarde et écoute les
+  meilleurs, écarte ceux qui ne marchent pas sans contexte, et les clips sont classés par
+  <strong>note</strong> (engagement attendu sur ton compte).</div>
+  <div class="step"><b>3. Monter</b>Format vertical, cadrage sur le streamer, sous-titres
+  animés, accroche au style du jeu, emoji sur la réaction, description et hashtags.</div>
   <div class="step"><b>4. Publier</b>Dans <em>Clips → À publier</em>, <strong>🚀 Préparer</strong>
   télécharge la vidéo, copie la description et ouvre TikTok Studio : glisse la vidéo, colle la
   description, publie, puis clique <strong>✔ Publié</strong>.</div>
@@ -132,8 +134,9 @@ ouverte et le PC allumé pendant que l'app travaille.</p></div>
   (Ctrl+L puis Ctrl+C), colle-la dans cliptv et clique sur <strong>Valider</strong>, tout de suite
   (le code n'est valable que quelques instants).</li>
 </ol>
-<div class="note">Tant que TikTok n'a pas validé ton app, les vidéos arrivent <strong>en
-brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où tu publies d'un tap.</div></div>
+<div class="note">La connexion TikTok sert aux <strong>statistiques</strong> (note des clips, ce
+qui marche) et à repérer les clips déjà publiés. Tant que TikTok n'a pas validé ton app, tu
+publies toi-même depuis TikTok Studio (bouton <strong>🚀 Préparer</strong>).</div></div>
 
 <div class="panel" id="claude"><h2>Claude (facultatif)</h2>
 <ol>
@@ -157,8 +160,11 @@ brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où 
 </ul>
 <h3>Sous chaque clip</h3>
 <ul>
-  <li>La <strong>note sur 10</strong> en haut à droite : le potentiel du clip sur ton compte
-  (clique dessus pour le détail).</li>
+  <li>La <strong>note sur 10</strong> en haut à droite : l'engagement attendu sur ton compte
+  (clique dessus pour le détail : vues, j'aime, commentaires et partages estimés, avis du
+  Radar). Les clips sont triés par note.</li>
+  <li><strong>👁 Aperçu TikTok</strong> sur la vidéo : l'interface de TikTok par-dessus, pour
+  vérifier que rien ne cache les sous-titres.</li>
   <li><strong>🚀 Préparer</strong> : télécharge la vidéo, copie la description et ouvre TikTok
   Studio. Il ne reste qu'à glisser la vidéo (dossier Téléchargements) et coller (Ctrl+V).</li>
   <li><strong>✔ Publié</strong> : une fois en ligne, pour ranger le clip dans « Publiés ».</li>
@@ -168,9 +174,14 @@ brouillon</strong> : une notification dans l'app TikTok de ton téléphone, où 
   cadrage, avec ou sans sous-titres) ou rejeter.</li>
   <li>Tu peux <strong>modifier la description</strong> dans la zone de texte avant de préparer.</li>
 </ul>
+<h3>Recherche ponctuelle</h3>
+<p>Laisse la case vide pour les temps forts du moment, ou tape une <strong>chaîne</strong>, un
+<strong>jeu</strong> ou un <strong>mot-clé</strong>, séparés par des virgules (ex.
+<code>gotaga, Valorant, fou rire</code>). Chaque nouvelle recherche remplace « À publier » ;
+les anciens clips vont dans « Historique ».</p>
 <h3>Pendant une recherche</h3>
-<p>Un panneau au centre montre chaque étape. <strong>Masquer</strong> le cache,
-<strong>⏹ Arrêter</strong> stoppe tout de suite (les clips déjà prêts sont gardés).</p>
+<p>L'étape en cours s'affiche en haut à droite ; clique dessus pour le détail.
+<strong>⏹</strong> arrête tout de suite (les clips déjà prêts sont gardés).</p>
 <h3>Lancer l'app</h3>
 <p>Dans un terminal : <code>cd ~/cliptv &amp;&amp; git pull &amp;&amp; ./cliptv.sh</code> (le
 <code>git pull</code> installe les dernières améliorations). Puis ouvre
@@ -185,36 +196,21 @@ souvent, une clé a été mal copiée (espace en trop, caractère manquant) : re
 Le code reçu sur la page de retour ne dure que quelques instants et ne sert qu'une fois. Reclique
 sur <strong>Connecter</strong>, accepte, puis colle tout de suite la nouvelle adresse et clique
 une seule fois sur <strong>Valider</strong>.</div></details>
-<details class="faq"><summary>ClipTV dit « publié » mais rien n'arrive dans TikTok</summary><div>
-Tant que TikTok n'a pas <strong>validé ton app</strong> (elle est en Sandbox), TikTok accepte les
-vidéos mais ne les livre que si ton compte est <strong>privé</strong>. Avec un compte public, rien
-n'arrive, sans message d'erreur. Pour publier automatiquement sur un compte public, il faut faire
-valider l'app par TikTok (developers.tiktok.com → ton app → Production → envoi en validation).
-</div></details>
-<details class="faq"><summary>Je veux voir mes vidéos sur PC, pas seulement sur le téléphone</summary><div>
-Les brouillons TikTok ne s'ouvrent que dans l'app du téléphone. Pour tout gérer depuis le PC :
-<a href="/accounts">Comptes</a> → ligne TikTok → « Les vidéos arrivent <strong>en privé sur ton
-profil</strong> » → OK. Ensuite : sur developers.tiktok.com, dans Content Posting API, active
-<strong>Direct Post</strong> (scope <code>video.publish</code>) ; passe ton compte TikTok en
-<strong>privé</strong> (obligatoire tant que TikTok n'a pas validé ton app) ; puis
-<strong>Reconnecter</strong> TikTok. Les vidéos apparaissent alors en privé sur ton profil, sur
-tiktok.com : ouvre-en une → ⋯ → Paramètres de confidentialité pour la rendre publique.</div></details>
-<details class="faq"><summary>J'ai publié mais je ne vois pas la vidéo sur mon profil TikTok</summary><div>
-C'est normal en mode brouillon : la vidéo est dans les <strong>notifications de l'app TikTok</strong>
-sur ton téléphone. Ouvre-la et publie-la d'un tap.</div></details>
 <details class="faq"><summary>La vidéo n'a pas de son (badge 🔇)</summary><div>
 Twitch a fourni le clip sans piste audio. Rejette-le (menu ⋯ → Rejeter) ; les prochains clips sont
 vérifiés automatiquement.</div></details>
 <details class="faq"><summary>Les sous-titres apparaissent en double</summary><div>
-Le streamer affichait déjà ses propres sous-titres. Menu ⋯ → <strong>Refaire le montage</strong>,
-décoche <strong>Sous-titres</strong>. Pour tous les clips : Pilote auto → décoche « Ajouter des
-sous-titres animés ».</div></details>
+ClipTV repère les streams qui ont déjà leurs sous-titres (il n'en ajoute pas, et les garde
+au-dessus de la description TikTok), mais il peut en rater. Menu ⋯ → <strong>Refaire le
+montage</strong>, décoche <strong>Sous-titres</strong>.</div></details>
 <details class="faq"><summary>Le cadrage n'est pas bon (mauvais visage, découpage inutile)</summary><div>
 Menu ⋯ → <strong>Refaire le montage</strong> → choisis <strong>Zoom plein écran</strong> (ou une
 autre option) → Refaire.</div></details>
 <details class="faq"><summary>La recherche est longue</summary><div>
-Compte 1 à 3 minutes par clip (l'étape en cours s'affiche en haut à droite ; clique dessus pour le détail). La toute première
-fois, l'app télécharge le modèle de transcription (environ 500 Mo) : quelques minutes de plus.</div></details>
+Compte 1 à 3 minutes par clip sur un PC récent, plus sur un PC ancien (l'étape en cours
+s'affiche en haut à droite ; clique dessus pour le détail). Sur un PC lent, ClipTV s'adapte
+seul (transcription plus légère). Branche le portable sur le secteur. La toute première fois,
+l'app télécharge les modèles de transcription : quelques minutes de plus.</div></details>
 <details class="faq"><summary>Un clip n'a pas pu être monté</summary><div>
 Il n'apparaît pas dans « À publier » : la cause est notée dans le journal de la fenêtre du
 lanceur. ClipTV pourra le reproposer lors d'une prochaine recherche.</div></details>

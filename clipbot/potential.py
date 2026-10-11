@@ -84,15 +84,6 @@ def _group_factor(values: list[int], overall: float) -> float | None:
     return math.exp(log_ratio * weight)
 
 
-def _ratio_points(values: list[int], overall: float, max_points: float) -> float | None:
-    """Points selon la moyenne d'un groupe par rapport à la moyenne générale (×0,25 → 0,
-    ×1 → moitié, ×4 → tout)."""
-    if len(values) < 2 or overall <= 0:
-        return None
-    ratio = max(sum(values) / len(values), 1) / overall
-    return max_points * min(max((math.log(ratio, 4) + 1) / 2, 0), 1)
-
-
 def _start_score(sig: dict, reasons: list[str]) -> float:
     """Note sur 10 sans historique : élan Twitch (vues/h, clip hors norme) + format."""
     vph = float(sig.get("vph") or 0)

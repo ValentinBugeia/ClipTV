@@ -22,7 +22,6 @@ import html
 import json
 import logging
 import mimetypes
-import os
 import re
 import secrets
 import threading
@@ -507,7 +506,6 @@ ICONS = {
     "/accounts": _SVG.format('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/>'),
     "/help": _SVG.format('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.5M12 17h.01"/>'),
 }
-STUDIO = "studio"  # ancien onglet « TikTok Studio » (redirige vers « À publier »)
 AUTO_PUBLISH = "auto_publish"  # publication / programmation par ClipTV (app validée par TikTok)
 MANUAL_TABS = [("rendered", "À publier"), ("published", "Publiés"), ("rejected", "Historique")]
 TABS = [("rendered", "À valider"), ("scheduled", "Programmés"), ("publishing", "Envoi en cours"),

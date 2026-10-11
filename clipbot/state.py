@@ -119,10 +119,6 @@ class State:
         row = self.get(clip_id)
         return row is not None and row["status"] in DONE_STATUSES
 
-    def is_published(self, clip_id: str) -> bool:
-        row = self.get(clip_id)
-        return row is not None and row["status"] == "published"
-
     def list(self, status: str | None = None) -> list[dict]:
         order = "scheduled_at ASC" if status == "scheduled" else "updated_at DESC"
         with self.lock:

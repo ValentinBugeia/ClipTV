@@ -31,7 +31,6 @@ class Config:
     whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", "small"))
     whisper_device: str = field(default_factory=lambda: _env("WHISPER_DEVICE", "auto"))
 
-    llm_model: str = field(default_factory=lambda: _env("CLIPBOT_LLM_MODEL", "claude-opus-5-5"))
 
     youtube_client_id: str | None = field(default_factory=lambda: _env("YOUTUBE_CLIENT_ID"))
     youtube_client_secret: str | None = field(

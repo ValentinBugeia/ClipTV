@@ -100,7 +100,6 @@ class Autopilot:
         self.stop = threading.Event()
         self.wake = threading.Event()
         self.force = False
-        self.searching = False
         self.message = "Démarrage…"
         self.last_run: float | None = None
         self.next_run: float | None = None
@@ -231,7 +230,6 @@ class Autopilot:
             return
         from . import progress
 
-        self.searching = True
         progress.begin("Pilote automatique")
         try:
             twitch = TwitchClient(self.cfg.twitch_client_id, self.cfg.twitch_client_secret)
@@ -265,12 +263,11 @@ class Autopilot:
             verb = {"publish": "publié(s)", "manual": "prêt(s) à publier"}.get(
                 settings["then"], "programmé(s)")
             self.message = f"Dernière recherche : {done} nouveau(x) clip(s) {verb}"
-            if errors:  # visible sur la page ; détail de chaque clip dans l'onglet Erreurs
+            if errors:  # visible sur la page ; détail de chaque clip dans le journal
                 self.message += " · ⚠️ " + " | ".join(errors[:2])
         except progress.Cancelled:  # bouton « Arrêter » : prochaine recherche à l'heure prévue
             self.message = "Recherche arrêtée"
         finally:
-            self.searching = False
             progress.end(self.message)
 
     def _pending(self, settings: dict) -> int:

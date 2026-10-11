@@ -2,21 +2,26 @@
 
 Une app web qui tourne **toute seule, de A à Z** :
 
-1. **trouve tout seul les temps forts** du moment sur Twitch : il scanne les streams les
-   plus regardés dans ta langue et garde les clips qui montent le plus vite (aucune
-   chaîne à renseigner), et peut aussi clipper les **pics de chat** des lives de ton choix ;
-2. les monte au **format téléphone 9:16**, cadrés sur la facecam, avec des
-   **sous-titres animés** (style TikTok, mot en cours surligné) ;
-3. écrit l'**accroche et les hashtags** avec Claude ;
-4. les publie sur **TikTok, YouTube Shorts et Instagram Reels** aux **heures de forte
-   audience** que tu as choisies.
+1. **trouve les temps forts** sur Twitch : clips des streamers repérés en live (même hors
+   ligne depuis), clips les plus vus des catégories du moment, ou recherche libre (chaîne,
+   jeu, mot-clé) ; présélection sur l'engagement (élan des vues, part de l'audience, pic du
+   chat, clip hors norme) ;
+2. **le Radar** (Claude, via ton abonnement Claude Code) regarde et écoute les candidats,
+   écarte ceux qui ne marchent pas sans contexte, et les clips sont classés par une **note
+   sur 10** = engagement attendu sur ton compte TikTok (vues, j'aime, commentaires,
+   partages) ;
+3. les monte au **format téléphone 9:16**, cadrés sur la facecam, avec **sous-titres
+   animés** (mots forts en couleur), accroche au style du jeu, emoji sur la réaction ;
+4. écrit la **description et les hashtags** ; tu publies depuis **TikTok Studio** en un
+   clic (🚀 Préparer). La publication automatique (TikTok, YouTube Shorts, Instagram Reels)
+   reste disponible une fois l'app TikTok validée.
 
 Tout se pilote **depuis le navigateur**, sur ordinateur comme sur téléphone : réglages,
 suivi en direct, connexion des comptes, et si tu veux, validation ou annulation d'un clip.
 
 ```
 Twitch (clips + chat des lives) ─► yt-dlp ─► cadrage visage ─► Whisper ─► ffmpeg 9:16 + sous-titres
-        ─► légende Claude ─► programmation sur créneaux ─► TikTok · YouTube Shorts · Instagram Reels
+        ─► Radar Claude (tri + description) ─► note (engagement attendu) ─► TikTok Studio
 ```
 
 ## Installation sur un PC (Windows, Mac, Linux)
@@ -75,8 +80,8 @@ Ensuite, **tout se passe dans le navigateur** :
 - **Pilote auto** : il est **activé par défaut** et trouve seul les clips ; tu peux
   changer la langue, ajouter des chaînes favorites ou des lives à surveiller, et choisir
   les heures de publication ;
-- **Clips** : suis ce qui est prêt, programmé ou publié, modifie une légende, annule un
-  clip, ou lance une recherche ponctuelle.
+- **Clips** : « À publier » (dernière recherche, triée par note), « Publiés » (tes vidéos
+  TikTok), « Historique » ; modifie une description, aperçu TikTok, recherche ponctuelle.
 - **Statistiques** : vues, j'aime, commentaires, partages et engagement de tes vidéos
   TikTok, meilleures vidéos, et vues moyennes par streamer, par catégorie et par heure
   de publication (pour choisir les streamers et les créneaux). Nécessite le produit
@@ -171,7 +176,18 @@ clipbot/
   autopilot.py  pilote automatique (recherche périodique + surveillance des lives)
   stats.py      statistiques TikTok (récupération, lien avec les clips, agrégats)
   stats_page.py page Statistiques
-  discover.py   découverte des temps forts (top streams → clips classés par vues/heure)
+  discover.py   découverte des temps forts (streamers mémorisés, catégories, recherche libre)
+  selection.py  présélection et choix final (écoute, Radar, note)
+  jury.py       le Radar : Claude regarde et note les clips, écrit leur publication
+  llm.py        appels à Claude via Claude Code (abonnement)
+  claude_usage.py  tokens et limites de l'abonnement Claude
+  potential.py  note sur 10 (engagement attendu sur ton compte)
+  insights.py   « ce qui marche sur ton compte »
+  enhance.py    accroche, coupes, zoom, emoji, sous-titres déjà incrustés
+  hookstyle.py  style de l'accroche selon le jeu
+  socials.py    compte TikTok des streamers (@)
+  audience.py   grille d'affluence TikTok
+  progress.py   progression de la recherche (en haut à droite)
   schedule.py   créneaux de publication + planificateur
   pipeline.py   traitement d'un clip et publication multi-plateformes
   watcher.py    surveillance d'un live (attente, chat, création de clips)
@@ -186,7 +202,7 @@ clipbot/
   instagram.py  Instagram Reels : upload resumable, publication
   doctor.py     diagnostic de l'installation et des connexions
   localkeys.py  clés API et mot de passe saisis dans l'interface
-  fonts.py      téléchargement de la police des sous-titres
+  fonts.py      téléchargement des polices (sous-titres, accroches)
   state.py      historique SQLite + réglages
   cli.py        commandes
 cliptv-windows.bat, cliptv-mac.command, cliptv.sh   lanceurs en double-clic

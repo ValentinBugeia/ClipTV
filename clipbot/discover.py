@@ -72,12 +72,62 @@ def remember_streams(state, streams: list[dict]) -> dict:
     return memory
 
 
+RECENT_CHANNELS = 60  # streamers ayant diffusé récemment (rediffusions) ajoutés au scan
+
+
+def recent_broadcasters(twitch: TwitchClient, state, *, language: str | None,
+                        hours: float) -> dict[str, str]:
+    """{login: id} des streamers qui ont diffusé sur la période (dans la langue), d'après
+    les rediffusions des catégories principales triées par vues : la veille au soir est
+    couverte même si l'app était fermée et que la chaîne est hors ligne maintenant."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    seen = state.get_settings().get(CATEGORY_KEY) or {}
+    games = sorted(seen, key=lambda g: seen[g].get("viewers", 0), reverse=True)[:TOP_CATEGORIES]
+    if len(games) < TOP_CATEGORIES:  # app récente : catégories les plus regardées de Twitch
+        try:
+            games += [g["id"] for g in twitch._get("/games/top", {"first": 20})["data"]
+                      if g["id"] not in games][: TOP_CATEGORIES * 2 - len(games)]
+        except Exception:
+            log.warning("Catégories Twitch indisponibles", exc_info=True)
+    if not games:
+        return {}
+    period = "day" if hours <= 24 else "week" if hours <= 24 * 7 else "month"
+
+    def fetch(game_id):
+        params = {"game_id": game_id, "period": period, "sort": "views", "type": "archive",
+                  "first": 100, **({"language": language} if language else {})}
+        try:
+            return twitch._get("/videos", params)["data"]
+        except Exception:
+            log.warning("Rediffusions de la catégorie %s indisponibles", game_id)
+            return []
+    views: dict[str, int] = {}
+    ids: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for batch in pool.map(fetch, games):
+            for v in batch:
+                login = (v.get("user_login") or "").lower()
+                if login and v.get("user_id"):
+                    views[login] = views.get(login, 0) + int(v.get("view_count") or 0)
+                    ids[login] = v["user_id"]
+    top = sorted(views, key=views.get, reverse=True)[:RECENT_CHANNELS]
+    log.info("Rediffusions : %d streamers ont diffusé sur la période (%d catégories)",
+             len(top), len(games))
+    return {login: ids[login] for login in top}
+
+
 def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
-                       streamers: int, favorites: list[str] = ()) -> dict[str, str]:
-    """{login: broadcaster_id} des chaînes à scanner."""
+                       streamers: int, favorites: list[str] = (),
+                       hours: float = 24) -> dict[str, str]:
+    """{login: broadcaster_id} des chaînes à scanner : lives en cours, streamers mémorisés
+    (7 jours) et streamers qui ont diffusé sur la période (rediffusions)."""
     memory = remember_streams(state, get_top_streams(twitch, language=language,
                                                      first=max(streamers, 100)))
     channels = {login: v["id"] for login, v in memory.items()}
+    for login, bid in recent_broadcasters(twitch, state, language=language,
+                                          hours=hours).items():
+        channels.setdefault(login, bid)
     # streamers qui marchent sur ton compte TikTok : toujours scannés ; ceux qui y font peu
     # de vues : écartés, sauf s'ils sont dans tes favoris
     good, bad = proven_channels(state)
@@ -304,7 +354,7 @@ def query_pool(twitch: TwitchClient, pool, state, q: dict, *, language: str | No
     if q["keywords"]:  # mots-clés : dans les clips du moment (chaînes et catégories suivies)
         words = [_plain(k) for k in q["keywords"]]
         chans = candidate_channels(twitch, state, language=language, streamers=streamers,
-                                   favorites=favorites)
+                                   favorites=favorites, hours=hours)
         found = list(pool.map(fetch, chans.items()))
         extra = category_clips(twitch, pool, state, language=language, hours=hours,
                                favorites=favorites, known=owner)
@@ -350,7 +400,7 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
                  len(clips), len(picked))
         return [(c, owner[c.id]) for c in picked]
     channels = candidate_channels(twitch, state, language=language, streamers=streamers,
-                                  favorites=favorites)
+                                  favorites=favorites, hours=hours)
     log.info("Découverte : %d chaînes scannées (%s)", len(channels), language or "toutes langues")
 
     def fetch(item):

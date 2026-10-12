@@ -174,3 +174,29 @@ def test_channel_search_returns_several_clips_of_that_channel(tmp_path):
     tw = FakeTwitchSearch([], {"id-gotaga": clips}, {}, {})
     found = discover(tw, state(tmp_path), language="fr", top=3, min_views=0, query=["gotaga"])
     assert [c.id for c, _ in found] == ["g0", "g1", "g2"]  # même chaîne, toute langue
+
+
+class FakeTwitchVods(FakeTwitch):
+    """Aucun live le matin, mémoire vide (app fermée la veille), mais Twitch liste les
+    rediffusions FR d'hier soir."""
+
+    def _get(self, path, params):
+        self.calls.append((path, params))
+        if path == "/streams":
+            return {"data": []}
+        if path == "/games/top":
+            return {"data": [{"id": "jc", "name": "Just Chatting"}]}
+        if path == "/videos":
+            assert params["language"] == "fr" and params["period"] == "day"
+            return {"data": [{"user_login": "Gotaga", "user_id": "id-gotaga", "view_count": 90000},
+                             {"user_login": "petit", "user_id": "id-petit", "view_count": 300}]}
+        return {"data": []}
+
+
+def test_morning_search_finds_last_night_streams_with_app_closed(tmp_path):
+    clips = {"id-gotaga": [clip("hier", "Gotaga", 6000, hours_ago=10)],
+             "id-petit": [clip("p", "petit", 150, hours_ago=11)]}
+    tw = FakeTwitchVods([], clips)
+    found = discover(tw, state(tmp_path), language="fr", streamers=30, hours=24, top=1,
+                     min_views=0)
+    assert [(c.id, login) for c, login in found] == [("hier", "gotaga")]

@@ -452,7 +452,7 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
 
     top = int(kwargs.pop("top", 3))
     # présélection large (données Twitch), puis écoute pour ne garder que les meilleurs
-    radar = selection.jury_for(opts, kwargs.get("language"))
+    radar = selection.jury_for(opts, kwargs.get("language"), state=state)
     size = selection.shortlist_size(top, radar=radar is not None)
     # avec le Radar : deux fois plus de candidats, la 2e moitié n'est regardée que s'il
     # manque des clips publiables dans la 1re
@@ -462,27 +462,30 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
         progress.step("search", "Aucun nouveau clip assez viral pour le moment")
     found, reserve = found[:size], found[size:]
     twitch.annotate_categories([clip for clip, _ in found])
-    prefetch = Prefetcher(cfg, [clip for clip, _ in found])  # téléchargements anticipés
+    # téléchargements anticipés (versions légères ; rien pour les clips déjà jugés)
+    prefetch = Prefetcher(cfg, selection.to_download([c for c, _ in found], radar),
+                          max_duration=opts.max_duration)
     prefetches = [prefetch]
 
     def more():
         if not reserve:
             return None
         twitch.annotate_categories([clip for clip, _ in reserve])
-        extra = Prefetcher(cfg, [clip for clip, _ in reserve])
+        extra = Prefetcher(cfg, selection.to_download([c for c, _ in reserve], radar),
+                           max_duration=opts.max_duration)
         prefetches.append(extra)
         return reserve, {c.id: extra.source(c) for c, _ in reserve}
     try:
         found = selection.pick_best(found, {c.id: prefetch.source(c) for c, _ in found}, top,
                                     jury=radar, note=note_for(state), more=more)
+        prefetch.prepare([clip for clip, _ in found])  # 1080p des clips retenus, en parallèle
         for i, (clip, login) in enumerate(found, 1):
             progress.clip(i, len(found), f"{login} · {clip.title}")
             share = getattr(clip, "audience_share", None)
             log.info("→ %s · %s (%d vues%s) %s", login, clip.title, clip.view_count,
                      f", vu par {share:.0%} de ses spectateurs" if share else "", clip.url)
             try:
-                source = next((p.source(clip) for p in prefetches if p.source(clip)), None)
-                ok = process_clip(clip, login, cfg, state, opts, source=source)
+                ok = process_clip(clip, login, cfg, state, opts, source=prefetch.final(clip))
             except Exception:
                 log.exception("Erreur sur %s", clip.id)
                 ok = False

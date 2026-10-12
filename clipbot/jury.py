@@ -225,6 +225,31 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
 
 
 MAX_ADD = 20.0  # secondes récupérables au plus de chaque côté
+CACHE_KEY = "radar_cache"   # avis déjà donnés : un clip n'est jugé qu'une fois
+CACHE_TTL = 3 * 86400
+
+
+def remembered(state) -> dict:
+    """{clip_id: {verdict, audio}} des clips jugés ces 3 derniers jours."""
+    import time
+
+    now = time.time()
+    return {k: v for k, v in (state.get_settings().get(CACHE_KEY) or {}).items()
+            if now - v.get("at", 0) < CACHE_TTL}
+
+
+def remember(state, verdicts: dict, clips) -> None:
+    import time
+
+    if not verdicts:
+        return
+    cache = remembered(state)
+    now = int(time.time())
+    for clip in clips:
+        if clip.id in verdicts:
+            cache[clip.id] = {"verdict": verdicts[clip.id], "at": now,
+                              "audio": getattr(clip, "audio", None)}
+    state.save_settings({CACHE_KEY: cache})
 
 
 def vod_available(clip) -> bool:

@@ -65,7 +65,7 @@ def test_prefetch_wait_stops_on_cancel(monkeypatch):
 
     release = threading.Event()
     monkeypatch.setattr("clipbot.download.download_clip",
-                        lambda url, d, cid: release.wait(5) and "fichier")
+                        lambda url, d, cid, *a: release.wait(5) and "fichier")
     clip = type("C", (), {"id": "c1", "url": "u"})()
     pre = Prefetcher(type("Cfg", (), {"downloads_dir": "/tmp"})(), [clip])
     progress.begin("test")

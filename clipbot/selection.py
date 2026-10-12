@@ -24,10 +24,10 @@ MAX_SHORTLIST = 12
 
 
 def shortlist_size(top: int, radar: bool = False) -> int:
-    """Clips présélectionnés (téléchargés et écoutés) : 3 par clip gardé, pour que le
-    Radar trouve assez de bons clips (10 au plus avec lui : un seul appel à Claude)."""
+    """Clips présélectionnés (téléchargés et écoutés). Avec le Radar : 2 par clip demandé
+    (8 au plus) ; une 2e tournée n'a lieu que s'il manque des clips publiables."""
     if radar:
-        return min(max(top * 3, top), 10)
+        return min(max(top * 2, top + 1), 8)
     return min(max(top * SHORTLIST, top), MAX_SHORTLIST)
 
 
@@ -94,8 +94,10 @@ def chat_factor(state, clip) -> float:
 
 
 def audio_profile(video: Path) -> dict:
-    """{reaction, peak_at, duration} : force du pic de son (× le niveau habituel du clip)
-    et seconde où il arrive."""
+    """{reaction, peak_at, duration, cut_start, cut_end} : force du pic de son (× le niveau
+    habituel du clip), seconde où il arrive, et si le clip semble démarrer ou finir en
+    pleine action (son fort dès la première demi-seconde / jusqu'à la dernière, ou pic
+    tout à la fin : la réaction est coupée). Sert à compléter le clip sans Claude."""
     import numpy as np
 
     from .subtitles import SAMPLE_RATE, load_audio
@@ -109,8 +111,12 @@ def audio_profile(video: Path) -> dict:
     smooth = np.convolve(rms, np.ones(4) / 4, mode="same")  # ~1 s : un vrai moment, pas un clic
     base = max(float(np.median(rms)), 1e-4)
     peak = int(np.argmax(smooth))
+    # « fort » : au-dessus du niveau habituel (un son de jeu constant ne compte pas)
+    loud = max(0.5 * float(np.percentile(rms, 90)), 2 * base)
     return {"reaction": round(float(smooth[peak]) / base, 2), "peak_at": round(peak * 0.25, 2),
-            "duration": round(n * 0.25, 2)}
+            "duration": round(n * 0.25, 2),
+            "cut_start": bool(n >= 8 and rms[:2].mean() >= loud),
+            "cut_end": bool(n >= 8 and (rms[-3:].mean() >= loud or peak >= n - 8))}
 
 
 def audio_factor(profile: dict) -> float:
@@ -124,8 +130,10 @@ def audio_factor(profile: dict) -> float:
     return (0.6 + 0.8 * reaction) * (0.6 + 0.4 * early)
 
 
-def jury_for(opts, language: str | None = None):
-    """Le juré Claude si activé et disponible (Claude Code sur ce PC), sinon None."""
+def jury_for(opts, language: str | None = None, state=None):
+    """Le juré Claude si activé et disponible (Claude Code sur ce PC), sinon None.
+    Avec ``state`` : les avis sont gardés 3 jours, un clip déjà jugé ne l'est pas deux
+    fois (ni téléchargé, ni réécouté)."""
     from . import llm
 
     if not getattr(opts, "jury", False) or not llm.available():
@@ -133,9 +141,22 @@ def jury_for(opts, language: str | None = None):
     from . import jury
 
     def run(items):
-        return jury.judge(items, language=language)
+        verdicts = jury.judge(items, language=language)
+        if state is not None:
+            try:
+                jury.remember(state, verdicts, [clip for clip, _ in items])
+            except Exception:
+                log.warning("Avis du Radar non mémorisés", exc_info=True)
+        return verdicts
     run.language = language  # transcription rapide faite pendant les téléchargements
+    run.cache = jury.remembered(state) if state is not None else {}
     return run
+
+
+def to_download(clips: list, jury) -> list:
+    """Clips à télécharger pour l'écoute : pas ceux que le Radar a déjà jugés."""
+    cache = getattr(jury, "cache", None) or {}
+    return [c for c in clips if c.id not in cache]
 
 
 def pick_best(candidates: list, sources: dict, top: int, jury=None, note=None,
@@ -204,10 +225,18 @@ def _listen(candidates: list, sources: dict, jury, offset: int = 0) -> tuple[lis
     progress.step("search", f"Écoute des {len(candidates)} clips présélectionnés "
                             "(réactions fortes, moment fort au début)…")
     scored = []
+    cache = getattr(jury, "cache", None) or {}
     for rank, (clip, login) in enumerate(candidates, offset):
         progress.check()
         prior = 1 / (1 + 0.15 * rank)  # ordre de la présélection (données Twitch)
         path = None
+        hit = cache.get(clip.id) if jury is not None else None
+        if hit:  # déjà jugé lors d'une recherche récente : rien à refaire
+            clip.audio, clip.cached_verdict = hit.get("audio"), hit.get("verdict")
+            factor = audio_factor(clip.audio) if clip.audio else 0.8
+            scored.append((prior * factor, clip, login, None))
+            log.info("  %s · déjà jugé par le Radar", clip.title)
+            continue
         try:
             path = sources[clip.id]()
             clip.audio = audio_profile(Path(path))
@@ -240,15 +269,17 @@ def _apply_jury(scored: list, jury) -> tuple[list, list]:
 
     items = [(clip, path) for _, clip, _, path in scored if path]
     try:
-        verdicts = jury(items)
+        verdicts = jury(items) if items else {}
     except progress.Cancelled:
         raise
     except Exception as exc:
         log.warning("Radar indisponible (%s) : choix sur le son et les vues", exc)
-        return scored, []
+        verdicts = {}
+        if not any(getattr(c, "cached_verdict", None) for _, c, _, _ in scored):
+            return scored, []
     kept, below = [], []
     for value, clip, login, path in scored:
-        verdict = verdicts.get(clip.id)
+        verdict = verdicts.get(clip.id) or getattr(clip, "cached_verdict", None)
         clip.jury = verdict
         if verdict:
             log.info("  Radar : %s → %.1f/10 (%s)", clip.title, verdict["score"], verdict["reason"])

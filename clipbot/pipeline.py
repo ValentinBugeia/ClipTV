@@ -369,7 +369,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
     ``source`` : fonction qui renvoie la vidéo déjà téléchargée (téléchargement anticipé).
     Lève ``progress.Cancelled`` si l'utilisateur arrête la recherche.
     """
-    from .download import download_clip
+    from .download import download_final
 
     from .twitch import is_non_gaming
 
@@ -383,15 +383,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
         log.warning("Compte TikTok du streamer non vérifié", exc_info=True)
     try:
         progress.step("download", f"{channel} · {clip.title}")
-        src = source() if source else download_clip(clip.url, cfg.downloads_dir, clip.id)
-        verdict = getattr(clip, "jury", None) or {}
-        added = 0.0
-        if verdict.get("add_before") or verdict.get("add_after"):
-            from .download import extend_from_vod
-
-            progress.step("download", "morceaux manquants récupérés dans la rediffusion")
-            src, added = extend_from_vod(clip, Path(src), verdict.get("add_before", 0),
-                                         verdict.get("add_after", 0), opts.max_duration)
+        src = source() if source else download_final(clip, cfg.downloads_dir, opts.max_duration)
         dst = cfg.output_dir / f"{channel}_{clip.id}.mp4"
         if category:
             log.info("Catégorie : %s", category)
@@ -427,7 +419,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "reaction": audio.get("reaction"),
                                       "peak_at": audio.get("peak_at"),
                                       "chat_spike": getattr(clip, "chat_spike", None),
-                                      "vod_added": added or None,
+                                      "vod_added": getattr(clip, "vod_added", None),
                                       "jury": (getattr(clip, "jury", None) or {}).get("score"),
                                       "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
                                       "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None,
@@ -485,14 +477,17 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
         from . import selection
 
-        shortlist = ranked[:selection.shortlist_size(top, radar=selection.jury_for(opts) is not None)]
+        radar = selection.jury_for(opts, state=state)
+        shortlist = ranked[:selection.shortlist_size(top, radar=radar is not None)]
         twitch.annotate_categories(shortlist)
-        prefetch = Prefetcher(cfg, shortlist)
+        prefetch = Prefetcher(cfg, selection.to_download(shortlist, radar),
+                              max_duration=opts.max_duration)
         try:
             chosen = [c for c, _ in selection.pick_best(
                 [(c, channel) for c in shortlist],
                 {c.id: prefetch.source(c) for c in shortlist}, top,
-                jury=selection.jury_for(opts), note=potential_note(state))]
+                jury=radar, note=potential_note(state))]
+            prefetch.prepare(chosen)  # versions 1080p des clips retenus, en parallèle
             for i, clip in enumerate(chosen, 1):
                 progress.clip(i, len(chosen), clip.title)
                 log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
@@ -505,26 +500,43 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
 
 def _process(clip, channel, cfg, state, opts, prefetch) -> bool:
     try:
-        return process_clip(clip, channel, cfg, state, opts, source=prefetch.source(clip))
+        return process_clip(clip, channel, cfg, state, opts, source=prefetch.final(clip))
     except Exception:  # erreur réseau Twitch etc. : on passe à la suite
         log.exception("Erreur sur %s", clip.id)
         return False
 
 
 class Prefetcher:
-    """Télécharge les clips suivants pendant que le clip courant est monté."""
+    """Téléchargements anticipés : versions légères des candidats (écoute, Radar), puis
+    versions 1080p des clips retenus pendant que le clip courant est monté."""
 
-    def __init__(self, cfg: Config, clips, workers: int = 4):
+    def __init__(self, cfg: Config, clips, workers: int = 4, max_duration: float = 60.0):
         from concurrent.futures import ThreadPoolExecutor
 
-        from .download import download_clip
+        from .download import download_preview
 
+        self.cfg, self.max_duration = cfg, max_duration
         self.pool = ThreadPoolExecutor(max_workers=workers)
-        self.jobs = {c.id: self.pool.submit(download_clip, c.url, cfg.downloads_dir, c.id)
+        self.jobs = {c.id: self.pool.submit(download_preview, c.url, cfg.downloads_dir, c.id)
                      for c in clips}
+        self.finals: dict = {}
+
+    def prepare(self, clips) -> None:
+        from .download import download_final
+
+        for c in clips:
+            if c.id not in self.finals:
+                self.finals[c.id] = self.pool.submit(download_final, c, self.cfg.downloads_dir,
+                                                     self.max_duration)
 
     def source(self, clip):
-        job = self.jobs.get(clip.id)
+        return self._waiter(self.jobs.get(clip.id))
+
+    def final(self, clip):
+        return self._waiter(self.finals.get(clip.id))
+
+    @staticmethod
+    def _waiter(job):
         if not job:
             return None
 

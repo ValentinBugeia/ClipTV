@@ -247,3 +247,82 @@ def test_clip_reads_vod_position():
     base = {"id": "x", "url": "u", "created_at": "2026-01-01T00:00:00Z"}
     assert Clip.from_api({**base, "video_id": "42", "vod_offset": 1234}).vod_offset == 1234.0
     assert Clip.from_api({**base, "video_id": "", "vod_offset": None}).vod_offset is None
+
+
+def test_radar_never_judges_a_clip_twice(monkeypatch, tmp_path):
+    """Clip déjà jugé lors d'une recherche récente : ni téléchargé, ni réécouté, ni
+    renvoyé à Claude."""
+    from clipbot import jury as jury_mod
+    from clipbot import llm, selection
+    from clipbot.state import State
+
+    state = State(tmp_path / "s.db")
+    monkeypatch.setattr(llm, "available", lambda: True)
+    calls = []
+
+    def judge(items, language=None):
+        calls.append([c.id for c, _ in items])
+        return {c.id: {"score": 8, "standalone": True, "reason": ""} for c, _ in items}
+    monkeypatch.setattr(jury_mod, "judge", judge)
+    monkeypatch.setattr(jury_mod, "quick_transcript", lambda v, language=None: "")
+    monkeypatch.setattr(selection, "audio_profile",
+                        lambda p: {"reaction": 4, "peak_at": 1, "duration": 20})
+    clip = SimpleNamespace(id="a", title="a", duration=20, audio=None)
+    video = tmp_path / "a.mp4"
+    video.write_bytes(b"x")
+    radar = selection.jury_for(SimpleNamespace(jury=True), state=state)
+    selection.pick_best([(clip, "x")], {"a": lambda: str(video)}, 1, jury=radar)
+    assert calls == [["a"]]
+    radar = selection.jury_for(SimpleNamespace(jury=True), state=state)  # recherche suivante
+    assert selection.to_download([clip], radar) == []
+
+    def no_download():
+        raise AssertionError("téléchargé")
+    again = SimpleNamespace(id="a", title="a", duration=20, audio=None)
+    kept = selection.pick_best([(again, "x")], {"a": no_download}, 1, jury=radar)
+    assert calls == [["a"]] and kept[0][0].jury["score"] == 8
+
+
+def test_final_download_takes_rebroadcast_when_pieces_missing(monkeypatch, tmp_path):
+    from clipbot import download
+
+    got = []
+    monkeypatch.setattr(download, "download_clip",
+                        lambda url, d, cid, *a: got.append(("clip", cid)) or d / f"{cid}.mp4")
+    monkeypatch.setattr(download, "extend_from_vod",
+                        lambda clip, ref, target, b, a, m: got.append(("vod", b, a)) or 5.0)
+    (tmp_path / "a-small.mp4").write_bytes(b"x")
+    clip = SimpleNamespace(id="a", url="u", duration=20, video_id="9", vod_offset=100.0,
+                           jury={"add_before": 5, "add_after": 3})
+    assert download.download_final(clip, tmp_path) == tmp_path / "a.mp4"
+    assert ("vod", 5, 3) in got and ("clip", "a") not in got and clip.vod_added == 5.0
+    assert not (tmp_path / "a-small.mp4").exists()  # version légère supprimée
+    got.clear()
+    clip.jury = {"add_before": 0, "add_after": 0}
+    download.download_final(clip, tmp_path)
+    assert got == [("clip", "a")]
+
+
+def test_without_claude_cut_clips_are_completed_too(monkeypatch, tmp_path):
+    import numpy as np
+
+    from clipbot import download, selection
+
+    sr = 16000
+    calm = np.full(sr * 10, 0.01, dtype=np.float32)
+    cut = calm.copy()
+    cut[: sr // 2] = 0.5   # démarre en plein cri
+    cut[-sr:] = 0.5        # et finit en plein cri
+    monkeypatch.setattr("clipbot.subtitles.load_audio", lambda p: next(audios))
+    audios = iter([calm, cut])
+    ok, bad = selection.audio_profile(tmp_path / "a"), selection.audio_profile(tmp_path / "b")
+    assert not ok["cut_start"] and not ok["cut_end"]
+    assert bad["cut_start"] and bad["cut_end"]
+    got = []
+    monkeypatch.setattr(download, "download_clip", lambda url, d, cid, *a: d / f"{cid}.mp4")
+    monkeypatch.setattr(download, "extend_from_vod",
+                        lambda clip, ref, target, b, a, m: got.append((b, a)) or b)
+    clip = SimpleNamespace(id="b", url="u", duration=10, video_id="9", vod_offset=50.0,
+                           jury=None, audio=bad)
+    download.download_final(clip, tmp_path)
+    assert got == [(download.AUTO_ADD, download.AUTO_ADD)]

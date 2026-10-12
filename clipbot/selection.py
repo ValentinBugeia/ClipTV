@@ -194,8 +194,9 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None, note=None) -
             log.info("  Note %.1f/10 : %s", value, clip.title)
     scored.sort(key=lambda s: s[0], reverse=True)
     if len(scored) < top and below:  # pas assez de bons clips : les moins mauvais complètent
-        below.sort(key=lambda s: s[0] if note is not None else
-                   (s[1].jury or {}).get("score", 0), reverse=True)
+        # les plus cohérents d'abord (avis du Radar), puis la note
+        below.sort(key=lambda s: ((s[1].jury or {}).get("standalone", True),
+                                  (s[1].jury or {}).get("score", 0), s[0]), reverse=True)
         extra = below[: top - len(scored)]
         log.info("Radar : %d clip(s) sous la note minimale ajouté(s) pour atteindre %d",
                  len(extra), top)
@@ -233,8 +234,10 @@ def _apply_jury(scored: list, jury) -> tuple[list, list]:
         if verdict:
             log.info("  Radar : %s → %.1f/10 (%s)", clip.title, verdict["score"], verdict["reason"])
         entry = (value * jury_mod.factor(verdict), clip, login, path)
-        (below if verdict and verdict["score"] < jury_mod.MIN_SCORE else kept).append(entry)
+        weak = verdict and (verdict["score"] < jury_mod.MIN_SCORE
+                            or not verdict.get("standalone", True))
+        (below if weak else kept).append(entry)
     if below:
-        log.info("Radar : %d clip(s) sous %.1f/10 sur %d", len(below), jury_mod.MIN_SCORE,
-                 len(scored))
+        log.info("Radar : %d clip(s) sous %.1f/10 ou pas clairs sans contexte, sur %d",
+                 len(below), jury_mod.MIN_SCORE, len(scored))
     return kept, below

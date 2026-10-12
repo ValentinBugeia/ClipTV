@@ -15,20 +15,27 @@ from pathlib import Path
 
 log = logging.getLogger("clipbot.jury")
 
-MIN_SCORE = 4.5      # en dessous : clip écarté
-FRAMES = 4
-TRANSCRIPT_MAX = 700  # caractères par clip
+MIN_SCORE = 6.0      # en dessous (ou incompréhensible sans contexte) : clip en réserve
+FRAMES = 6
+TRANSCRIPT_MAX = 900  # caractères par clip
+MARK_EVERY = 5.0      # repère de temps dans les paroles, toutes les 5 s
 
 SYSTEM = """Tu es le directeur éditorial d'un compte TikTok francophone qui publie les
-meilleurs moments de streamers Twitch. Tu vois pour chaque clip 4 images prises à
-intervalles réguliers, ce qui est dit, le titre donné par les viewers, le streamer et la
+meilleurs moments de streamers Twitch. Tu vois pour chaque clip 6 images prises à
+intervalles réguliers (de gauche à droite), ce qui est dit, le titre donné par les viewers, le streamer et la
 catégorie. Note chaque clip sur 10 selon sa capacité à faire des vues sur TikTok auprès de
 gens qui NE connaissent PAS le streamer :
-- compréhensible sans contexte (pas de blague interne, pas la suite d'une histoire) ;
+- COHÉRENT, c'est le critère n°1 : en le regardant une seule fois, on comprend ce qui se
+  passe du début à la fin (la situation est posée, puis la chute arrive). Lis les paroles :
+  si elles répondent à quelque chose qu'on n'a pas vu, parlent de gens ou d'événements
+  inconnus, ou partent dans tous les sens, le clip n'est PAS compréhensible sans contexte
+  (standalone = false) et sa note ne dépasse pas 5 ;
+- pas de blague interne, pas la suite d'une histoire commencée avant le clip ;
 - une vraie chute ou réaction : fou rire, cri, rage, clash, exploit, malaise, moment absurde ;
 - ça accroche dès les premières secondes ;
 - le clip contient la chute ET la réaction du streamer : si la dernière phrase est coupée
-  (paroles qui s'arrêtent net) ou si la réaction attendue n'est pas dans le clip, note
+  (paroles qui s'arrêtent net : regarde les repères de temps et la fin des paroles par
+  rapport à la durée du clip) ou si la réaction attendue n'est pas dans le clip, note
   basse (4 au plus) et dis-le dans la raison ;
 - à éviter : temps mort, attente, écran de pause / pub / alerte de don, musique seule,
   gameplay sans réaction, son ou image inexploitable, contenu choquant ou sexuel.
@@ -117,8 +124,25 @@ def quick_transcript(video: Path, language: str | None = None) -> str:
     except Exception:
         log.warning("Transcription rapide impossible pour %s", video.name, exc_info=True)
         return ""
-    text = " ".join(w.text for w in words)
-    return text[:TRANSCRIPT_MAX] + ("…" if len(text) > TRANSCRIPT_MAX else "")
+    return timed_text(words)
+
+
+def timed_text(words: list) -> str:
+    """Paroles avec des repères de temps (« [5 s] … ») et l'heure de la dernière parole :
+    Claude voit quand ça parle, si la fin est coupée. Trop long : début et fin gardés."""
+    parts, mark = [], 0.0
+    for w in words:
+        if w.start >= mark:
+            parts.append(f"[{int(w.start // MARK_EVERY * MARK_EVERY)} s]")
+            mark = (w.start // MARK_EVERY + 1) * MARK_EVERY
+        parts.append(w.text.strip())
+    if not parts:
+        return ""
+    text = " ".join(parts)
+    if len(text) > TRANSCRIPT_MAX:  # la fin compte (chute, phrase coupée) : on la garde
+        head = int(TRANSCRIPT_MAX * 0.55)
+        text = text[:head] + " … " + text[-(TRANSCRIPT_MAX - head):]
+    return f"{text} [dernière parole finie à {words[-1].end:.1f} s]"
 
 
 def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]:
@@ -160,11 +184,11 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
                 f"{getattr(clip, 'category', '') or 'inconnue'} · durée {clip.duration:.0f} s\n"
                 f"Titre : {clip.title}\n"
                 f"Pic de son : ×{audio.get('reaction', '?')} à {audio.get('peak_at', '?')} s\n"
-                f"Paroles : {said or '(rien de détecté)'}")
+                f"Paroles (avec repères de temps) : {said or '(rien de détecté)'}")
         progress.check()
         progress.step("radar", f"Claude regarde les {len(items)} clips présélectionnés…")
-        prompt = ("Voici les clips à juger. Chaque image montre 4 moments du clip, de gauche "
-                  "à droite.\n\n" + "\n\n".join(blocks))
+        prompt = (f"Voici les clips à juger. Chaque image montre {FRAMES} moments du clip, "
+                  "de gauche à droite.\n\n" + "\n\n".join(blocks))
         data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, images=images,
                             purpose="radar", effort="medium", timeout=150)
     out = {}

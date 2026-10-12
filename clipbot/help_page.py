@@ -208,9 +208,9 @@ Menu ⋯ → <strong>Refaire le montage</strong> → choisis <strong>Zoom plein 
 autre option) → Refaire.</div></details>
 <details class="faq"><summary>La recherche est longue</summary><div>
 Compte 1 à 3 minutes par clip sur un PC récent, plus sur un PC ancien (l'étape en cours
-s'affiche en haut à droite ; clique dessus pour le détail). Sur un PC lent, ClipTV s'adapte
-seul (transcription plus légère). Branche le portable sur le secteur. La toute première fois,
-l'app télécharge les modèles de transcription : quelques minutes de plus.</div></details>
+s'affiche en haut à droite ; clique dessus pour le détail). Branche le portable sur le
+secteur. La toute première fois, l'app télécharge les modèles de transcription : quelques
+minutes de plus.</div></details>
 <details class="faq"><summary>Un clip n'a pas pu être monté</summary><div>
 Il n'apparaît pas dans « À publier » : la cause est notée dans le journal de la fenêtre du
 lanceur. ClipTV pourra le reproposer lors d'une prochaine recherche.</div></details>

@@ -172,21 +172,16 @@ def test_emoji_filter_and_render(tmp_path):
     assert 2.5 <= probe_duration(out) <= 3.5  # l'image en boucle ne prolonge pas la vidéo
 
 
-def test_slow_pc_uses_light_models(monkeypatch):
-    from clipbot import subtitles
-    from clipbot.config import Config
-    from clipbot.jury import quick_transcript
-    from clipbot.pipeline import Options, subs_model
+def test_same_behaviour_on_any_pc(monkeypatch):
+    """Même un PC très lent : le Radar écoute toujours les paroles (pas d'adaptation)."""
+    from pathlib import Path
 
-    cfg = Config()
-    cfg.whisper_model = "small"
-    monkeypatch.setattr(subtitles, "speed", {})
-    assert subs_model(cfg, Options()) == "small"            # vitesse encore inconnue
-    subtitles.speed["small"] = 0.4                           # 2,5× plus lent que le clip
-    assert subs_model(cfg, Options()) == "base"
-    assert subs_model(cfg, Options(subs_quality="precise")) == "small"
-    subtitles.speed["base"] = 0.8                            # même le modèle léger rame
-    assert quick_transcript(None) == ""                      # le Radar juge sans les paroles
+    from clipbot import jury, subtitles
+    from clipbot.subtitles import Word
+
+    monkeypatch.setattr(subtitles, "speed", {"base": 0.1, "small": 0.05})
+    monkeypatch.setattr(subtitles, "transcribe", lambda *a, **k: [Word("salut", 0, 1)])
+    assert jury.quick_transcript(Path("x.mp4")) == "salut"
 
 
 def test_burned_subtitles_kept_above_tiktok_caption():

@@ -33,10 +33,16 @@ gens qui NE connaissent PAS le streamer :
 - pas de blague interne, pas la suite d'une histoire commencée avant le clip ;
 - une vraie chute ou réaction : fou rire, cri, rage, clash, exploit, malaise, moment absurde ;
 - ça accroche dès les premières secondes ;
-- le clip contient la chute ET la réaction du streamer : si la dernière phrase est coupée
-  (paroles qui s'arrêtent net : regarde les repères de temps et la fin des paroles par
-  rapport à la durée du clip) ou si la réaction attendue n'est pas dans le clip, note
-  basse (4 au plus) et dis-le dans la raison ;
+- le clip contient le début de la situation, la chute ET la réaction du streamer.
+  Repère ce qui manque : début coupé (on arrive au milieu d'une phrase ou d'une action),
+  dernière phrase coupée (regarde les repères de temps et la fin des paroles par rapport
+  à la durée du clip), réaction absente.
+  · Si la rediffusion est disponible, ClipTV peut récupérer ce qui manque : indique dans
+    add_before / add_after combien de secondes ajouter avant / après (0 à 20, juste ce
+    qu'il faut pour comprendre la situation et voir la réaction ; 0 si rien ne manque) et
+    note le clip tel qu'il sera une fois complété ;
+  · sinon, un clip auquel il manque un morceau a une note basse (4 au plus), dis-le dans
+    la raison ;
 - à éviter : temps mort, attente, écran de pause / pub / alerte de don, musique seule,
   gameplay sans réaction, son ou image inexploitable, contenu choquant ou sexuel.
 Sois exigeant : 5 = moyen, 7 = bon, 9 = excellent. Réponds en français, raison en une
@@ -88,10 +94,14 @@ SCHEMA = {
                                    "enum": ["pop", "comic", "cartoon", "action", "horror",
                                             "retro", "neon", ""]},
                     "hook_color": {"type": "string"},
+                    "add_before": {"type": "number",
+                                   "description": "secondes à ajouter avant (rediffusion)"},
+                    "add_after": {"type": "number",
+                                  "description": "secondes à ajouter après (rediffusion)"},
                 },
                 "required": ["id", "score", "standalone", "reason", "hook", "question",
                              "hashtags", "overlay", "reaction", "moderation", "hook_theme",
-                             "hook_color"],
+                             "hook_color", "add_before", "add_after"],
                 "additionalProperties": False,
             },
         },
@@ -183,6 +193,7 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
                 f"Streamer : {clip.broadcaster_name} · catégorie : "
                 f"{getattr(clip, 'category', '') or 'inconnue'} · durée {clip.duration:.0f} s\n"
                 f"Titre : {clip.title}\n"
+                f"Rediffusion : {'disponible' if vod_available(clip) else 'indisponible'}\n"
                 f"Pic de son : ×{audio.get('reaction', '?')} à {audio.get('peak_at', '?')} s\n"
                 f"Paroles (avec repères de temps) : {said or '(rien de détecté)'}")
         progress.check()
@@ -205,10 +216,26 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
                 "reaction": str(row.get("reaction") or ""),
                 "moderation": str(row.get("moderation") or "").strip()[:160],
                 "hook_theme": str(row.get("hook_theme") or ""),
-                "hook_color": str(row.get("hook_color") or "")}
+                "hook_color": str(row.get("hook_color") or ""),
+                "add_before": _seconds(row.get("add_before")),
+                "add_after": _seconds(row.get("add_after"))}
         except (KeyError, TypeError, ValueError):
             continue
     return out
+
+
+MAX_ADD = 20.0  # secondes récupérables au plus de chaque côté
+
+
+def vod_available(clip) -> bool:
+    return bool(getattr(clip, "video_id", "")) and getattr(clip, "vod_offset", None) is not None
+
+
+def _seconds(value) -> float:
+    try:
+        return round(max(0.0, min(float(value or 0), MAX_ADD)), 1)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def factor(verdict: dict | None) -> float:

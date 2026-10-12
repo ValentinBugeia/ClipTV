@@ -384,6 +384,14 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
     try:
         progress.step("download", f"{channel} · {clip.title}")
         src = source() if source else download_clip(clip.url, cfg.downloads_dir, clip.id)
+        verdict = getattr(clip, "jury", None) or {}
+        added = 0.0
+        if verdict.get("add_before") or verdict.get("add_after"):
+            from .download import extend_from_vod
+
+            progress.step("download", "morceaux manquants récupérés dans la rediffusion")
+            src, added = extend_from_vod(clip, Path(src), verdict.get("add_before", 0),
+                                         verdict.get("add_after", 0), opts.max_duration)
         dst = cfg.output_dir / f"{channel}_{clip.id}.mp4"
         if category:
             log.info("Catégorie : %s", category)
@@ -419,6 +427,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "reaction": audio.get("reaction"),
                                       "peak_at": audio.get("peak_at"),
                                       "chat_spike": getattr(clip, "chat_spike", None),
+                                      "vod_added": added or None,
                                       "jury": (getattr(clip, "jury", None) or {}).get("score"),
                                       "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
                                       "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None,

@@ -219,3 +219,20 @@ def test_find_end_keeps_quiet_reaction_and_last_words():
     assert end is not None and end >= 11 + 1.4             # le rire et sa marge sont gardés
     # dernier mot repéré tard (transcription) : jamais coupé avant
     assert find_end(long_silence, SR, [Word("fin", 13.0, 13.6)]) is None
+
+
+def test_clip_found_in_rebroadcast_audio():
+    """Le clip est retrouvé (et aligné) dans l'extrait de la rediffusion par son son."""
+    import numpy as np
+
+    from clipbot.download import locate
+
+    rng = np.random.default_rng(1)
+    sr = 16000
+    env = np.repeat(rng.random(70 * 4) ** 3, sr // 4)
+    long = (rng.standard_normal(len(env)) * 0.1 * env).astype(np.float32)
+    clip = long[int(12.3 * sr):int(42.3 * sr)] * 0.5  # volume différent : pas grave
+    assert locate(clip, long, sr) == 12.3
+    other = (rng.standard_normal(30 * sr) * 0.1 *
+             np.repeat(rng.random(120) ** 3, sr // 4)).astype(np.float32)
+    assert locate(other, long, sr) is None

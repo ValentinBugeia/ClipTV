@@ -7,7 +7,9 @@ Une app web qui tourne **toute seule, de A à Z** :
    jeu, mot-clé) ; présélection sur l'engagement (élan des vues, part de l'audience, pic du
    chat, clip hors norme) ;
 2. **le Radar** (Claude, via ton abonnement Claude Code) regarde et écoute les candidats,
-   écarte ceux qui ne marchent pas sans contexte, et les clips sont classés par une **note
+   écarte ceux qui ne marchent pas sans contexte (et en regarde d'autres s'il en manque),
+   récupère dans la rediffusion le début ou la réaction coupés, et les clips sont classés
+   par une **note
    sur 10** = engagement attendu sur ton compte TikTok (vues, j'aime, commentaires,
    partages) ;
 3. les monte au **format téléphone 9:16**, cadrés sur la facecam, avec **sous-titres

@@ -189,3 +189,61 @@ def test_failure_pauses_claude_for_the_search(fake_claude, monkeypatch):
         llm.ask_json(system="s", prompt="p", schema={})
     llm.reset_pause()  # nouvelle recherche
     assert llm.ask_json(system="s", prompt="p", schema={}) == {"ok": True}
+
+
+def test_second_radar_round_before_weak_clips(monkeypatch, tmp_path):
+    """Pas assez de clips publiables : d'autres clips sont regardés avant de compléter
+    avec des clips faibles."""
+    from clipbot import selection
+
+    monkeypatch.setattr(selection, "audio_profile",
+                        lambda p: {"reaction": 4, "peak_at": 1, "duration": 20})
+    verdicts = {"a": 8, "b": 3, "c": 7, "d": 2}
+
+    def jury(items):
+        return {c.id: {"score": verdicts[c.id], "standalone": True, "reason": ""}
+                for c, _ in items}
+    jury.language = None
+    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: "")
+
+    def clip(cid):
+        return SimpleNamespace(id=cid, title=cid, duration=20, audio=None)
+    paths = {}
+    for cid in "abcd":
+        paths[cid] = tmp_path / f"{cid}.mp4"
+        paths[cid].write_bytes(b"x")
+    src = {cid: (lambda p=p: str(p)) for cid, p in paths.items()}
+    asked = []
+
+    def more():
+        asked.append(1)
+        return [(clip("c"), "x"), (clip("d"), "x")], src
+    kept = selection.pick_best([(clip("a"), "x"), (clip("b"), "x")], src, 2, jury=jury,
+                               more=more)
+    assert asked and sorted(c.id for c, _ in kept) == ["a", "c"]
+    assert not paths["b"].exists() and not paths["d"].exists()
+
+
+def test_radar_asks_for_missing_pieces(fake_claude, monkeypatch, tmp_path):
+    from clipbot import jury
+
+    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: "")
+    monkeypatch.setattr("clipbot.jury.contact_sheet", lambda v, out, frames=6: None)
+    monkeypatch.setenv("FAKE_RESULT", json.dumps({"clips": [
+        {"id": "a", "score": 7, "standalone": True, "reason": "", "hook": "", "question": "",
+         "hashtags": [], "overlay": "", "reaction": "laugh", "moderation": "",
+         "hook_theme": "", "hook_color": "", "add_before": 8, "add_after": 99}]}))
+    c = SimpleNamespace(id="a", title="t", broadcaster_name="x", duration=20, category="",
+                        video_id="123", vod_offset=300.0)
+    out = jury.judge([(c, tmp_path / "a.mp4")])
+    assert out["a"]["add_before"] == 8 and out["a"]["add_after"] == jury.MAX_ADD
+    assert jury.vod_available(c)
+    assert not jury.vod_available(SimpleNamespace(video_id="", vod_offset=None))
+
+
+def test_clip_reads_vod_position():
+    from clipbot.twitch import Clip
+
+    base = {"id": "x", "url": "u", "created_at": "2026-01-01T00:00:00Z"}
+    assert Clip.from_api({**base, "video_id": "42", "vod_offset": 1234}).vod_offset == 1234.0
+    assert Clip.from_api({**base, "video_id": "", "vod_offset": None}).vod_offset is None

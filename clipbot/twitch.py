@@ -26,6 +26,8 @@ class Clip:
     game_id: str = ""
     category: str = ""  # nom de la catégorie Twitch (rempli par annotate_categories)
     broadcaster_id: str = ""
+    video_id: str = ""              # rediffusion d'où vient le clip (vide si supprimée)
+    vod_offset: float | None = None  # seconde de la rediffusion où commence le clip
 
     @classmethod
     def from_api(cls, data: dict) -> "Clip":
@@ -41,6 +43,9 @@ class Clip:
             language=data.get("language", ""),
             game_id=data.get("game_id", ""),
             broadcaster_id=data.get("broadcaster_id", ""),
+            video_id=data.get("video_id") or "",
+            vod_offset=(float(data["vod_offset"]) if data.get("vod_offset") is not None
+                        else None),
         )
 
     def momentum(self, now: datetime | None = None) -> float:

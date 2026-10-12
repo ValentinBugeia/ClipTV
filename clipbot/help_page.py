@@ -79,7 +79,9 @@ def render(status: dict) -> str:
   repérés en live, même hors ligne depuis, et clips les plus vus des catégories du moment), puis
   garde ceux qui font le plus réagir.</div>
   <div class="step"><b>2. Trier</b>Le <strong>Radar</strong> (Claude) regarde et écoute les
-  meilleurs, écarte ceux qui ne marchent pas sans contexte, et les clips sont classés par
+  meilleurs, écarte ceux qui ne marchent pas sans contexte (et en regarde d'autres s'il
+  en manque), récupère dans la rediffusion le début ou la réaction coupés, et les clips
+  sont classés par
   <strong>note</strong> (engagement attendu sur ton compte).</div>
   <div class="step"><b>3. Monter</b>Format vertical, cadrage sur le streamer, sous-titres
   animés, accroche au style du jeu, emoji sur la réaction, description et hashtags.</div>

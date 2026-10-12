@@ -138,49 +138,33 @@ def jury_for(opts, language: str | None = None):
     return run
 
 
-def pick_best(candidates: list, sources: dict, top: int, jury=None, note=None) -> list:
+def pick_best(candidates: list, sources: dict, top: int, jury=None, note=None,
+              more=None) -> list:
     """Écoute les candidats [(clip, login)] et garde les ``top`` meilleurs.
 
     ``sources[clip.id]()`` renvoie le chemin de la vidéo téléchargée. Les vidéos écartées
     sont supprimées. Le profil audio est gardé sur le clip (indicateur de potentiel).
     ``jury(items)`` : avis de Claude {clip.id: {score, standalone, reason}} ; les clips
-    sous la note minimale passent après tous les autres, mais complètent la sélection
-    s'il en manque : on rend toujours ``top`` clips quand il y a assez de candidats.
+    sous la note minimale (ou pas clairs sans contexte) ne sont pas publiables tels quels.
+    ``more()`` : s'il manque des clips publiables, autres candidats à faire juger
+    ((candidats, sources), une seule fois). En dernier recours seulement, les moins
+    mauvais complètent : on rend toujours ``top`` clips quand il y a assez de candidats.
     ``note(clip)`` : note sur 10 (engagement attendu) ; si donnée, c'est elle qui classe.
     """
-    from . import progress
-
     if len(candidates) <= top and jury is None:
         return candidates
-    progress.step("search", f"Écoute des {len(candidates)} clips présélectionnés "
-                            "(réactions fortes, moment fort au début)…")
-    scored = []
-    for rank, (clip, login) in enumerate(candidates):
-        progress.check()
-        prior = 1 / (1 + 0.15 * rank)  # ordre de la présélection (données Twitch)
-        path = None
-        try:
-            path = sources[clip.id]()
-            clip.audio = audio_profile(Path(path))
-            factor = audio_factor(clip.audio)
-            if jury is not None:  # pendant que les clips suivants se téléchargent
-                from .jury import quick_transcript
+    scored, below = _listen(candidates, sources, jury)
+    if jury is not None and len(scored) < top and more is not None:
+        extra = more()
+        if extra and extra[0]:
+            from . import progress
 
-                progress.step("radar", f"Écoute des clips présélectionnés ({rank + 1}/"
-                                        f"{len(candidates)})")
-                clip.quick_text = quick_transcript(Path(path), getattr(jury, "language", None))
-        except progress.Cancelled:
-            raise
-        except Exception:
-            log.warning("Écoute impossible pour %s : gardé sur ses données Twitch", clip.id)
-            clip.audio, factor = None, 0.8
-        scored.append((prior * factor, clip, login, path))
-        if clip.audio:
-            log.info("  %s · réaction ×%.1f à %.0f s → %.2f", clip.title, clip.audio["reaction"],
-                     clip.audio["peak_at"], prior * factor)
-    below: list = []
-    if jury is not None:
-        scored, below = _apply_jury(scored, jury)
+            log.info("Radar : %d clip(s) publiable(s) sur %d → 2e tournée sur %d autres clips",
+                     len(scored), top, len(extra[0]))
+            progress.step("radar", f"Pas assez de clips publiables : {len(extra[0])} autres "
+                                   "clips regardés")
+            more_scored, more_below = _listen(extra[0], extra[1], jury, offset=len(candidates))
+            scored, below = scored + more_scored, below + more_below
     if note is not None:  # classement final : la note sur 10 (engagement attendu)
         def with_note(entry):
             try:
@@ -211,6 +195,41 @@ def pick_best(candidates: list, sources: dict, top: int, jury=None, note=None) -
     kept = [(clip, login) for _, clip, login, _ in scored[:top]]
     log.info("Retenus après écoute : %s", ", ".join(c.title for c, _ in kept))
     return kept
+
+
+def _listen(candidates: list, sources: dict, jury, offset: int = 0) -> tuple[list, list]:
+    """Écoute (son, paroles) puis avis du Radar : (clips retenus, clips en réserve)."""
+    from . import progress
+
+    progress.step("search", f"Écoute des {len(candidates)} clips présélectionnés "
+                            "(réactions fortes, moment fort au début)…")
+    scored = []
+    for rank, (clip, login) in enumerate(candidates, offset):
+        progress.check()
+        prior = 1 / (1 + 0.15 * rank)  # ordre de la présélection (données Twitch)
+        path = None
+        try:
+            path = sources[clip.id]()
+            clip.audio = audio_profile(Path(path))
+            factor = audio_factor(clip.audio)
+            if jury is not None:  # pendant que les clips suivants se téléchargent
+                from .jury import quick_transcript
+
+                progress.step("radar", f"Écoute des clips présélectionnés ({rank - offset + 1}/"
+                                        f"{len(candidates)})")
+                clip.quick_text = quick_transcript(Path(path), getattr(jury, "language", None))
+        except progress.Cancelled:
+            raise
+        except Exception:
+            log.warning("Écoute impossible pour %s : gardé sur ses données Twitch", clip.id)
+            clip.audio, factor = None, 0.8
+        scored.append((prior * factor, clip, login, path))
+        if clip.audio:
+            log.info("  %s · réaction ×%.1f à %.0f s → %.2f", clip.title, clip.audio["reaction"],
+                     clip.audio["peak_at"], prior * factor)
+    if jury is None:
+        return scored, []
+    return _apply_jury(scored, jury)
 
 
 def _apply_jury(scored: list, jury) -> tuple[list, list]:

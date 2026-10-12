@@ -1,9 +1,11 @@
-"""Le Radar (le « juré ») : Claude regarde les clips présélectionnés et dit lesquels méritent TikTok.
+"""Le Radar : Claude regarde les moments présélectionnés, choisit où couper chaque clip
+pour qu'il soit complet, et dit lesquels méritent TikTok.
 
-Pour chaque clip : 4 images (une planche), ce qui est dit (transcription rapide), le titre,
-le streamer et la catégorie. Un seul appel pour tous les clips de la recherche. Claude note
-chaque clip sur 10 et explique pourquoi ; les clips trop faibles sont écartés, même avec
-beaucoup de vues sur Twitch.
+Pour chaque moment : un extrait de la rediffusion autour du clip Twitch (voir
+``moments``), 6 images, les phrases dites avec leur temps, le titre, le streamer et la
+catégorie. Un seul appel pour tous les moments de la recherche. Claude choisit le début et
+la fin (situation → chute → réaction), note le clip ainsi découpé sur 10 et prépare sa
+publication ; les clips trop faibles sont écartés, même avec beaucoup de vues sur Twitch.
 """
 
 from __future__ import annotations
@@ -17,14 +19,26 @@ log = logging.getLogger("clipbot.jury")
 
 MIN_SCORE = 6.0      # en dessous (ou incompréhensible sans contexte) : clip en réserve
 FRAMES = 6
-TRANSCRIPT_MAX = 900  # caractères par clip
-MARK_EVERY = 5.0      # repère de temps dans les paroles, toutes les 5 s
 
-SYSTEM = """Tu es le directeur éditorial d'un compte TikTok francophone qui publie les
-meilleurs moments de streamers Twitch. Tu vois pour chaque clip 6 images prises à
-intervalles réguliers (de gauche à droite), ce qui est dit, le titre donné par les viewers, le streamer et la
-catégorie. Note chaque clip sur 10 selon sa capacité à faire des vues sur TikTok auprès de
-gens qui NE connaissent PAS le streamer :
+SYSTEM = """Tu es le monteur et directeur éditorial d'un compte TikTok francophone qui publie les
+meilleurs moments de streamers Twitch. Pour chaque moment, tu as un EXTRAIT de la
+rediffusion autour du clip Twitch d'origine (souvent mal coupé par le viewer qui l'a fait) :
+6 images de l'extrait (de gauche à droite, avec leur seconde), les phrases dites avec leur
+début et leur fin en secondes, le titre donné par les viewers, le streamer et la catégorie.
+
+1) DÉCOUPE : choisis start et end (secondes dans l'extrait) pour faire le meilleur clip
+   COMPLET possible :
+   - start : au début de la phrase ou de l'action qui pose la situation — jamais au milieu
+     d'une phrase (prends le début d'une ligne [a → b]), sans temps mort avant ;
+   - end : après la chute ET la fin de la réaction du streamer (rire, cri, commentaire),
+     à la fin d'une phrase, sans traîner ensuite ;
+   - entre 10 et 60 s, idéalement 20 à 45 s : le plus court possible tant que tout se
+     comprend ;
+   - le clip Twitch d'origine sert de repère (c'est là que les viewers ont vu le moment
+     fort), tu peux en sortir pour compléter. S'il n'y a pas de rediffusion, l'extrait EST
+     le clip : tu ne peux que raccourcir.
+2) NOTE le clip ainsi découpé sur 10 selon sa capacité à faire des vues sur TikTok auprès
+   de gens qui NE connaissent PAS le streamer :
 - COHÉRENT, c'est le critère n°1 : en le regardant une seule fois, on comprend ce qui se
   passe du début à la fin (la situation est posée, puis la chute arrive). Lis les paroles :
   si elles répondent à quelque chose qu'on n'a pas vu, parlent de gens ou d'événements
@@ -33,16 +47,9 @@ gens qui NE connaissent PAS le streamer :
 - pas de blague interne, pas la suite d'une histoire commencée avant le clip ;
 - une vraie chute ou réaction : fou rire, cri, rage, clash, exploit, malaise, moment absurde ;
 - ça accroche dès les premières secondes ;
-- le clip contient le début de la situation, la chute ET la réaction du streamer.
-  Repère ce qui manque : début coupé (on arrive au milieu d'une phrase ou d'une action),
-  dernière phrase coupée (regarde les repères de temps et la fin des paroles par rapport
-  à la durée du clip), réaction absente.
-  · Si la rediffusion est disponible, ClipTV peut récupérer ce qui manque : indique dans
-    add_before / add_after combien de secondes ajouter avant / après (0 à 20, juste ce
-    qu'il faut pour comprendre la situation et voir la réaction ; 0 si rien ne manque) et
-    note le clip tel qu'il sera une fois complété ;
-  · sinon, un clip auquel il manque un morceau a une note basse (4 au plus), dis-le dans
-    la raison ;
+- complet : s'il manque encore le début de la situation, la fin d'une phrase ou la
+  réaction même avec ta découpe (extrait trop court, pas de rediffusion), note basse (4 au
+  plus) et dis-le dans la raison ;
 - à éviter : temps mort, attente, écran de pause / pub / alerte de don, musique seule,
   gameplay sans réaction, son ou image inexploitable, contenu choquant ou sexuel.
 Sois exigeant : 5 = moyen, 7 = bon, 9 = excellent. Réponds en français, raison en une
@@ -94,14 +101,12 @@ SCHEMA = {
                                    "enum": ["pop", "comic", "cartoon", "action", "horror",
                                             "retro", "neon", ""]},
                     "hook_color": {"type": "string"},
-                    "add_before": {"type": "number",
-                                   "description": "secondes à ajouter avant (rediffusion)"},
-                    "add_after": {"type": "number",
-                                  "description": "secondes à ajouter après (rediffusion)"},
+                    "start": {"type": "number", "description": "début du clip (s dans l'extrait)"},
+                    "end": {"type": "number", "description": "fin du clip (s dans l'extrait)"},
                 },
                 "required": ["id", "score", "standalone", "reason", "hook", "question",
                              "hashtags", "overlay", "reaction", "moderation", "hook_theme",
-                             "hook_color", "add_before", "add_after"],
+                             "hook_color", "start", "end"],
                 "additionalProperties": False,
             },
         },
@@ -112,7 +117,8 @@ SCHEMA = {
 
 
 def contact_sheet(video: Path, out: Path, frames: int = FRAMES) -> Path:
-    """Planche de ``frames`` images réparties sur tout le clip, côte à côte."""
+    """Planche de ``frames`` images réparties sur toute la vidéo, côte à côte (image n°i
+    vers (i + 0,5) × durée / frames secondes)."""
     from .render import probe_duration
 
     duration = max(probe_duration(video), 1.0)
@@ -124,35 +130,17 @@ def contact_sheet(video: Path, out: Path, frames: int = FRAMES) -> Path:
     return out
 
 
-def quick_transcript(video: Path, language: str | None = None) -> str:
-    """Ce qui est dit, avec un modèle Whisper léger (rapide) : juste pour juger."""
+def quick_transcript(video: Path, language: str | None = None) -> list:
+    """Mots dits dans l'extrait (avec leur temps), modèle Whisper léger : pour découper
+    et juger."""
     from .subtitles import transcribe
 
     try:
-        words = transcribe(video, model_size="base", language=language, beam_size=1,
-                           max_seconds=60)
+        return transcribe(video, model_size="base", language=language, beam_size=1,
+                          max_seconds=120)
     except Exception:
         log.warning("Transcription rapide impossible pour %s", video.name, exc_info=True)
-        return ""
-    return timed_text(words)
-
-
-def timed_text(words: list) -> str:
-    """Paroles avec des repères de temps (« [5 s] … ») et l'heure de la dernière parole :
-    Claude voit quand ça parle, si la fin est coupée. Trop long : début et fin gardés."""
-    parts, mark = [], 0.0
-    for w in words:
-        if w.start >= mark:
-            parts.append(f"[{int(w.start // MARK_EVERY * MARK_EVERY)} s]")
-            mark = (w.start // MARK_EVERY + 1) * MARK_EVERY
-        parts.append(w.text.strip())
-    if not parts:
-        return ""
-    text = " ".join(parts)
-    if len(text) > TRANSCRIPT_MAX:  # la fin compte (chute, phrase coupée) : on la garde
-        head = int(TRANSCRIPT_MAX * 0.55)
-        text = text[:head] + " … " + text[-(TRANSCRIPT_MAX - head):]
-    return f"{text} [dernière parole finie à {words[-1].end:.1f} s]"
+        return []
 
 
 def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]:
@@ -179,27 +167,40 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
         for i, (clip, path) in enumerate(items, 1):
             progress.check()
             progress.step("radar", f"Écoute des clips ({i}/{len(items)})")
-            said = getattr(clip, "quick_text", None)  # déjà fait pendant les téléchargements
-            transcripts.append(said if said is not None else quick_transcript(Path(path), language))
+            said = getattr(clip, "window_words", None)  # déjà fait pendant les téléchargements
+            if said is None:
+                said = clip.window_words = quick_transcript(Path(path), language)
+            transcripts.append(said)
         sheets = list(sheets)
         pool.shutdown()
         for i, ((clip, path), sheet, said) in enumerate(zip(items, sheets, transcripts), 1):
             if sheet:
                 images.append(sheet)
+            from .moments import timed_lines
+
             audio = getattr(clip, "audio", None) or {}
+            window = getattr(clip, "window", None)
+            length = window.length if window else clip.duration
+            span = window.span if window else (0.0, clip.duration)
+            vod = window is not None and window.vod_start is not None
+            times = ", ".join(f"{(k + 0.5) * length / FRAMES:.0f} s" for k in range(FRAMES))
+            clippers = getattr(clip, "clippers", 1) or 1
             blocks.append(
-                f"### Clip id={clip.id}\n"
-                f"Image : {f'n°{len(images)} (dans l’ordre des images jointes)' if sheet else '(aucune)'}\n"
+                f"### Moment id={clip.id}\n"
+                f"Image : {f'n°{len(images)} (images à {times})' if sheet else '(aucune)'}\n"
                 f"Streamer : {clip.broadcaster_name} · catégorie : "
-                f"{getattr(clip, 'category', '') or 'inconnue'} · durée {clip.duration:.0f} s\n"
-                f"Titre : {clip.title}\n"
-                f"Rediffusion : {'disponible' if vod_available(clip) else 'indisponible'}\n"
-                f"Pic de son : ×{audio.get('reaction', '?')} à {audio.get('peak_at', '?')} s\n"
-                f"Paroles (avec repères de temps) : {said or '(rien de détecté)'}")
+                f"{getattr(clip, 'category', '') or 'inconnue'}\n"
+                f"Titre : {clip.title}" + (f" · clippé par {clippers} viewers" if clippers > 1
+                                           else "") + "\n"
+                + (f"Extrait de la rediffusion : {length:.0f} s ; le clip Twitch d'origine va "
+                   f"de {span[0]:.1f} à {span[1]:.1f} s\n" if vod else
+                   f"Pas de rediffusion : l'extrait est le clip Twitch ({length:.0f} s)\n")
+                + f"Pic de son : ×{audio.get('reaction', '?')} à {audio.get('peak_at', '?')} s\n"
+                f"Phrases [début → fin en s] :\n{timed_lines(said) or '(rien de détecté)'}")
         progress.check()
         progress.step("radar", f"Claude regarde les {len(items)} clips présélectionnés…")
-        prompt = (f"Voici les clips à juger. Chaque image montre {FRAMES} moments du clip, "
-                  "de gauche à droite.\n\n" + "\n\n".join(blocks))
+        prompt = (f"Voici les moments à découper et juger. Chaque image montre {FRAMES} "
+                  "instants de l'extrait, de gauche à droite.\n\n" + "\n\n".join(blocks))
         data = llm.ask_json(system=SYSTEM, prompt=prompt, schema=SCHEMA, images=images,
                             purpose="radar", effort="medium", timeout=150)
     out = {}
@@ -217,14 +218,13 @@ def judge(items: list[tuple], *, language: str | None = "fr") -> dict[str, dict]
                 "moderation": str(row.get("moderation") or "").strip()[:160],
                 "hook_theme": str(row.get("hook_theme") or ""),
                 "hook_color": str(row.get("hook_color") or ""),
-                "add_before": _seconds(row.get("add_before")),
-                "add_after": _seconds(row.get("add_after"))}
+                "start": _seconds(row.get("start")),
+                "end": _seconds(row.get("end"))}
         except (KeyError, TypeError, ValueError):
             continue
     return out
 
 
-MAX_ADD = 20.0  # secondes récupérables au plus de chaque côté
 CACHE_KEY = "radar_cache"   # avis déjà donnés : un clip n'est jugé qu'une fois
 CACHE_TTL = 3 * 86400
 
@@ -252,15 +252,11 @@ def remember(state, verdicts: dict, clips) -> None:
     state.save_settings({CACHE_KEY: cache})
 
 
-def vod_available(clip) -> bool:
-    return bool(getattr(clip, "video_id", "")) and getattr(clip, "vod_offset", None) is not None
-
-
-def _seconds(value) -> float:
+def _seconds(value) -> float | None:
     try:
-        return round(max(0.0, min(float(value or 0), MAX_ADD)), 1)
+        return round(max(0.0, float(value)), 2)
     except (TypeError, ValueError):
-        return 0.0
+        return None
 
 
 def factor(verdict: dict | None) -> float:

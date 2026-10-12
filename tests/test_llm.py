@@ -94,7 +94,8 @@ def test_jury_drops_weak_clips(fake_claude, monkeypatch, tmp_path):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
                     "testsrc2=size=320x180:duration=2", "-f", "lavfi", "-i", "sine=duration=2",
                     "-shortest", "-pix_fmt", "yuv420p", str(video)], check=True)
-    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: "mdr")
+    monkeypatch.setattr("clipbot.jury.quick_transcript",
+                        lambda v, language=None: [__import__("clipbot.subtitles").subtitles.Word("mdr", 0.5, 1.0)])
     monkeypatch.setenv("FAKE_RESULT", json.dumps({"clips": [
         {"id": "bon", "score": 8, "standalone": True, "reason": "fou rire"},
         {"id": "nul", "score": 2, "standalone": False, "reason": "blague interne"}]}))
@@ -204,7 +205,7 @@ def test_second_radar_round_before_weak_clips(monkeypatch, tmp_path):
         return {c.id: {"score": verdicts[c.id], "standalone": True, "reason": ""}
                 for c, _ in items}
     jury.language = None
-    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: "")
+    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: [])
 
     def clip(cid):
         return SimpleNamespace(id=cid, title=cid, duration=20, audio=None)
@@ -222,23 +223,6 @@ def test_second_radar_round_before_weak_clips(monkeypatch, tmp_path):
                                more=more)
     assert asked and sorted(c.id for c, _ in kept) == ["a", "c"]
     assert not paths["b"].exists() and not paths["d"].exists()
-
-
-def test_radar_asks_for_missing_pieces(fake_claude, monkeypatch, tmp_path):
-    from clipbot import jury
-
-    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: "")
-    monkeypatch.setattr("clipbot.jury.contact_sheet", lambda v, out, frames=6: None)
-    monkeypatch.setenv("FAKE_RESULT", json.dumps({"clips": [
-        {"id": "a", "score": 7, "standalone": True, "reason": "", "hook": "", "question": "",
-         "hashtags": [], "overlay": "", "reaction": "laugh", "moderation": "",
-         "hook_theme": "", "hook_color": "", "add_before": 8, "add_after": 99}]}))
-    c = SimpleNamespace(id="a", title="t", broadcaster_name="x", duration=20, category="",
-                        video_id="123", vod_offset=300.0)
-    out = jury.judge([(c, tmp_path / "a.mp4")])
-    assert out["a"]["add_before"] == 8 and out["a"]["add_after"] == jury.MAX_ADD
-    assert jury.vod_available(c)
-    assert not jury.vod_available(SimpleNamespace(video_id="", vod_offset=None))
 
 
 def test_clip_reads_vod_position():
@@ -264,7 +248,7 @@ def test_radar_never_judges_a_clip_twice(monkeypatch, tmp_path):
         calls.append([c.id for c, _ in items])
         return {c.id: {"score": 8, "standalone": True, "reason": ""} for c, _ in items}
     monkeypatch.setattr(jury_mod, "judge", judge)
-    monkeypatch.setattr(jury_mod, "quick_transcript", lambda v, language=None: "")
+    monkeypatch.setattr(jury_mod, "quick_transcript", lambda v, language=None: [])
     monkeypatch.setattr(selection, "audio_profile",
                         lambda p: {"reaction": 4, "peak_at": 1, "duration": 20})
     clip = SimpleNamespace(id="a", title="a", duration=20, audio=None)
@@ -281,48 +265,3 @@ def test_radar_never_judges_a_clip_twice(monkeypatch, tmp_path):
     again = SimpleNamespace(id="a", title="a", duration=20, audio=None)
     kept = selection.pick_best([(again, "x")], {"a": no_download}, 1, jury=radar)
     assert calls == [["a"]] and kept[0][0].jury["score"] == 8
-
-
-def test_final_download_takes_rebroadcast_when_pieces_missing(monkeypatch, tmp_path):
-    from clipbot import download
-
-    got = []
-    monkeypatch.setattr(download, "download_clip",
-                        lambda url, d, cid, *a: got.append(("clip", cid)) or d / f"{cid}.mp4")
-    monkeypatch.setattr(download, "extend_from_vod",
-                        lambda clip, ref, target, b, a, m: got.append(("vod", b, a)) or 5.0)
-    (tmp_path / "a-small.mp4").write_bytes(b"x")
-    clip = SimpleNamespace(id="a", url="u", duration=20, video_id="9", vod_offset=100.0,
-                           jury={"add_before": 5, "add_after": 3})
-    assert download.download_final(clip, tmp_path) == tmp_path / "a.mp4"
-    assert ("vod", 5, 3) in got and ("clip", "a") not in got and clip.vod_added == 5.0
-    assert not (tmp_path / "a-small.mp4").exists()  # version légère supprimée
-    got.clear()
-    clip.jury = {"add_before": 0, "add_after": 0}
-    download.download_final(clip, tmp_path)
-    assert got == [("clip", "a")]
-
-
-def test_without_claude_cut_clips_are_completed_too(monkeypatch, tmp_path):
-    import numpy as np
-
-    from clipbot import download, selection
-
-    sr = 16000
-    calm = np.full(sr * 10, 0.01, dtype=np.float32)
-    cut = calm.copy()
-    cut[: sr // 2] = 0.5   # démarre en plein cri
-    cut[-sr:] = 0.5        # et finit en plein cri
-    monkeypatch.setattr("clipbot.subtitles.load_audio", lambda p: next(audios))
-    audios = iter([calm, cut])
-    ok, bad = selection.audio_profile(tmp_path / "a"), selection.audio_profile(tmp_path / "b")
-    assert not ok["cut_start"] and not ok["cut_end"]
-    assert bad["cut_start"] and bad["cut_end"]
-    got = []
-    monkeypatch.setattr(download, "download_clip", lambda url, d, cid, *a: d / f"{cid}.mp4")
-    monkeypatch.setattr(download, "extend_from_vod",
-                        lambda clip, ref, target, b, a, m: got.append((b, a)) or b)
-    clip = SimpleNamespace(id="b", url="u", duration=10, video_id="9", vod_offset=50.0,
-                           jury=None, audio=bad)
-    download.download_final(clip, tmp_path)
-    assert got == [(download.AUTO_ADD, download.AUTO_ADD)]

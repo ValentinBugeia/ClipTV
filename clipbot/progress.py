@@ -13,11 +13,11 @@ import time
 STEPS = [
     ("search", "Recherche des temps forts",
      "Analyse des lives les plus regardés et classement de leurs clips par vues/heure."),
-    ("radar", "Le Radar trie les clips",
-     "Claude regarde et écoute les clips présélectionnés, écarte les moins bons et écrit la "
-     "description des autres."),
+    ("radar", "Découpe et tri des moments",
+     "Extrait de la rediffusion autour de chaque clip, phrases transcrites ; Claude choisit "
+     "le début et la fin de chaque clip, écarte les moins bons et écrit la description."),
     ("download", "Téléchargement du clip",
-     "Récupération de la vidéo depuis Twitch, avec vérification du son."),
+     "Version 1080p du passage choisi, depuis la rediffusion (ou le clip Twitch)."),
     ("face", "Détection du visage et cadrage",
      "Repère la facecam ou le streamer pour choisir le cadrage au format téléphone."),
     ("transcribe", "Transcription de la voix",

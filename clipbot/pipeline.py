@@ -87,8 +87,12 @@ def whisper_language(code: str | None) -> str | None:
 def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                  allow_split: bool = True, language: str | None = None, on_words=None,
                  title: str = "", info: dict | None = None, overlay: str = "",
-                 reaction: str = "", hook_style: dict | None = None) -> tuple[Path, list]:
+                 reaction: str = "", hook_style: dict | None = None,
+                 cut: tuple | None = None) -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
+
+    ``cut`` = (début, durée) en secondes : passage déjà choisi (moment complet découpé
+    dans la rediffusion) ; sinon début et fin « mous » sont coupés automatiquement.
 
     ``overlay`` / ``reaction`` : accroche à l'écran et type de réaction proposés par le juré.
 
@@ -152,6 +156,8 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
     from .subtitles import SAMPLE_RATE, Word, load_audio
 
     start, end, punch_at, emoji = 0.0, None, None, None
+    if cut:
+        start, end = float(cut[0]), float(cut[0]) + float(cut[1])
     audio = None
     if opts.trim_start or opts.trim_end or opts.punch_zoom:
         try:
@@ -159,17 +165,20 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
         except Exception:
             log.warning("Analyse du son impossible : clip gardé tel quel", exc_info=True)
     if audio is not None:
-        if opts.trim_start:
+        if opts.trim_start and not cut:
             start = find_start(audio, SAMPLE_RATE, words)
             if start:
                 log.info("Début coupé : %.1f s de mise en route retirées", start)
-        if opts.trim_end:
+        if opts.trim_end and not cut:
             end = find_end(audio, SAMPLE_RATE, words, start)
             if end:
                 log.info("Fin coupée juste après la chute (%.1f s retirées)",
                          len(audio) / SAMPLE_RATE - end)
         if opts.punch_zoom:
-            at, strength = peak_time(audio, SAMPLE_RATE)
+            sr = SAMPLE_RATE
+            part = audio[int(start * sr):int(end * sr)] if end else audio[int(start * sr):]
+            at, strength = peak_time(part, sr)
+            at += start
             limit = (end or len(audio) / SAMPLE_RATE) - start
             if strength >= 4 and 0.5 <= at - start <= limit - 0.6:
                 punch_at = round(at - start, 2)
@@ -369,7 +378,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
     ``source`` : fonction qui renvoie la vidéo déjà téléchargée (téléchargement anticipé).
     Lève ``progress.Cancelled`` si l'utilisateur arrête la recherche.
     """
-    from .download import download_final
+    from .moments import final_video
 
     from .twitch import is_non_gaming
 
@@ -383,7 +392,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
         log.warning("Compte TikTok du streamer non vérifié", exc_info=True)
     try:
         progress.step("download", f"{channel} · {clip.title}")
-        src = source() if source else download_final(clip, cfg.downloads_dir, opts.max_duration)
+        src = source() if source else final_video(clip, cfg.downloads_dir)
         dst = cfg.output_dir / f"{channel}_{clip.id}.mp4"
         if category:
             log.info("Catégorie : %s", category)
@@ -405,7 +414,8 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                          title=clip.title, on_words=write_caption, info=info,
                          overlay=(getattr(clip, "jury", None) or {}).get("overlay", ""),
                          reaction=(getattr(clip, "jury", None) or {}).get("reaction", ""),
-                         hook_style=_hook_style(clip, category))
+                         hook_style=_hook_style(clip, category),
+                         cut=getattr(clip, "render_cut", None))
         import json
 
         try:
@@ -420,6 +430,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "peak_at": audio.get("peak_at"),
                                       "chat_spike": getattr(clip, "chat_spike", None),
                                       "vod_added": getattr(clip, "vod_added", None),
+                                      "cut": getattr(clip, "render_cut", None),
                                       "jury": (getattr(clip, "jury", None) or {}).get("score"),
                                       "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
                                       "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None,
@@ -478,7 +489,11 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         from . import selection
 
         radar = selection.jury_for(opts, state=state)
-        shortlist = ranked[:selection.shortlist_size(top, radar=radar is not None)]
+        from .moments import merge_moments
+
+        size = selection.shortlist_size(top, radar=radar is not None)
+        shortlist = [c for c, _ in merge_moments([(c, channel) for c in ranked[:size + top]])]
+        shortlist = shortlist[:size]
         twitch.annotate_categories(shortlist)
         prefetch = Prefetcher(cfg, selection.to_download(shortlist, radar),
                               max_duration=opts.max_duration)
@@ -507,27 +522,25 @@ def _process(clip, channel, cfg, state, opts, prefetch) -> bool:
 
 
 class Prefetcher:
-    """Téléchargements anticipés : versions légères des candidats (écoute, Radar), puis
-    versions 1080p des clips retenus pendant que le clip courant est monté."""
+    """Téléchargements anticipés : extraits légers autour des moments (écoute, Radar),
+    puis versions 1080p des passages retenus pendant que le clip courant est monté."""
 
     def __init__(self, cfg: Config, clips, workers: int = 4, max_duration: float = 60.0):
         from concurrent.futures import ThreadPoolExecutor
 
-        from .download import download_preview
+        from .moments import fetch_window
 
         self.cfg, self.max_duration = cfg, max_duration
         self.pool = ThreadPoolExecutor(max_workers=workers)
-        self.jobs = {c.id: self.pool.submit(download_preview, c.url, cfg.downloads_dir, c.id)
-                     for c in clips}
+        self.jobs = {c.id: self.pool.submit(fetch_window, c, cfg.downloads_dir) for c in clips}
         self.finals: dict = {}
 
     def prepare(self, clips) -> None:
-        from .download import download_final
+        from .moments import final_video
 
         for c in clips:
             if c.id not in self.finals:
-                self.finals[c.id] = self.pool.submit(download_final, c, self.cfg.downloads_dir,
-                                                     self.max_duration)
+                self.finals[c.id] = self.pool.submit(final_video, c, self.cfg.downloads_dir)
 
     def source(self, clip):
         return self._waiter(self.jobs.get(clip.id))

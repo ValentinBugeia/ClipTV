@@ -456,8 +456,11 @@ def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tupl
     size = selection.shortlist_size(top, radar=radar is not None)
     # avec le Radar : deux fois plus de candidats, la 2e moitié n'est regardée que s'il
     # manque des clips publiables dans la 1re
+    from .moments import merge_moments
+
     found = discover(twitch, state, max_duration=opts.max_duration,
-                     top=size * 2 if radar is not None else size, **kwargs)
+                     top=(size * 2 if radar is not None else size) + top, **kwargs)
+    found = merge_moments(found)  # plusieurs clips du même moment : un seul
     if not found:
         progress.step("search", "Aucun nouveau clip assez viral pour le moment")
     found, reserve = found[:size], found[size:]

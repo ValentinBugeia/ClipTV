@@ -7,9 +7,11 @@ Une app web qui tourne **toute seule, de A à Z** :
    jeu, mot-clé) ; présélection sur l'engagement (élan des vues, part de l'audience, pic du
    chat, clip hors norme) ;
 2. **le Radar** (Claude, via ton abonnement Claude Code) regarde et écoute les candidats,
-   écarte ceux qui ne marchent pas sans contexte (et en regarde d'autres s'il en manque),
-   récupère dans la rediffusion le début ou la réaction coupés, et les clips sont classés
-   par une **note
+   dans un extrait de la rediffusion autour de chaque clip Twitch, et **découpe lui-même**
+   un clip complet (début de la situation → chute → fin de la réaction, jamais au milieu
+   d'une phrase ; sans Claude, découpe automatique sur les pauses et le son). Il écarte
+   ceux qui ne marchent pas sans contexte (et en regarde d'autres s'il en manque), et les
+   clips sont classés par une **note
    sur 10** = engagement attendu sur ton compte TikTok (vues, j'aime, commentaires,
    partages) ;
 3. les monte au **format téléphone 9:16**, cadrés sur la facecam, avec **sous-titres
@@ -180,7 +182,8 @@ clipbot/
   stats_page.py page Statistiques
   discover.py   découverte des temps forts (streamers mémorisés, catégories, recherche libre)
   selection.py  présélection et choix final (écoute, Radar, note)
-  jury.py       le Radar : Claude regarde et note les clips, écrit leur publication
+  moments.py    extrait de la rediffusion autour du clip, découpe complète, version 1080p
+  jury.py       le Radar : Claude découpe, note les clips et écrit leur publication
   llm.py        appels à Claude via Claude Code (abonnement)
   claude_usage.py  tokens et limites de l'abonnement Claude
   potential.py  note sur 10 (engagement attendu sur ton compte)

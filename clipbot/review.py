@@ -790,7 +790,8 @@ def redo_clip(app, clip: dict, src: Path, opts: Options) -> None:
                          reaction=old.get("radar_reaction") or "",
                          hook_style=resolve(old.get("radar_hook_theme") or old.get("hook_theme"),
                                             old.get("radar_hook_color") or old.get("hook_color"),
-                                            clip.get("category") or ""))
+                                            clip.get("category") or ""),
+                         cut=old.get("cut"))
             app.state.set_signals(clip["clip_id"], json.dumps({**old, **info}))
         error = None
     except Exception as exc:

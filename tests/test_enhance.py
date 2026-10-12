@@ -181,19 +181,7 @@ def test_same_behaviour_on_any_pc(monkeypatch):
 
     monkeypatch.setattr(subtitles, "speed", {"base": 0.1, "small": 0.05})
     monkeypatch.setattr(subtitles, "transcribe", lambda *a, **k: [Word("salut", 0, 1)])
-    assert jury.quick_transcript(Path("x.mp4")) == "[0 s] salut [dernière parole finie à 1.0 s]"
-
-
-def test_radar_sees_timed_words_and_the_end():
-    from clipbot import jury
-    from clipbot.subtitles import Word
-
-    words = [Word("allez", 0.2, 0.5), Word("non", 6.1, 6.4), Word("mais", 11.0, 11.3)]
-    assert jury.timed_text(words) == ("[0 s] allez [5 s] non [10 s] mais "
-                                      "[dernière parole finie à 11.3 s]")
-    long = [Word(f"mot{i}", i * 0.3, i * 0.3 + 0.2) for i in range(400)]
-    text = jury.timed_text(long)
-    assert "mot399" in text and "mot0" in text and " … " in text  # début et fin gardés
+    assert [w.text for w in jury.quick_transcript(Path("x.mp4"))] == ["salut"]
 
 
 def test_burned_subtitles_kept_above_tiktok_caption():

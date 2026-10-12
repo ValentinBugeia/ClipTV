@@ -4,11 +4,13 @@ de clips Twitch.
 1. **Présélection** (données Twitch, sans rien télécharger) : vues par heure, clip hors
    norme pour son streamer, durée adaptée à TikTok (15-35 s), et résultats de TES anciens
    TikToks pour ce streamer / cette catégorie.
-2. **Écoute** des clips présélectionnés (déjà téléchargés pour le montage) :
-   - **réaction forte** : un pic de son net (cri, fou rire, rage) par rapport au reste ;
-   - **moment fort tôt** : le pic arrive dans les premières secondes, avant que les gens
-     ne décrochent.
-   Seuls les meilleurs sont montés ; les autres vidéos sont supprimées.
+2. **Écoute** des moments présélectionnés (extrait léger de la rediffusion autour de
+   chaque clip, voir ``moments``) : transcription en phrases, puis découpe complète
+   (situation → chute → réaction) ; réaction forte = un pic de son net (cri, fou rire,
+   rage) par rapport au reste.
+3. **Radar** (Claude) : choisit lui-même le début et la fin de chaque clip, le note et
+   écarte ceux qui ne se comprennent pas sans contexte.
+   Seuls les meilleurs sont téléchargés en 1080p et montés ; les extraits sont supprimés.
 """
 
 from __future__ import annotations
@@ -94,10 +96,8 @@ def chat_factor(state, clip) -> float:
 
 
 def audio_profile(video: Path) -> dict:
-    """{reaction, peak_at, duration, cut_start, cut_end} : force du pic de son (× le niveau
-    habituel du clip), seconde où il arrive, et si le clip semble démarrer ou finir en
-    pleine action (son fort dès la première demi-seconde / jusqu'à la dernière, ou pic
-    tout à la fin : la réaction est coupée). Sert à compléter le clip sans Claude."""
+    """{reaction, peak_at, duration} : force du pic de son (× le niveau habituel du clip)
+    et seconde où il arrive."""
     import numpy as np
 
     from .subtitles import SAMPLE_RATE, load_audio
@@ -111,12 +111,8 @@ def audio_profile(video: Path) -> dict:
     smooth = np.convolve(rms, np.ones(4) / 4, mode="same")  # ~1 s : un vrai moment, pas un clic
     base = max(float(np.median(rms)), 1e-4)
     peak = int(np.argmax(smooth))
-    # « fort » : au-dessus du niveau habituel (un son de jeu constant ne compte pas)
-    loud = max(0.5 * float(np.percentile(rms, 90)), 2 * base)
     return {"reaction": round(float(smooth[peak]) / base, 2), "peak_at": round(peak * 0.25, 2),
-            "duration": round(n * 0.25, 2),
-            "cut_start": bool(n >= 8 and rms[:2].mean() >= loud),
-            "cut_end": bool(n >= 8 and (rms[-3:].mean() >= loud or peak >= n - 8))}
+            "duration": round(n * 0.25, 2)}
 
 
 def audio_factor(profile: dict) -> float:
@@ -238,20 +234,39 @@ def _listen(candidates: list, sources: dict, jury, offset: int = 0) -> tuple[lis
             log.info("  %s · déjà jugé par le Radar", clip.title)
             continue
         try:
-            path = sources[clip.id]()
+            from .jury import quick_transcript
+            from .moments import Window, auto_cut
+            from .subtitles import SAMPLE_RATE, load_audio
+
+            got = sources[clip.id]()
+            if isinstance(got, Window):
+                window = got
+            else:  # la vidéo du clip lui-même
+                length = float(getattr(clip, "duration", 0) or 0)
+                window = Window(Path(got), None, length, (0.0, length))
+            clip.window, path = window, window.path
             clip.audio = audio_profile(Path(path))
             factor = audio_factor(clip.audio)
-            if jury is not None:  # pendant que les clips suivants se téléchargent
-                from .jury import quick_transcript
-
-                progress.step("radar", f"Écoute des clips présélectionnés ({rank - offset + 1}/"
-                                        f"{len(candidates)})")
-                clip.quick_text = quick_transcript(Path(path), getattr(jury, "language", None))
+            if not window.length:
+                window.length = float((clip.audio or {}).get("duration") or 0)
+                window.span = (0.0, window.length)
         except progress.Cancelled:
             raise
         except Exception:
             log.warning("Écoute impossible pour %s : gardé sur ses données Twitch", clip.id)
             clip.audio, factor = None, 0.8
+        if path:
+            try:  # pendant que les extraits suivants se téléchargent : les phrases dites,
+                # puis une première découpe complète (que le Radar peut remplacer)
+                progress.step("radar", f"Écoute des moments présélectionnés "
+                                        f"({rank - offset + 1}/{len(candidates)})")
+                clip.window_words = quick_transcript(Path(path), getattr(jury, "language", None))
+                clip.cut = auto_cut(window, clip.window_words, load_audio(Path(path)),
+                                    SAMPLE_RATE)
+            except progress.Cancelled:
+                raise
+            except Exception:
+                log.warning("Découpe automatique impossible pour %s", clip.id, exc_info=True)
         scored.append((prior * factor, clip, login, path))
         if clip.audio:
             log.info("  %s · réaction ×%.1f à %.0f s → %.2f", clip.title, clip.audio["reaction"],
@@ -259,6 +274,21 @@ def _listen(candidates: list, sources: dict, jury, offset: int = 0) -> tuple[lis
     if jury is None:
         return scored, []
     return _apply_jury(scored, jury)
+
+
+def _radar_cut(clip, verdict: dict) -> None:
+    """Début / fin choisis par le Radar, s'ils sont plausibles (sinon : découpe auto)."""
+    from .moments import MIN_LEN, clamp_cut
+
+    start, end = verdict.get("start"), verdict.get("end")
+    if start is None or end is None or end - start < MIN_LEN * 0.8:
+        return
+    window = getattr(clip, "window", None)
+    if window is not None:
+        clip.cut = clamp_cut(window, start, end)
+    else:  # déjà jugé lors d'une recherche récente : l'extrait sera retéléchargé
+        clip.cut = (start, end)
+    log.info("  Découpe du Radar : %.1f s → %.1f s", *clip.cut)
 
 
 def _apply_jury(scored: list, jury) -> tuple[list, list]:
@@ -283,6 +313,7 @@ def _apply_jury(scored: list, jury) -> tuple[list, list]:
         clip.jury = verdict
         if verdict:
             log.info("  Radar : %s → %.1f/10 (%s)", clip.title, verdict["score"], verdict["reason"])
+            _radar_cut(clip, verdict)
         entry = (value * jury_mod.factor(verdict), clip, login, path)
         weak = verdict and (verdict["score"] < jury_mod.MIN_SCORE
                             or not verdict.get("standalone", True))

@@ -193,3 +193,17 @@ def test_burned_subtitles_kept_above_tiktok_caption():
     assert "scale=1080:820" in split and "split=3" in split       # jeu raccourci de 400 px
     assert "overlay" not in build_filter("crop", None)            # sans sous-titres incrustés
     assert build_filter("blur", None, safe_bottom=400) == build_filter("blur", None)
+
+
+def test_find_end_keeps_quiet_reaction_and_last_words():
+    from clipbot.enhance import find_end
+    from clipbot.subtitles import Word
+
+    talk, laugh, silence = tone(8, 0.5), tone(3, 0.1), tone(2, 0.002)  # rire à 20 % du niveau
+    audio = np.concatenate([talk, laugh, silence])
+    assert find_end(audio, SR) is None                     # pas 3 s de silence : on ne coupe pas
+    long_silence = np.concatenate([talk, laugh, tone(6, 0.002)])
+    end = find_end(long_silence, SR)
+    assert end is not None and end >= 11 + 1.4             # le rire et sa marge sont gardés
+    # dernier mot repéré tard (transcription) : jamais coupé avant
+    assert find_end(long_silence, SR, [Word("fin", 13.0, 13.6)]) is None

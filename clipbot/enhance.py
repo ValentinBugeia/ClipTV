@@ -134,7 +134,8 @@ def speech_energy(words: list) -> dict:
     return {"talk_rate": round(len(words) / span, 2), "hype_words": hype}
 
 
-TAIL_KEEP = 0.8   # secondes gardées après la dernière parole / le dernier son fort
+TAIL_KEEP = 1.5   # secondes gardées après la dernière parole / le dernier son
+MIN_TAIL_CUT = 3.0  # on ne coupe la fin que s'il reste au moins 3 s de vrai silence
 
 
 def _rms(audio, sample_rate: int):
@@ -146,9 +147,10 @@ def _rms(audio, sample_rate: int):
 
 
 def find_end(audio, sample_rate: int, words: list | None = None, start: float = 0.0) -> float | None:
-    """Fin conseillée (s) : juste après la chute (dernière parole ou dernier son fort).
-    Une fin sèche donne envie de revoir le clip ; TikTok compte les revisionnages.
-    None si la fin est déjà serrée (moins de 2 s à couper)."""
+    """Fin conseillée (s) : après la chute et la réaction (dernière parole ou dernier son).
+    Prudente : la transcription rate parfois les derniers mots et un rire peut être moins
+    fort que la voix, donc tout son au-dessus de 15 % du niveau habituel compte, on garde
+    1,5 s de marge, et on ne coupe que s'il reste au moins 3 s de silence. None sinon."""
     import numpy as np
 
     if audio is None or len(audio) < sample_rate * 4:
@@ -158,12 +160,12 @@ def find_end(audio, sample_rate: int, words: list | None = None, start: float = 
     ref = np.percentile(rms, 90)
     if ref <= 1e-4:
         return None
-    loud = np.nonzero(rms >= 0.35 * ref)[0]
-    last = loud[-1] * 0.25 + 0.25 if len(loud) else total
+    active = np.nonzero(rms >= 0.15 * ref)[0]
+    last = active[-1] * 0.25 + 0.25 if len(active) else total
     if words:
         last = max(last, float(words[-1].end))
     end = min(last + TAIL_KEEP, total)
-    if total - end < 2.0 or end - start < MIN_KEEP:
+    if total - end < MIN_TAIL_CUT or end - start < MIN_KEEP:
         return None
     return round(end, 2)
 

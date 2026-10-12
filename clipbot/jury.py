@@ -27,6 +27,9 @@ gens qui NE connaissent PAS le streamer :
 - compréhensible sans contexte (pas de blague interne, pas la suite d'une histoire) ;
 - une vraie chute ou réaction : fou rire, cri, rage, clash, exploit, malaise, moment absurde ;
 - ça accroche dès les premières secondes ;
+- le clip contient la chute ET la réaction du streamer : si la dernière phrase est coupée
+  (paroles qui s'arrêtent net) ou si la réaction attendue n'est pas dans le clip, note
+  basse (4 au plus) et dis-le dans la raison ;
 - à éviter : temps mort, attente, écran de pause / pub / alerte de don, musique seule,
   gameplay sans réaction, son ou image inexploitable, contenu choquant ou sexuel.
 Sois exigeant : 5 = moyen, 7 = bon, 9 = excellent. Réponds en français, raison en une

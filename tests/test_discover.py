@@ -19,9 +19,14 @@ class FakeTwitch:
         self.streams, self.clips, self.calls = streams, clips, []
 
     def _get(self, path, params):
+        """``streams`` = chaînes qui ont diffusé sur la période (renvoyées comme rediffusions)."""
         self.calls.append((path, params))
-        assert path == "/streams"
-        return {"data": self.streams}
+        if path == "/games/top":
+            return {"data": [{"id": "jc", "name": "Just Chatting"}]}
+        if path == "/videos":
+            return {"data": [{"user_login": s["user_login"], "user_id": s["user_id"],
+                              "view_count": s.get("viewer_count", 100)} for s in self.streams]}
+        return {"data": []}
 
     def get_broadcaster_id(self, login):
         return f"id-{login}"
@@ -47,16 +52,17 @@ def test_pick_clips_one_per_streamer_and_language():
     assert [c.id for c in picked] == ["a1", "a2", "b1", "c1"]
 
 
-def test_candidates_remember_recent_streamers(tmp_path):
+def test_candidates_come_from_the_period_not_current_lives(tmp_path):
+    """Chaînes = celles qui ont diffusé sur la période (rediffusions) + favoris ; les lives
+    en cours et les streamers relevés en live ne comptent pas."""
     st = state(tmp_path)
-    old = time.time() - 8 * 86400  # au-delà de 7 jours : oublié
-    st.save_settings({"discovered": {"vieux": {"id": "1", "seen": old},
-                                      "hier": {"id": "2", "seen": time.time() - 86400}}})
+    st.save_settings({"discovered": {"vuenlive": {"id": "2", "seen": time.time() - 3600}}})
     tw = FakeTwitch([{"user_login": "Kamet0", "user_id": "3"}], {})
     chans = candidate_channels(tw, st, language="fr", streamers=30, favorites=["perso"])
-    assert chans == {"hier": "2", "kamet0": "3", "perso": "id-perso"}
-    assert tw.calls[0][1] == {"first": 100, "type": "live", "language": "fr"}
-    assert set(st.get_settings()["discovered"]) == {"hier", "kamet0"}
+    assert chans == {"kamet0": "3", "perso": "id-perso"}
+    assert not any(path == "/streams" for path, _ in tw.calls)
+    videos = [params for path, params in tw.calls if path == "/videos"]
+    assert videos and videos[0]["language"] == "fr" and videos[0]["period"] == "day"
 
 
 def test_discover_ranks_across_streamers(tmp_path):
@@ -85,8 +91,7 @@ class FakeTwitchCategories(FakeTwitch):
 
 
 def test_discover_adds_viral_category_clips(tmp_path):
-    streams = [{"user_login": "petit", "user_id": "id-petit", "game_id": "jc",
-                "viewer_count": 900}]
+    streams = [{"user_login": "petit", "user_id": "id-petit", "viewer_count": 900}]
     small = [clip(f"p{i}", "petit", 40 + i) for i in range(3)]  # 40 vues : pas un moment fort
     viral = [clip(f"v{i}", f"star{i}", 8000 - i * 500) for i in range(12)]
     for i, c in enumerate(viral):
@@ -94,7 +99,9 @@ def test_discover_adds_viral_category_clips(tmp_path):
     viral.append(clip("en", "anglais", 99999, lang="en"))
     twitch = FakeTwitchCategories(streams, {"id-petit": small}, {"jc": viral},
                                   {f"id-star{i}": f"star{i}" for i in range(12)})
-    found = discover(twitch, state(tmp_path), language="fr", streamers=5, top=3, min_views=0)
+    st = state(tmp_path)
+    st.save_settings({"categories_seen": {"jc": {"seen": time.time(), "viewers": 9000}}})
+    found = discover(twitch, st, language="fr", streamers=5, top=3, min_views=0)
     assert [login for _, login in found] == ["star0", "star1", "star2"]  # hors ligne compris
     assert all(c.language == "fr" for c, _ in found)
 

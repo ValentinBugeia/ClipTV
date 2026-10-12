@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import time
 
-from .twitch import Clip, TwitchClient, get_top_streams, rank_clips
+from .twitch import Clip, TwitchClient, rank_clips
 
 log = logging.getLogger("clipbot.discover")
 
@@ -72,7 +72,21 @@ def remember_streams(state, streams: list[dict]) -> dict:
     return memory
 
 
-RECENT_CHANNELS = 60  # streamers ayant diffusé récemment (rediffusions) ajoutés au scan
+RECENT_CHANNELS = 100  # streamers ayant diffusé sur la période (rediffusions) scannés
+
+
+def main_categories(twitch: TwitchClient, state) -> list[str]:
+    """Catégories à fouiller : celles relevées ces 7 derniers jours (les plus regardées),
+    complétées par le top des catégories Twitch (indispensable sur une app récente)."""
+    seen = state.get_settings().get(CATEGORY_KEY) or {}
+    games = sorted(seen, key=lambda g: seen[g].get("viewers", 0), reverse=True)[:TOP_CATEGORIES]
+    if len(games) < TOP_CATEGORIES:
+        try:
+            games += [g["id"] for g in twitch._get("/games/top", {"first": 20})["data"]
+                      if g["id"] not in games][: TOP_CATEGORIES - len(games)]
+        except Exception:
+            log.warning("Catégories Twitch indisponibles", exc_info=True)
+    return games
 
 
 def recent_broadcasters(twitch: TwitchClient, state, *, language: str | None,
@@ -82,14 +96,7 @@ def recent_broadcasters(twitch: TwitchClient, state, *, language: str | None,
     couverte même si l'app était fermée et que la chaîne est hors ligne maintenant."""
     from concurrent.futures import ThreadPoolExecutor
 
-    seen = state.get_settings().get(CATEGORY_KEY) or {}
-    games = sorted(seen, key=lambda g: seen[g].get("viewers", 0), reverse=True)[:TOP_CATEGORIES]
-    if len(games) < TOP_CATEGORIES:  # app récente : catégories les plus regardées de Twitch
-        try:
-            games += [g["id"] for g in twitch._get("/games/top", {"first": 20})["data"]
-                      if g["id"] not in games][: TOP_CATEGORIES * 2 - len(games)]
-        except Exception:
-            log.warning("Catégories Twitch indisponibles", exc_info=True)
+    games = main_categories(twitch, state)
     if not games:
         return {}
     period = "day" if hours <= 24 else "week" if hours <= 24 * 7 else "month"
@@ -120,14 +127,10 @@ def recent_broadcasters(twitch: TwitchClient, state, *, language: str | None,
 def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
                        streamers: int, favorites: list[str] = (),
                        hours: float = 24) -> dict[str, str]:
-    """{login: broadcaster_id} des chaînes à scanner : lives en cours, streamers mémorisés
-    (7 jours) et streamers qui ont diffusé sur la période (rediffusions)."""
-    memory = remember_streams(state, get_top_streams(twitch, language=language,
-                                                     first=max(streamers, 100)))
-    channels = {login: v["id"] for login, v in memory.items()}
-    for login, bid in recent_broadcasters(twitch, state, language=language,
-                                          hours=hours).items():
-        channels.setdefault(login, bid)
+    """{login: broadcaster_id} des chaînes à scanner : celles qui ont diffusé sur la période
+    (rediffusions), plus tes favoris et les streamers qui marchent sur ton TikTok. Les lives
+    en cours au moment de la recherche ne comptent pas : seule la période choisie compte."""
+    channels = recent_broadcasters(twitch, state, language=language, hours=hours)
     # streamers qui marchent sur ton compte TikTok : toujours scannés ; ceux qui y font peu
     # de vues : écartés, sauf s'ils sont dans tes favoris
     good, bad = proven_channels(state)
@@ -240,11 +243,7 @@ def category_clips(twitch: TwitchClient, pool, state, *, language: str | None, h
     y compris chez des streamers hors ligne : les vrais moments viraux de la journée.
     ``games`` : catégories imposées (recherche « Valorant »…) au lieu de celles du moment."""
     if games is None:
-        # catégories des 7 derniers jours (relevées en continu), pas seulement celles des
-        # lives en cours : à 8 h, celles de la veille au soir comptent
-        seen = state.get_settings().get(CATEGORY_KEY) or {}
-        games = sorted(seen, key=lambda g: seen[g].get("viewers", 0),
-                       reverse=True)[:TOP_CATEGORIES]
+        games = main_categories(twitch, state)
     if not games:
         return []
 

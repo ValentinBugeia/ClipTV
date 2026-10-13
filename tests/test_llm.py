@@ -200,3 +200,24 @@ def test_clip_reads_vod_position():
     base = {"id": "x", "url": "u", "created_at": "2026-01-01T00:00:00Z"}
     assert Clip.from_api({**base, "video_id": "42", "vod_offset": 1234}).vod_offset == 1234.0
     assert Clip.from_api({**base, "video_id": "", "vod_offset": None}).vod_offset is None
+
+
+def test_claude_unavailable_is_reported(monkeypatch, tmp_path):
+    """Claude coché mais indisponible : la recherche le signale et chaque clip aussi."""
+    from clipbot import progress, selection
+    from clipbot.moments import Window
+
+    monkeypatch.setattr(llm, "available", lambda: False)
+    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: [])
+    monkeypatch.setattr("clipbot.subtitles.load_audio", lambda p: None)
+    clip = SimpleNamespace(id="a", title="a", broadcaster_name="x", duration=20.0)
+    progress.begin("test")
+    selection.complete([(clip, "x")], {"a": lambda: Window(tmp_path / "a.mp4", None, 20.0,
+                                                               (0.0, 20.0))},
+                       SimpleNamespace(jury=True))
+    assert "Claude indisponible" in progress.warning() and clip.claude_missing
+    progress.end("Recherche terminée")
+    assert "⚠️ Claude indisponible" in progress.snapshot()["message"]
+    progress.begin("suivante")
+    assert progress.warning() == ""  # nouvelle recherche : alerte effacée
+    progress.end("ok")

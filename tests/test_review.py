@@ -616,3 +616,12 @@ def test_clip_found_on_tiktok_is_marked_published(tmp_path):
                         "likes": 0, "comments": 0, "shares": 0, "duration": 20, "clip_id": None}])
     assert stats.mark_published(state) == 1
     assert state.get("c1")["status"] == "published" and state.get("c2")["status"] == "rendered"
+
+
+def test_card_warns_when_cut_without_claude(server):
+    import json
+
+    base, state = server
+    state.set_signals("abc", json.dumps({"claude_missing": "limite atteinte"}))
+    page = urllib.request.urlopen(base + "/").read().decode()
+    assert "Découpé sans Claude" in page and "limite atteinte" in page

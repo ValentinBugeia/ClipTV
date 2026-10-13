@@ -72,7 +72,20 @@ def begin(title: str) -> None:
     with _lock:
         _state.update(active=True, run=_state["run"] + 1, title=title, step=None, detail="",
                       clip="", started=time.time(), message="", ended=None, durations={},
-                      step_started=None, stopping=False, tokens=0)
+                      step_started=None, stopping=False, tokens=0, warning="")
+
+
+def warn(text: str) -> None:
+    """Alerte affichée pendant la recherche et ajoutée au message de fin (ex. Claude
+    indisponible). Une seule alerte gardée : la première."""
+    with _lock:
+        if not _state.get("warning"):
+            _state["warning"] = text
+
+
+def warning() -> str:
+    with _lock:
+        return _state.get("warning") or ""
 
 
 def step(key: str, detail: str = "") -> None:
@@ -106,6 +119,8 @@ def end(message: str) -> None:
             _cancel.clear()
             return
         _close_step()
+        if _state.get("warning") and _state["warning"] not in message:
+            message = f"{message} · ⚠️ {_state['warning']}"
         _state.update(active=False, step=None, step_started=None, message=message,
                       ended=time.time(), stopping=False)
         tokens = _state.get("tokens", 0)

@@ -420,6 +420,7 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                                       "vod_added": getattr(clip, "vod_added", None),
                                       "cut": getattr(clip, "render_cut", None),
                                       "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
+                                      "claude_missing": getattr(clip, "claude_missing", None),
                                       "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None,
                                       # choix de Claude gardés pour « Refaire le montage »
                                       # (préfixe radar_ : « reaction » est déjà la mesure du son)

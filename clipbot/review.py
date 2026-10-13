@@ -368,6 +368,7 @@ PROGRESS_UI = """<style>
                      border:1px solid rgba(255,255,255,.12); border-radius:16px; padding:14px 16px;
                      box-shadow:0 20px 50px rgba(0,0,0,.6) }
   #progress .pclip { color:#9b9bab; font-size:13px; margin-bottom:8px; overflow-wrap:anywhere }
+  #progress .pwarn { color:#ffb454; font-size:13px; font-weight:600; margin:4px 0 8px; overflow-wrap:anywhere }
   #progress ol { list-style:none; margin:0; padding:0 }
   #progress li { display:flex; gap:10px; padding:6px 0; color:#6b6b78; font-size:14px; align-items:flex-start }
   #progress li.st-done { color:#b8b8c4 }
@@ -410,6 +411,7 @@ PROGRESS_UI = """<style>
       li.append(ico, txt); ol.append(li);
     });
     drop.append(ol);
+    if (p.warning) drop.append(el('div', 'pwarn', '⚠️ ' + p.warning));
     if (p.tokens) drop.append(el('div', 'pclip', '🤖 Claude : ' + tok(p.tokens) + ' tokens pour cette recherche'));
     if (!p.active && p.message) drop.append(el('div', 'pmsg', p.message));
     return drop;
@@ -441,6 +443,7 @@ PROGRESS_UI = """<style>
                 el('span', 'pname', p.stopping ? 'Arrêt en cours…' : st ? st[1] : (p.title || 'Recherche en cours')));
       const detail = [p.clip, p.detail || (st ? st[2] : '')].filter(Boolean).join(' · ');
       text.append(l1, el('div', 'pl2', detail || 'Préparation…'));
+      if (p.warning) text.append(el('div', 'pwarn', '⚠️ ' + p.warning));
       text.title = (p.clip ? p.clip + '\\n' : '') + (st ? st[1] + ' : ' + (p.detail ? p.detail + ' — ' : '') + st[2] : '');
     } else {
       l1.append(el('b', '', '✅ Terminé'), el('span', 'pname', ''));
@@ -717,7 +720,11 @@ def _run_search(job, cfg, state, opts, channels, hours, top, twitch) -> str:
     ko = len(results) - ok
     if not results:
         return f"Aucun nouveau clip trouvé ({', '.join(channels) or 'clips les plus vus'})"
+    from . import progress
+
+    warning = progress.warning()
     return (f"Recherche terminée : {ok} clip(s) prêt(s)" + (f", {ko} en erreur" if ko else "")
+            + (f" · ⚠️ {warning}" if warning else "")
             + f" · {int(time.time() - started)} s")
 
 
@@ -1178,9 +1185,13 @@ class Handler(BaseHTTPRequestHandler):
                        'même titre ou les mêmes mots-clés et le même streamer">⚠️ Déjà sur ton '
                        'TikTok</span>')
         try:
-            moderation = json.loads(c.get("signals") or "{}").get("moderation")
+            sig = json.loads(c.get("signals") or "{}")
         except ValueError:
-            moderation = None
+            sig = {}
+        moderation = sig.get("moderation")
+        if sig.get("claude_missing") and status in ("rendered", "scheduled", "failed"):
+            badges += (f'<span class="badge failed" title="{e(sig["claude_missing"])}">⚠️ '
+                       'Découpé sans Claude (indisponible)</span>')
         if moderation and status in ("rendered", "scheduled", "failed"):
             badges += (f'<span class="badge failed" title="{e(moderation)}">⚠️ Risque de '
                        f'modération : {e(moderation[:60])}</span>')

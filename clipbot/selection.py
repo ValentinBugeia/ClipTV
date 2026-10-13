@@ -82,22 +82,38 @@ def complete(found: list, sources: dict, opts, language: str | None = None) -> N
         except Exception:
             log.warning("Extrait impossible pour %s : découpe automatique impossible",
                         clip.id, exc_info=True)
-    if not items or not claude_enabled(opts):
+    if not items or not getattr(opts, "jury", False):
         return
-    from . import jury
+    from . import jury, llm
 
+    if not llm.available():
+        claude_missing(items, llm.describe()[1])
+        return
     try:
         verdicts = jury.complete(items, language=language)
     except progress.Cancelled:
         raise
     except Exception as exc:
-        log.warning("Claude indisponible (%s) : découpe automatique gardée", exc)
+        claude_missing(items, str(exc))
+        return
+    if not verdicts:
+        claude_missing(items, "réponse vide de Claude")
         return
     for clip, _ in items:
         verdict = verdicts.get(clip.id)
         if verdict:
             clip.jury = verdict  # légende, accroche, style… pour le montage
             claude_cut(clip, verdict)
+
+
+def claude_missing(items: list, reason: str) -> None:
+    """Claude indisponible : on le signale (recherche + carte de chaque clip)."""
+    from . import progress
+
+    log.warning("Claude indisponible (%s) : découpe automatique gardée", reason)
+    progress.warn(f"Claude indisponible, clips découpés sans lui : {reason}"[:300])
+    for clip, _ in items:
+        clip.claude_missing = reason[:200]
 
 
 def claude_cut(clip, verdict: dict) -> None:

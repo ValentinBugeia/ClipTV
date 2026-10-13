@@ -249,6 +249,8 @@ class Autopilot:
             verb = {"publish": "publié(s)", "manual": "prêt(s) à publier"}.get(
                 settings["then"], "programmé(s)")
             self.message = f"Dernière recherche : {done} nouveau(x) clip(s) {verb}"
+            if progress.warning():  # ex. Claude indisponible
+                self.message += f" · ⚠️ {progress.warning()}"
             if errors:  # visible sur la page ; détail de chaque clip dans le journal
                 self.message += " · ⚠️ " + " | ".join(errors[:2])
         except progress.Cancelled:  # bouton « Arrêter » : prochaine recherche à l'heure prévue

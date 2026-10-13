@@ -85,40 +85,42 @@ def test_caption_via_subscription(fake_claude, monkeypatch):
     assert text.splitlines()[:2] == ["Il découvre son score 👀", "Tu t'attendais à ça ? 👇"]
 
 
-def test_jury_drops_weak_clips(fake_claude, monkeypatch, tmp_path):
+def test_claude_completes_every_clip(fake_claude, monkeypatch, tmp_path):
+    """Claude ne trie pas : chaque clip est gardé, avec le début / la fin qu'il a choisis
+    (ou la découpe automatique s'il n'en donne pas de valable)."""
     import subprocess
 
     from clipbot import selection
+    from clipbot.moments import Window
+    from clipbot.subtitles import Word
 
     video = tmp_path / "v.mp4"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
-                    "testsrc2=size=320x180:duration=2", "-f", "lavfi", "-i", "sine=duration=2",
+                    "testsrc2=size=320x180:duration=30", "-f", "lavfi", "-i", "sine=duration=30",
                     "-shortest", "-pix_fmt", "yuv420p", str(video)], check=True)
     monkeypatch.setattr("clipbot.jury.quick_transcript",
-                        lambda v, language=None: [__import__("clipbot.subtitles").subtitles.Word("mdr", 0.5, 1.0)])
+                        lambda v, language=None: [Word("mdr", 12.0, 13.0)])
     monkeypatch.setenv("FAKE_RESULT", json.dumps({"clips": [
-        {"id": "bon", "score": 8, "standalone": True, "reason": "fou rire"},
-        {"id": "nul", "score": 2, "standalone": False, "reason": "blague interne"}]}))
+        {"id": "a", "reason": "ajouté la question avant", "hook": "Il craque 😂",
+         "question": "", "hashtags": [], "overlay": "", "reaction": "laugh",
+         "moderation": "", "hook_theme": "", "hook_color": "", "start": 2.0, "end": 26.0},
+        {"id": "b", "reason": "", "hook": "", "question": "", "hashtags": [], "overlay": "",
+         "reaction": "", "moderation": "", "hook_theme": "", "hook_color": "",
+         "start": 5.0, "end": 6.0}]}))  # absurde : découpe automatique gardée
 
     def clip(cid):
-        return SimpleNamespace(id=cid, title=cid, broadcaster_name="x", duration=20,
-                               category="", audio=None)
-    copies = {}
-    for cid in ("bon", "nul"):
-        copies[cid] = tmp_path / f"{cid}.mp4"
-        copies[cid].write_bytes(video.read_bytes())
-    opts = SimpleNamespace(jury=True)
-    sources = {cid: (lambda p=p: str(p)) for cid, p in copies.items()}
-    kept = selection.pick_best([(clip("nul"), "x"), (clip("bon"), "x")], sources, 1,
-                               jury=selection.jury_for(opts))
-    assert [c.id for c, _ in kept] == ["bon"] and kept[0][0].jury["score"] == 8
-    assert not copies["nul"].exists()  # vidéo écartée supprimée
-    # 2 clips demandés : le clip faible complète, après le bon
-    for cid in ("bon", "nul"):
-        copies[cid].write_bytes(video.read_bytes())
-    kept = selection.pick_best([(clip("nul"), "x"), (clip("bon"), "x")], sources, 2,
-                               jury=selection.jury_for(opts))
-    assert [c.id for c, _ in kept] == ["bon", "nul"]
+        return SimpleNamespace(id=cid, title=cid, broadcaster_name="x", duration=20.0,
+                               category="")
+    a, b = clip("a"), clip("b")
+    win = lambda: Window(video, 100.0, 30.0, (5.0, 25.0))
+    selection.complete([(a, "x"), (b, "x")], {"a": win, "b": win}, SimpleNamespace(jury=True))
+    assert a.cut == (2.0, 26.0) and a.jury["hook"] == "Il craque 😂"
+    assert b.cut != (5.0, 6.0) and b.cut[1] - b.cut[0] >= 10
+    # sans Claude : la découpe automatique, aucun appel
+    c = clip("c")
+    monkeypatch.setenv("FAKE_MODE", "login")
+    selection.complete([(c, "x")], {"c": win}, SimpleNamespace(jury=False))
+    assert c.cut and not hasattr(c, "jury")
 
 
 def test_jury_writes_publication(fake_claude, monkeypatch):
@@ -192,76 +194,9 @@ def test_failure_pauses_claude_for_the_search(fake_claude, monkeypatch):
     assert llm.ask_json(system="s", prompt="p", schema={}) == {"ok": True}
 
 
-def test_second_radar_round_before_weak_clips(monkeypatch, tmp_path):
-    """Pas assez de clips publiables : d'autres clips sont regardés avant de compléter
-    avec des clips faibles."""
-    from clipbot import selection
-
-    monkeypatch.setattr(selection, "audio_profile",
-                        lambda p: {"reaction": 4, "peak_at": 1, "duration": 20})
-    verdicts = {"a": 8, "b": 3, "c": 7, "d": 2}
-
-    def jury(items):
-        return {c.id: {"score": verdicts[c.id], "standalone": True, "reason": ""}
-                for c, _ in items}
-    jury.language = None
-    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: [])
-
-    def clip(cid):
-        return SimpleNamespace(id=cid, title=cid, duration=20, audio=None)
-    paths = {}
-    for cid in "abcd":
-        paths[cid] = tmp_path / f"{cid}.mp4"
-        paths[cid].write_bytes(b"x")
-    src = {cid: (lambda p=p: str(p)) for cid, p in paths.items()}
-    asked = []
-
-    def more():
-        asked.append(1)
-        return [(clip("c"), "x"), (clip("d"), "x")], src
-    kept = selection.pick_best([(clip("a"), "x"), (clip("b"), "x")], src, 2, jury=jury,
-                               more=more)
-    assert asked and sorted(c.id for c, _ in kept) == ["a", "c"]
-    assert not paths["b"].exists() and not paths["d"].exists()
-
-
 def test_clip_reads_vod_position():
     from clipbot.twitch import Clip
 
     base = {"id": "x", "url": "u", "created_at": "2026-01-01T00:00:00Z"}
     assert Clip.from_api({**base, "video_id": "42", "vod_offset": 1234}).vod_offset == 1234.0
     assert Clip.from_api({**base, "video_id": "", "vod_offset": None}).vod_offset is None
-
-
-def test_radar_never_judges_a_clip_twice(monkeypatch, tmp_path):
-    """Clip déjà jugé lors d'une recherche récente : ni téléchargé, ni réécouté, ni
-    renvoyé à Claude."""
-    from clipbot import jury as jury_mod
-    from clipbot import llm, selection
-    from clipbot.state import State
-
-    state = State(tmp_path / "s.db")
-    monkeypatch.setattr(llm, "available", lambda: True)
-    calls = []
-
-    def judge(items, language=None):
-        calls.append([c.id for c, _ in items])
-        return {c.id: {"score": 8, "standalone": True, "reason": ""} for c, _ in items}
-    monkeypatch.setattr(jury_mod, "judge", judge)
-    monkeypatch.setattr(jury_mod, "quick_transcript", lambda v, language=None: [])
-    monkeypatch.setattr(selection, "audio_profile",
-                        lambda p: {"reaction": 4, "peak_at": 1, "duration": 20})
-    clip = SimpleNamespace(id="a", title="a", duration=20, audio=None)
-    video = tmp_path / "a.mp4"
-    video.write_bytes(b"x")
-    radar = selection.jury_for(SimpleNamespace(jury=True), state=state)
-    selection.pick_best([(clip, "x")], {"a": lambda: str(video)}, 1, jury=radar)
-    assert calls == [["a"]]
-    radar = selection.jury_for(SimpleNamespace(jury=True), state=state)  # recherche suivante
-    assert selection.to_download([clip], radar) == []
-
-    def no_download():
-        raise AssertionError("téléchargé")
-    again = SimpleNamespace(id="a", title="a", duration=20, audio=None)
-    kept = selection.pick_best([(again, "x")], {"a": no_download}, 1, jury=radar)
-    assert calls == [["a"]] and kept[0][0].jury["score"] == 8

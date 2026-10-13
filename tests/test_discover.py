@@ -41,15 +41,21 @@ def state(tmp_path):
     return State(cfg.db_path)
 
 
-def test_pick_clips_one_per_streamer_and_language():
+def test_pick_clips_most_viewed_in_language():
     clips = [clip("a1", "Kamet0", 5000), clip("a2", "Kamet0", 4000),
              clip("b1", "Zerator", 3000), clip("en", "xqc", 9000, lang="en"),
-             clip("c1", "Gotaga", 20, hours_ago=1)]
-    picked = pick_clips(clips, top=5, min_views=50, language="fr",
-                        is_done=lambda cid: cid == "b1")
-    assert [c.id for c in picked] == ["a1"]
-    picked = pick_clips(clips, top=5, per_channel=2, language="fr")
-    assert [c.id for c in picked] == ["a1", "a2", "b1", "c1"]
+             clip("c1", "Gotaga", 20), clip("long", "Gotaga", 8000, duration=90)]
+    picked = pick_clips(clips, {}, top=3, language="fr", is_done=lambda cid: cid == "b1")
+    assert [(c.id, login) for c, login in picked] == [("a1", "kamet0"), ("a2", "kamet0"),
+                                                      ("c1", "gotaga")]
+
+
+def test_pick_clips_one_clip_per_moment():
+    a, b, c = clip("a", "k", 900), clip("b", "k", 800), clip("c", "k", 700)
+    for x, off in ((a, 100.0), (b, 110.0), (c, 400.0)):
+        x.video_id, x.vod_offset = "v1", off  # a et b : même moment de la rediffusion
+    picked = pick_clips([a, b, c], {}, top=2)
+    assert [x.id for x, _ in picked] == ["a", "c"] and a.clippers == 2
 
 
 def test_candidates_come_from_the_period_not_current_lives(tmp_path):
@@ -58,22 +64,22 @@ def test_candidates_come_from_the_period_not_current_lives(tmp_path):
     st = state(tmp_path)
     st.save_settings({"discovered": {"vuenlive": {"id": "2", "seen": time.time() - 3600}}})
     tw = FakeTwitch([{"user_login": "Kamet0", "user_id": "3"}], {})
-    chans = candidate_channels(tw, st, language="fr", streamers=30, favorites=["perso"])
+    chans = candidate_channels(tw, st, language="fr", favorites=["perso"])
     assert chans == {"kamet0": "3", "perso": "id-perso"}
     assert not any(path == "/streams" for path, _ in tw.calls)
     videos = [params for path, params in tw.calls if path == "/videos"]
     assert videos and videos[0]["language"] == "fr" and videos[0]["period"] == "day"
 
 
-def test_discover_ranks_across_streamers(tmp_path):
+def test_discover_takes_the_most_viewed(tmp_path):
     st = state(tmp_path)
     tw = FakeTwitch(
         [{"user_login": "kamet0", "user_id": "k"}, {"user_login": "zerator", "user_id": "z"}],
-        {"k": [clip("k1", "kamet0", 300, hours_ago=3)],             # 100 vues/h
-         "z": [clip("z1", "zerator", 400, hours_ago=1),             # 400 vues/h
+        {"k": [clip("k1", "kamet0", 3000, hours_ago=20)],  # la veille au soir : le plus vu
+         "z": [clip("z1", "zerator", 400, hours_ago=1),
                clip("z2", "zerator", 350, hours_ago=1)]})
-    result = discover(tw, st, language="fr", top=2, min_views=50)
-    assert [(c.id, login) for c, login in result] == [("z1", "zerator"), ("k1", "kamet0")]
+    result = discover(tw, st, language="fr", top=2)
+    assert [(c.id, login) for c, login in result] == [("k1", "kamet0"), ("z1", "zerator")]
 
 
 class FakeTwitchCategories(FakeTwitch):
@@ -101,18 +107,9 @@ def test_discover_adds_viral_category_clips(tmp_path):
                                   {f"id-star{i}": f"star{i}" for i in range(12)})
     st = state(tmp_path)
     st.save_settings({"categories_seen": {"jc": {"seen": time.time(), "viewers": 9000}}})
-    found = discover(twitch, st, language="fr", streamers=5, top=3, min_views=0)
+    found = discover(twitch, st, language="fr", top=3)
     assert [login for _, login in found] == ["star0", "star1", "star2"]  # hors ligne compris
     assert all(c.language == "fr" for c, _ in found)
-
-
-def test_standout_ignores_tiny_numbers():
-    from clipbot.discover import standout_score
-
-    clips = [clip("a", "petit", 10), clip("b", "petit", 12), clip("c", "petit", 11),
-             clip("d", "petit", 49)]
-    standout_score(clips)
-    assert clips[-1].standout < 2  # 49 vues contre ~11 : pas « hors norme »
 
 
 def test_morning_search_uses_last_night_categories(tmp_path):
@@ -129,28 +126,8 @@ def test_morning_search_uses_last_night_categories(tmp_path):
     morning = [{"user_login": "matin", "user_id": "id-matin", "viewer_count": 50}]  # pas de GTA
     twitch = FakeTwitchCategories(morning, {}, {"gta": viral},
                                   {f"id-rp{i}": f"rp{i}" for i in range(10)})
-    found = discover(twitch, st, language="fr", streamers=5, top=2, min_views=0)
+    found = discover(twitch, st, language="fr", top=2)
     assert [login for _, login in found] == ["rp0", "rp1"]
-
-
-def test_last_night_hit_beats_small_fresh_clip():
-    from clipbot.discover import standout_score
-
-    fresh = clip("fresh", "a", 400, hours_ago=1)
-    hit = clip("hit", "b", 5000, hours_ago=20)  # moment fort de la veille au soir
-    score = standout_score([fresh, hit])
-    assert fresh.virality() > hit.virality()       # l'ancien classement se trompait
-    assert score(hit) > score(fresh)
-
-
-def test_audience_share_levels_big_and_small_streamers():
-    from clipbot.discover import standout_score
-
-    big = clip("big", "gros", 2000, hours_ago=3)     # 30 000 spectateurs : 7 %, banal
-    small = clip("small", "petit", 500, hours_ago=3)  # 800 spectateurs : 62 %, énorme
-    viewers = {"gros": 30000, "petit": 800}
-    score = standout_score([big, small], lambda c: viewers[c.broadcaster_name])
-    assert small.audience_share > 0.6 and score(small) > score(big)
 
 
 class FakeTwitchSearch(FakeTwitchCategories):
@@ -179,7 +156,7 @@ def test_free_text_search_resolves_channel_game_and_keyword(tmp_path):
 def test_channel_search_returns_several_clips_of_that_channel(tmp_path):
     clips = [clip(f"g{i}", "Gotaga", 300 - i * 10, lang="en") for i in range(5)]
     tw = FakeTwitchSearch([], {"id-gotaga": clips}, {}, {})
-    found = discover(tw, state(tmp_path), language="fr", top=3, min_views=0, query=["gotaga"])
+    found = discover(tw, state(tmp_path), language="fr", top=3, query=["gotaga"])
     assert [c.id for c, _ in found] == ["g0", "g1", "g2"]  # même chaîne, toute langue
 
 
@@ -204,6 +181,5 @@ def test_morning_search_finds_last_night_streams_with_app_closed(tmp_path):
     clips = {"id-gotaga": [clip("hier", "Gotaga", 6000, hours_ago=10)],
              "id-petit": [clip("p", "petit", 150, hours_ago=11)]}
     tw = FakeTwitchVods([], clips)
-    found = discover(tw, state(tmp_path), language="fr", streamers=30, hours=24, top=1,
-                     min_views=0)
+    found = discover(tw, state(tmp_path), language="fr", hours=24, top=1)
     assert [(c.id, login) for c, login in found] == [("hier", "gotaga")]

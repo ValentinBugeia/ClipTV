@@ -205,19 +205,9 @@ PAGE = """<!doctype html>
   .mini a, .mini .link {{ color:var(--muted); background:none; border:0; padding:0; font:inherit; box-shadow:none;
     cursor:pointer; text-decoration:none; flex:none; min-height:0 }}
   .mini a:hover, .mini .link:hover {{ color:var(--fg); filter:none; box-shadow:none }}
-  .pot {{ --r:#9d9d9d; position:absolute; top:22px; right:22px; z-index:2 }}
-  .pot.r-uncommon {{ --r:#3ddc4a }} .pot.r-rare {{ --r:#4da3ff }} .pot.r-epic {{ --r:#b964ff }}
-  .pot.r-legendary {{ --r:#ff9a1f }}
-  .pot summary {{ cursor:pointer; list-style:none; min-width:48px; text-align:center;
-    padding:4px 10px; border-radius:10px; border:1.5px solid var(--r); background:rgba(10,10,15,.75);
-    backdrop-filter:blur(8px); color:var(--r); font-size:18px; font-weight:800; font-variant-numeric:tabular-nums }}
-  .pot summary::-webkit-details-marker {{ display:none }}
-  .pot.r-legendary summary, .pot.r-epic summary {{ box-shadow:0 0 16px color-mix(in srgb,var(--r) 55%,transparent) }}
-  .pot .why {{ position:absolute; right:0; margin-top:6px; width:250px; background:rgba(26,26,35,.97);
-    border:1px solid var(--r); border-radius:12px; padding:10px 12px; font-size:12px; box-shadow:0 20px 50px rgba(0,0,0,.6) }}
-  .pot .why strong {{ color:var(--r) }}
-  .pot .est {{ margin-top:6px; font-size:13px; font-weight:700; color:var(--fg) }}
-  .pot ul {{ margin:6px 0 0; padding-left:18px; color:var(--muted); font-size:12px }}
+  .pot {{ position:absolute; top:22px; right:22px; z-index:2; padding:4px 10px; border-radius:10px;
+    background:rgba(10,10,15,.75); backdrop-filter:blur(8px); color:var(--fg); font-size:15px;
+    font-weight:800; font-variant-numeric:tabular-nums }}
   .flash {{ padding:12px 16px; border-radius:12px; background:rgba(61,220,132,.1); border:1px solid rgba(61,220,132,.28);
             color:#c9f7da; margin-bottom:18px; animation:drop .35s ease-out }}
   .flash.err {{ background:rgba(255,107,122,.1); border-color:rgba(255,107,122,.3); color:#ffd0d5 }}
@@ -607,11 +597,11 @@ SEARCH = """<details class="panel">
 <form method="post" action="/search">
   <div class="grid">
     <label class="full">Rechercher : chaîne, jeu ou mot-clé, séparés par des virgules (vide =
-      les temps forts du moment)
+      les clips les plus vus de la période)
       <input name="channels" value="{channels}" placeholder="ex. gotaga, Valorant, fou rire"
              autocapitalize="none" autocorrect="off" maxlength="300"></label>
-    <label>Période <select name="hours">{hours}</select></label>
-    <label>Clips par chaîne <input name="top" type="number" min="1" max="20" value="3"></label>
+    <label>Lives diffusés pendant les <select name="hours">{hours}</select></label>
+    <label>Nombre de clips <input name="top" type="number" min="1" max="20" value="3"></label>
     {then_field}
     <label class="check"><input type="checkbox" name="ai" value="1" checked> Légende par Claude</label>
   </div>
@@ -712,8 +702,8 @@ def run_search(job: SearchJob, cfg: Config, state: State, opts: Options, channel
 
 
 def _run_search(job, cfg, state, opts, channels, hours, top, twitch) -> str:
-    """``channels`` : termes de la recherche libre (chaînes, jeux, mots-clés) ; vide =
-    temps forts du moment."""
+    """``channels`` : termes de la recherche libre (chaînes, jeux, mots-clés) ; vide = les
+    clips les plus vus de la période."""
     from .autopilot import load_settings
     from .discover import run_discovery
 
@@ -722,11 +712,11 @@ def _run_search(job, cfg, state, opts, channels, hours, top, twitch) -> str:
     if channels:
         job.message = f"Recherche en cours : {', '.join(channels)}…"
     results = run_discovery(cfg, state, opts, twitch, language=lang, hours=hours, top=top,
-                            min_views=0, query=channels or None)
+                            query=channels or None)
     ok = sum(r[1] for r in results)
     ko = len(results) - ok
     if not results:
-        return f"Aucun nouveau clip trouvé ({', '.join(channels) or 'découverte auto'})"
+        return f"Aucun nouveau clip trouvé ({', '.join(channels) or 'clips les plus vus'})"
     return (f"Recherche terminée : {ok} clip(s) prêt(s)" + (f", {ko} en erreur" if ko else "")
             + f" · {int(time.time() - started)} s")
 
@@ -954,7 +944,6 @@ class Handler(BaseHTTPRequestHandler):
     def _clips_page(self):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         tab = q.get("s", ["rendered"])[0]
-        self._start_backfill()
         manual = not self._auto_publish()  # tu publies toi-même (TikTok Studio)
         if manual:
             self._release_scheduled()
@@ -971,11 +960,8 @@ class Handler(BaseHTTPRequestHandler):
         if tab == "published":
             return self._published_page(tabs, tiktok_videos)
         clips = self.state.list(tab)
-        if tab == "rendered":  # les meilleures notes (engagement attendu) en premier
-            from . import potential
-
-            self._pot_hist = potential.history(self.state)
-            clips.sort(key=lambda c: potential.score(c, self._pot_hist)["note"], reverse=True)
+        if tab == "rendered":  # les plus vus sur Twitch en premier
+            clips.sort(key=lambda c: c.get("view_count") or 0, reverse=True)
         cards = "".join(self._card(c, manual=manual) for c in clips) or \
             '<p class="empty">Rien ici pour le moment.</p>'
         info = e(f"Publication : {', '.join(PLATFORM_NAMES.get(p, p) for p in self.platforms)}"
@@ -1198,8 +1184,7 @@ class Handler(BaseHTTPRequestHandler):
         if moderation and status in ("rendered", "scheduled", "failed"):
             badges += (f'<span class="badge failed" title="{e(moderation)}">⚠️ Risque de '
                        f'modération : {e(moderation[:60])}</span>')
-        corner = (self._potential_badge(c) if status in ("rendered", "scheduled", "failed")
-                  else "")
+        corner = self._views_badge(c)
         badges = f'<div class="badges">{badges}</div>' if badges else ""
         error = f" · ⚠️ {e(c['error'])}" if c.get("error") else ""
         return CARD.format(player=player, corner=corner,
@@ -1245,44 +1230,15 @@ class Handler(BaseHTTPRequestHandler):
                                broadcaster_name=c.get("channel") or "")
         return self._tiktok_check(clip)
 
-    def _start_backfill(self) -> None:
-        """Indicateur de potentiel pour les clips préparés avant cette fonction (une fois)."""
-        if getattr(self.app, "backfill_started", False):
-            return
-        self.app.backfill_started = True
-        from . import potential
+    @staticmethod
+    def _views_badge(c: dict) -> str:
+        """Vues du clip sur Twitch (c'est ce qui l'a fait choisir)."""
+        views = c.get("view_count")
+        if not views:
+            return ""
+        from .stats_page import compact
 
-        def run():
-            try:
-                n = potential.backfill(self.cfg, self.state)
-                if n:
-                    log.info("Potentiel calculé pour %d clip(s) déjà prêts", n)
-            except Exception:
-                log.exception("Calcul du potentiel des anciens clips impossible")
-        threading.Thread(target=run, daemon=True).start()
-
-    def _potential_badge(self, c: dict) -> str:
-        """Indicateur « potentiel de vues » (détail au clic : raisons du score)."""
-        from . import potential
-
-        if not hasattr(self, "_pot_hist"):  # une seule lecture des stats par page
-            self._pot_hist = potential.history(self.state)
-        p = potential.score(c, self._pot_hist)
-        reasons = "".join(f"<li>{e(r)}</li>" for r in p["reasons"])
-        tip = e(f"{p['rarity_label']} · " + " · ".join(p["reasons"]))
-        est = p.get("estimate")
-        estimate = ""
-        if est:  # engagement attendu sur TikTok pour ce clip
-            from .stats_page import compact
-
-            parts = [f"👁 {compact(est['views'])}"] + [
-                f"{icon} {compact(est[k])}" for k, icon in (("likes", "♥"), ("comments", "💬"),
-                                                           ("shares", "↗"))
-                if est.get(k) is not None]
-            estimate = f'<div class="est">Estimé sur TikTok : {e(" · ".join(parts))}</div>'
-        return (f'<details class="pot r-{p["rarity"]}"><summary title="{tip}">'
-                f'{p["note"]:.1f}</summary><div class="why"><strong>{e(p["rarity_label"])} · '
-                f'{p["note"]:.1f}/10</strong>{estimate}<ul>{reasons}</ul></div></details>')
+        return f'<span class="pot" title="Vues du clip sur Twitch">👁 {e(compact(views))}</span>'
 
     # ---------- page Aide ----------
     def _help_page(self):
@@ -1430,7 +1386,6 @@ class Handler(BaseHTTPRequestHandler):
 <div class="grid">
   <label class="full">Où chercher les clips <select name="source">{_options(SOURCES, s.get('source', 'discover'))}</select></label>
   <label>Langue des streams <select name="language">{_options(LANGUAGES, s.get('language', 'fr'))}</select></label>
-  <label>Streams scannés (mode auto) <input name="streamers" type="number" min="5" max="100" value="{e(s.get('streamers', 30))}"></label>
   <label class="full">Chaînes favorites (toujours incluses ; obligatoires en mode « mes chaînes »)
     <input name="channels" value="{e(', '.join(s['channels']))}" placeholder="kamet0, zerator"
            autocapitalize="none" autocorrect="off"></label>
@@ -1438,9 +1393,8 @@ class Handler(BaseHTTPRequestHandler):
     <input name="live_channels" value="{e(', '.join(s['live_channels']))}" placeholder="kamet0"
            autocapitalize="none" autocorrect="off"></label>
   <label>Fréquence de recherche <select name="every">{_options(EVERY, int(s['every']))}</select></label>
-  <label>Clips récents de moins de <select name="hours">{_options(HOURS, int(s['hours']))}</select></label>
+  <label>Lives diffusés pendant les <select name="hours">{_options(HOURS, int(s['hours']))}</select></label>
   <label>Clips max par recherche <input name="top" type="number" min="1" max="20" value="{e(s['top'])}"></label>
-  <label>Vues minimum <input name="min_views" type="number" min="0" value="{e(s['min_views'])}"></label>
   {then_field}
   <label class="full">Cadrage des vidéos <select name="layout">{_options(LAYOUTS, s.get('layout', 'auto'))}</select></label>
   <label>Sensibilité des lives <select name="ratio">{_options(RATIOS, float(s['ratio']))}</select></label>
@@ -1450,8 +1404,8 @@ class Handler(BaseHTTPRequestHandler):
   <label class="check full"><input type="checkbox" name="ai_caption" value="1"{" checked" if s["ai_caption"] else ""}>
     Légendes et hashtags écrits par Claude</label>
   <label class="check full"><input type="checkbox" name="jury" value="1"{" checked" if s.get("jury", True) else ""}>
-    Radar : Claude regarde les clips présélectionnés (images + paroles) et écarte ceux qui ne
-    marchent pas sans contexte, les temps morts et les clips sans vraie réaction</label>
+    Claude complète les clips : ajoute le début ou la fin qui manque pour qu'on comprenne
+    (situation, chute, réaction du streamer)</label>
   <label class="check full"><input type="checkbox" name="smart_timing" value="1"{" checked" if s.get("smart_timing", True) else ""}>
     Horaires intelligents : cherche 2× plus souvent le soir (18 h - 2 h, quand les gros lives
     tournent) et 3× moins la nuit et le matin</label>
@@ -1598,7 +1552,7 @@ mentionner.</p>
         from . import llm
 
         ok, how = llm.describe()
-        row("Claude (Radar et légendes)", "✅" if ok else "—", e(how))
+        row("Claude (découpe et légendes)", "✅" if ok else "—", e(how))
 
         checks = ""
         if self.app.checks:

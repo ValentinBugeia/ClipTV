@@ -54,7 +54,7 @@ def render(status: dict) -> str:
                "Page Comptes → Connecter.", "/accounts", "Aller dans Comptes"),
         _check(s["claude"], "4. Claude (facultatif)",
                html.escape(s["claude_error"]) if s.get("claude_error") else
-               "Pour le Radar qui trie les clips et les légendes écrites par l'IA, avec ton "
+               "Pour compléter le début ou la fin des clips et écrire les légendes, avec ton "
                "abonnement Claude (Claude Code installé sur ce PC).",
                "#claude", "Comment faire", optional=True),
         _check(s["autopilot"], "5. Pilote automatique activé",
@@ -75,15 +75,13 @@ def render(status: dict) -> str:
 
 <div class="panel" id="fonctionnement"><h2>Comment ça marche</h2>
 <div class="steps">
-  <div class="step"><b>1. Trouver</b>L'app rassemble les clips Twitch de la période (streamers
-  repérés en live, même hors ligne depuis, et clips les plus vus des catégories du moment), puis
-  garde ceux qui font le plus réagir.</div>
-  <div class="step"><b>2. Trier</b>Le <strong>Radar</strong> (Claude) regarde et écoute les
-  meilleurs moments dans un extrait de la rediffusion, <strong>découpe lui-même</strong>
-  chaque clip (début de la situation → chute → fin de la réaction, jamais au milieu d'une
-  phrase), écarte ceux qui ne marchent pas sans contexte (et en regarde d'autres s'il en
-  manque) ; les clips sont classés par
-  <strong>note</strong> (engagement attendu sur ton compte).</div>
+  <div class="step"><b>1. Trouver</b>Les clips Twitch <strong>les plus vus</strong> des lives
+  diffusés pendant la période choisie (24 h = lives des dernières 24 h, même si la chaîne est
+  hors ligne maintenant), autant que de clips demandés.</div>
+  <div class="step"><b>2. Compléter</b><strong>Claude</strong> lit ce qui se dit autour du clip
+  dans la rediffusion et <strong>ajoute le début ou la fin</strong> qui manque pour qu'on
+  comprenne (situation → chute → réaction du streamer, jamais au milieu d'une phrase). Sans
+  Claude, l'app le fait elle-même avec les pauses entre les phrases.</div>
   <div class="step"><b>3. Monter</b>Format vertical, cadrage sur le streamer, sous-titres
   animés, accroche au style du jeu, emoji sur la réaction, description et hashtags.</div>
   <div class="step"><b>4. Publier</b>Dans <em>Clips → À publier</em>, <strong>🚀 Préparer</strong>
@@ -163,9 +161,8 @@ publies toi-même depuis TikTok Studio (bouton <strong>🚀 Préparer</strong>).
 </ul>
 <h3>Sous chaque clip</h3>
 <ul>
-  <li>La <strong>note sur 10</strong> en haut à droite : l'engagement attendu sur ton compte
-  (clique dessus pour le détail : vues, j'aime, commentaires et partages estimés, avis du
-  Radar). Les clips sont triés par note.</li>
+  <li>En haut à droite : les <strong>vues du clip sur Twitch</strong>. Les clips sont
+  triés par vues.</li>
   <li><strong>👁 Aperçu TikTok</strong> sur la vidéo : l'interface de TikTok par-dessus, pour
   vérifier que rien ne cache les sous-titres.</li>
   <li><strong>🚀 Préparer</strong> : télécharge la vidéo, copie la description et ouvre TikTok

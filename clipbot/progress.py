@@ -11,11 +11,11 @@ import time
 
 # (clé, titre, explication affichée sous l'étape en cours)
 STEPS = [
-    ("search", "Recherche des temps forts",
-     "Analyse des lives les plus regardés et classement de leurs clips par vues/heure."),
-    ("radar", "Découpe et tri des moments",
-     "Extrait de la rediffusion autour de chaque clip, phrases transcrites ; Claude choisit "
-     "le début et la fin de chaque clip, écarte les moins bons et écrit la description."),
+    ("search", "Recherche des clips les plus vus",
+     "Clips des lives diffusés pendant la période choisie, classés par vues."),
+    ("radar", "Claude complète les clips",
+     "Extrait de la rediffusion autour de chaque clip, phrases transcrites ; Claude ajoute le "
+     "début ou la fin qui manque et écrit la description."),
     ("download", "Téléchargement du clip",
      "Version 1080p du passage choisi, depuis la rediffusion (ou le clip Twitch)."),
     ("face", "Détection du visage et cadrage",
@@ -26,7 +26,7 @@ STEPS = [
     ("render", "Montage vertical 9:16",
      "ffmpeg recadre la vidéo et incruste les sous-titres animés."),
     ("caption", "Écriture de la légende",
-     "Accroche et hashtags (par Claude si la clé est configurée)."),
+     "Accroche et hashtags (par Claude s'il est installé)."),
 ]
 
 _lock = threading.Lock()

@@ -265,7 +265,7 @@ def render(summary: dict, *, days: int, sort: str, tz: str) -> str:
     return "".join(parts)
 
 
-PURPOSES = {"radar": "Radar (tri des clips)", "juré": "Radar (tri des clips)", "légende": "Légendes",
+PURPOSES = {"découpe": "Début / fin des clips", "radar": "Radar (ancien tri)", "juré": "Radar (ancien tri)", "légende": "Légendes",
             "test": "Test de connexion", "autre": "Autre"}
 
 

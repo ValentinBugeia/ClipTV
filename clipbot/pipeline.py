@@ -30,7 +30,7 @@ class Options:
     max_duration: float = 60.0
     caption_template: str = "{title} {mood}\n{cta}\n{icon} twitch.tv/{channel_tag}{tiktok}"
     ai_caption: bool = False
-    jury: bool = False              # le Radar : Claude regarde les clips présélectionnés
+    jury: bool = False              # Claude complète le début / la fin des clips
     publish: bool = False           # publie tout de suite après le rendu
     schedule: bool = False          # programme sur le prochain créneau libre
     platforms: list[str] = field(default_factory=list)  # vide = cfg.platforms
@@ -237,14 +237,8 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
 SAFE_BOTTOM = 400  # px (sur 1920) couverts par la description et les boutons de TikTok
 
 
-def potential_note(state):
-    from .potential import note_for
-
-    return note_for(state)
-
-
 def _hook_style(clip, category: str) -> dict:
-    """Style de l'accroche : choisi par le Radar (thème + couleur du jeu), sinon d'après
+    """Style de l'accroche : choisi par Claude (thème + couleur du jeu), sinon d'après
     la catégorie Twitch."""
     from .hookstyle import resolve
 
@@ -422,19 +416,12 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
             vph = round(clip.virality(), 1)
         except Exception:
             vph = None
-        audio = getattr(clip, "audio", None) or {}
         meta["signals"] = json.dumps({**info, "vph": vph,
-                                      "standout": getattr(clip, "standout", None),
-                                      "audience_share": getattr(clip, "audience_share", None),
-                                      "reaction": audio.get("reaction"),
-                                      "peak_at": audio.get("peak_at"),
-                                      "chat_spike": getattr(clip, "chat_spike", None),
                                       "vod_added": getattr(clip, "vod_added", None),
                                       "cut": getattr(clip, "render_cut", None),
-                                      "jury": (getattr(clip, "jury", None) or {}).get("score"),
                                       "jury_reason": (getattr(clip, "jury", None) or {}).get("reason"),
                                       "moderation": (getattr(clip, "jury", None) or {}).get("moderation") or None,
-                                      # choix du Radar gardés pour « Refaire le montage »
+                                      # choix de Claude gardés pour « Refaire le montage »
                                       # (préfixe radar_ : « reaction » est déjà la mesure du son)
                                       **{f"radar_{k}": (getattr(clip, "jury", None) or {}).get(k)
                                          or None for k in ("overlay", "reaction", "hook_theme",
@@ -466,9 +453,11 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
 
 def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, twitch, *,
                  hours: float = 24, top: int = 3, min_views: int = 50) -> list[tuple[str, bool]]:
-    """Traite les clips les plus viraux de chaque chaîne. Retourne [(clip_id, succès)]."""
+    """Les ``top`` clips les plus vus de chaque chaîne sur la période, complétés et montés.
+    Retourne [(clip_id, succès)]."""
     from . import stats
-    from .twitch import rank_clips
+    from .discover import pick_clips
+    from .selection import make_clips
 
     stats.refresh_before_search(cfg, state)
     on_tiktok = stats.on_tiktok(state)  # clips déjà sur le compte TikTok : ignorés
@@ -476,53 +465,19 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
     for channel in channels:
         log.info("== %s ==", channel)
         progress.step("search", f"Clips de {channel}")
-        broadcaster_id = twitch.get_broadcaster_id(channel)
-        clips = twitch.get_clips(broadcaster_id, since_hours=hours)
-        ranked = [c for c in rank_clips(clips, min_views=min_views,
-                                        max_duration=opts.max_duration)
-                  if not state.is_done(c.id) and not on_tiktok(c)]
-        from .discover import preselection_boost
-
-        boost = preselection_boost(state)  # vues de tes TikToks, titre, chat
-        ranked.sort(key=lambda c: c.momentum() * boost(c), reverse=True)
-        log.info("%d clips trouvés, %d nouveaux éligibles", len(clips), len(ranked))
-        from . import selection
-
-        radar = selection.jury_for(opts, state=state)
-        from .moments import merge_moments
-
-        size = selection.shortlist_size(top, radar=radar is not None)
-        shortlist = [c for c, _ in merge_moments([(c, channel) for c in ranked[:size + top]])]
-        shortlist = shortlist[:size]
-        twitch.annotate_categories(shortlist)
-        prefetch = Prefetcher(cfg, selection.to_download(shortlist, radar),
-                              max_duration=opts.max_duration)
-        try:
-            chosen = [c for c, _ in selection.pick_best(
-                [(c, channel) for c in shortlist],
-                {c.id: prefetch.source(c) for c in shortlist}, top,
-                jury=radar, note=potential_note(state))]
-            prefetch.prepare(chosen)  # versions 1080p des clips retenus, en parallèle
-            for i, clip in enumerate(chosen, 1):
-                progress.clip(i, len(chosen), clip.title)
-                log.info("→ %s (%d vues, %.0f vues/h) %s", clip.title, clip.view_count,
-                         clip.virality(), clip.url)
-                results.append((clip.id, _process(clip, channel, cfg, state, opts, prefetch)))
-        finally:
-            prefetch.close()
+        clips = twitch.get_clips(twitch.get_broadcaster_id(channel), since_hours=hours)
+        found = pick_clips(clips, {c.id: channel for c in clips}, top=top,
+                           max_duration=opts.max_duration, is_done=state.is_done,
+                           on_tiktok=on_tiktok)
+        log.info("%d clips trouvés, les %d plus vus retenus", len(clips), len(found))
+        if found:
+            twitch.annotate_categories([c for c, _ in found])
+            results += make_clips(found, cfg, state, opts)
     return results
 
 
-def _process(clip, channel, cfg, state, opts, prefetch) -> bool:
-    try:
-        return process_clip(clip, channel, cfg, state, opts, source=prefetch.final(clip))
-    except Exception:  # erreur réseau Twitch etc. : on passe à la suite
-        log.exception("Erreur sur %s", clip.id)
-        return False
-
-
 class Prefetcher:
-    """Téléchargements anticipés : extraits légers autour des moments (écoute, Radar),
+    """Téléchargements anticipés : extraits légers autour des clips (écoute, Claude),
     puis versions 1080p des passages retenus pendant que le clip courant est monté."""
 
     def __init__(self, cfg: Config, clips, workers: int = 4, max_duration: float = 60.0):

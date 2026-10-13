@@ -8,10 +8,10 @@ la situation et s'arrête avant la réaction. Pour chaque moment :
 2. on télécharge un **extrait léger** de la rediffusion autour du clip (15 s avant, 12 s
    après, en 160p : quelques Mo) — ou le clip lui-même si la rediffusion n'existe plus ;
 3. on transcrit l'extrait (phrases avec leur temps) ;
-4. le Radar (Claude) lit les phrases, regarde les images, et choisit le début et la fin :
+4. Claude lit les phrases, regarde les images, et choisit le début et la fin :
    début de la situation → chute → fin de la réaction, jamais au milieu d'une phrase.
    Sans Claude, ``auto_cut`` fait de même avec les pauses entre les phrases et le son ;
-5. pour les clips retenus seulement, la version 1080p de ce passage est téléchargée et
+5. la version 1080p de ce passage est téléchargée et
    recalée sur l'extrait par le son (les repères de Twitch ne sont pas précis à la
    seconde).
 """

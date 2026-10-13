@@ -1,13 +1,14 @@
-"""Découverte automatique des temps forts : aucune liste de chaînes à fournir.
+"""Recherche des clips : aucune liste de chaînes à fournir.
 
-À chaque passage :
-1. on prend les lives les plus regardés dans la langue choisie (API Helix /streams) ;
-2. on y ajoute les streamers repérés lors des derniers jours (ceux qui ont fini leur
-   live ont encore des clips frais) et les chaînes favorites éventuelles ;
-3. on récupère leurs clips récents et on classe **tout le monde ensemble** par
-   vues/heure : ce sont les moments que les viewers ont jugés assez forts pour les
-   clipper et les partager ;
-4. on garde les meilleurs, au plus ``per_channel`` par streamer pour varier le contenu.
+1. **Où chercher** : les streamers qui ont diffusé pendant la période choisie (d'après
+   leurs rediffusions dans les catégories les plus regardées), tes chaînes favorites, et
+   les clips les plus vus de ces catégories — même si la chaîne est hors ligne au moment
+   de la recherche ;
+2. **quels clips** : seulement ceux créés pendant la période (24 h = le live a eu lieu
+   dans les dernières 24 h), dans ta langue, pas déjà préparés ni déjà sur ton TikTok ;
+3. **lesquels** : les plus vus sur Twitch, autant que de clips demandés (plusieurs clips
+   du même moment n'en font qu'un).
+Ensuite ``selection.make_clips`` les complète (Claude) et les monte.
 """
 
 from __future__ import annotations
@@ -15,34 +16,13 @@ from __future__ import annotations
 import logging
 import time
 
-from .twitch import Clip, TwitchClient, rank_clips
+from .twitch import Clip, TwitchClient
 
 log = logging.getLogger("clipbot.discover")
-
 MEMORY_DAYS = 7        # un streamer repéré en live reste scanné 7 jours (même hors ligne)
 MEMORY_KEY = "discovered"
 CATEGORY_KEY = "categories_seen"  # catégories vues dans les lives FR ces 7 derniers jours
 MEMORY_MAX = 120                  # chaînes gardées (les plus regardées)
-
-
-def proven_channels(state, limit: int = 10) -> tuple[list[str], list[str]]:
-    """(streamers qui marchent sur ton compte, streamers à éviter), d'après les vues de
-    tes TikToks uniquement : rejeter un clip ne veut pas dire que le streamer fait peu de vues."""
-    from statistics import median
-
-    from . import potential
-
-    hist = potential.history(state)
-    good, bad = [], []
-    if len(hist["all"]) >= potential.MIN_HISTORY:
-        overall = median(hist["all"])
-        for login, views in hist["channel"].items():
-            factor = potential._group_factor(views, overall) or 1
-            if len(views) >= 2 and factor >= 1.2:
-                good.append((factor, login))
-            elif len(views) >= 3 and factor < 0.5:
-                bad.append(login)
-    return [g for _, g in sorted(good, reverse=True)[:limit]], bad
 
 
 def remember_streams(state, streams: list[dict]) -> dict:
@@ -125,24 +105,11 @@ def recent_broadcasters(twitch: TwitchClient, state, *, language: str | None,
 
 
 def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
-                       streamers: int, favorites: list[str] = (),
-                       hours: float = 24) -> dict[str, str]:
+                       favorites: list[str] = (), hours: float = 24, **_) -> dict[str, str]:
     """{login: broadcaster_id} des chaînes à scanner : celles qui ont diffusé sur la période
-    (rediffusions), plus tes favoris et les streamers qui marchent sur ton TikTok. Les lives
-    en cours au moment de la recherche ne comptent pas : seule la période choisie compte."""
+    (rediffusions) et tes favoris. Être en live ou non au moment de la recherche ne compte
+    pas : seule la période choisie compte."""
     channels = recent_broadcasters(twitch, state, language=language, hours=hours)
-    # streamers qui marchent sur ton compte TikTok : toujours scannés ; ceux qui y font peu
-    # de vues : écartés, sauf s'ils sont dans tes favoris
-    good, bad = proven_channels(state)
-    for login in bad:
-        if login not in favorites:
-            channels.pop(login, None)
-    for login in good:
-        if login not in channels:
-            try:
-                channels[login] = twitch.get_broadcaster_id(login)
-            except Exception:
-                log.debug("Chaîne %s introuvable", login)
     for login in favorites:
         if login not in channels:
             try:
@@ -152,57 +119,6 @@ def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
     return channels
 
 
-TYPICAL_SHARE = 0.08  # vues d'un clip ≈ 8 % des spectateurs du live : clip « normal »
-
-
-def audience_factor(share: float | None) -> float:
-    """Part de l'audience qui a vu le clip (vues ÷ spectateurs du streamer) : 8 % = ×1,
-    32 % = ×2,3, 2 % = ×0,4. Met gros et petits streamers sur un pied d'égalité."""
-    if not share:
-        return 1.0
-    return min(max((share / TYPICAL_SHARE) ** 0.6, 0.4), 4.0)
-
-
-def standout_score(clips: list[Clip], audience=lambda clip: None):
-    """Score d'un clip : élan (vues, âge atténué) × à quel point il dépasse les clips
-    habituels de son streamer × part de son audience qui l'a vu (si on connaît le nombre de
-    spectateurs du streamer). ``audience(clip)`` : spectateurs du streamer, ou None."""
-    from statistics import median
-
-    by_channel: dict[str, list[int]] = {}
-    for c in clips:
-        by_channel.setdefault(c.broadcaster_name.lower(), []).append(c.view_count)
-    typical = {k: median(v) for k, v in by_channel.items() if len(v) >= 3}
-
-    for clip in clips:  # gardé sur le clip pour l'indicateur de potentiel
-        base = typical.get(clip.broadcaster_name.lower())
-        # +50 vues de chaque côté : 49 vues contre 10 d'habitude n'est pas un exploit (×1,6
-        # au lieu de ×4,9), alors que 5 000 contre 1 000 le reste (×4,8)
-        clip.standout = round((clip.view_count + 50) / (base + 50), 2) if base else None
-        viewers = audience(clip)
-        clip.audience_share = round(clip.view_count / viewers, 3) if viewers else None
-
-    def score(clip: Clip) -> float:
-        ratio = clip.standout ** 0.5 if clip.standout else 1.0
-        # vues à la puissance 0,7 : les vues brutes (surtout la taille du streamer) ne
-        # doivent pas écraser la part de l'audience ni le « hors norme »
-        return (clip.momentum() ** 0.7 * min(max(ratio, 0.5), 4.0)
-                * audience_factor(clip.audience_share))
-    return score
-
-
-def preselection_boost(state):
-    """Durée adaptée à TikTok × vues de tes anciens TikToks (streamer, catégorie) ×
-    titre qui annonce une réaction × pic du chat au moment du clip."""
-    from . import potential, selection
-
-    hist = potential.history(state)
-    return lambda clip: (selection.duration_factor(clip.duration)
-                         * selection.history_factor(clip, hist)
-                         * selection.title_factor(clip.title)
-                         * selection.chat_factor(state, clip))
-
-
 def tiktok_check(state):
     """Vérifie les vidéos déjà sur le compte TikTok (liste rafraîchie si besoin)."""
     from . import stats
@@ -210,28 +126,33 @@ def tiktok_check(state):
     return stats.on_tiktok(state)
 
 
-def pick_clips(clips: list[Clip], *, top: int, per_channel: int = 1, min_views: int = 0,
-               max_duration: float = 60, language: str | None = None,
-               is_done=lambda cid: False, on_tiktok=lambda clip: False,
-               boost=lambda clip: 1.0, audience=lambda clip: None) -> list[Clip]:
-    """Meilleurs clips tous streamers confondus, en limitant le nombre par streamer."""
+def pick_clips(clips: list[Clip], owner: dict, *, top: int, max_duration: float = 60,
+               language: str | None = None, is_done=lambda cid: False,
+               on_tiktok=lambda clip: False) -> list[tuple[Clip, str]]:
+    """Les ``top`` clips les plus vus : dans la langue, pas déjà préparés ni déjà sur ton
+    TikTok, un seul clip par moment (plusieurs viewers clippent souvent le même)."""
+    from .moments import same_moment
+
     if language:
         clips = [c for c in clips if not c.language or c.language.startswith(language)]
-    picked, per = [], {}
-    base = standout_score(clips, audience)
-    for clip in sorted(rank_clips(clips, min_views=min_views, max_duration=max_duration),
-                       key=lambda c: base(c) * boost(c), reverse=True):
-        key = clip.broadcaster_name.lower()
-        if is_done(clip.id) or per.get(key, 0) >= per_channel:
+    picked: list[Clip] = []
+    seen: set[str] = set()
+    for clip in sorted(clips, key=lambda c: c.view_count, reverse=True):
+        if clip.id in seen or clip.duration > max_duration or is_done(clip.id):
+            continue
+        seen.add(clip.id)
+        twin = next((p for p in picked if same_moment(p, clip)), None)
+        if twin is not None:
+            twin.clippers = getattr(twin, "clippers", 1) + 1
             continue
         if on_tiktok(clip):  # déjà sur le compte (autre PC, publication à la main…)
             log.info("Déjà sur TikTok, ignoré : %s · %s", clip.broadcaster_name, clip.title)
             continue
+        clip.clippers = 1
         picked.append(clip)
-        per[key] = per.get(key, 0) + 1
         if len(picked) >= top:
             break
-    return picked
+    return [(c, owner.get(c.id) or c.broadcaster_name.lower()) for c in picked]
 
 
 TOP_CATEGORIES = 10
@@ -264,26 +185,14 @@ def category_clips(twitch: TwitchClient, pool, state, *, language: str | None, h
     except Exception:
         log.warning("Noms des chaînes indisponibles", exc_info=True)
         return []
-    _, bad = proven_channels(state)
     out, seen = [], set()
     for c in found:
         login = logins.get(c.broadcaster_id)
-        if not login or c.id in seen or (login in bad and login not in favorites):
+        if not login or c.id in seen:
             continue
         seen.add(c.id)
         out.append((c, login))
     return out
-
-
-def audience_of(state, owner: dict):
-    """Spectateurs (pic relevé) du streamer d'un clip, d'après les lives mémorisés."""
-    memory = state.get_settings().get(MEMORY_KEY) or {}
-
-    def viewers(clip: Clip) -> int | None:
-        login = owner.get(clip.id) or clip.broadcaster_name.lower()
-        v = (memory.get(login) or {}).get("viewers")
-        return int(v) if v and int(v) >= 20 else None  # trop peu de spectateurs : non fiable
-    return viewers
 
 
 def _plain(text: str) -> str:
@@ -328,7 +237,7 @@ def resolve_query(twitch: TwitchClient, terms: list[str]) -> dict:
 
 
 def query_pool(twitch: TwitchClient, pool, state, q: dict, *, language: str | None,
-               hours: float, streamers: int, favorites=()) -> tuple[list, dict]:
+               hours: float, favorites=()) -> tuple[list, dict]:
     """Clips correspondant à la recherche : ceux des chaînes demandées, les plus vus des
     jeux demandés, et pour les mots-clés, les clips du moment dont le titre les contient."""
     clips, owner = [], {}
@@ -352,8 +261,8 @@ def query_pool(twitch: TwitchClient, pool, state, q: dict, *, language: str | No
             clips.append(c)
     if q["keywords"]:  # mots-clés : dans les clips du moment (chaînes et catégories suivies)
         words = [_plain(k) for k in q["keywords"]]
-        chans = candidate_channels(twitch, state, language=language, streamers=streamers,
-                                   favorites=favorites, hours=hours)
+        chans = candidate_channels(twitch, state, language=language, favorites=favorites,
+                                   hours=hours)
         found = list(pool.map(fetch, chans.items()))
         extra = category_clips(twitch, pool, state, language=language, hours=hours,
                                favorites=favorites, known=owner)
@@ -365,42 +274,30 @@ def query_pool(twitch: TwitchClient, pool, state, q: dict, *, language: str | No
     return clips, owner
 
 
-def views_floor(clips: list[Clip], top: int, max_duration: float) -> int:
-    """Vues minimum : 100 si le vivier a assez de clips au-dessus (un clip à 30 vues est
-    rarement un moment fort), sinon 30."""
-    ok = [c for c in clips if c.view_count >= 100 and c.duration <= max_duration]
-    return 100 if len(ok) >= top * 5 else 30
-
-
-def discover(twitch: TwitchClient, state, *, language: str | None = "fr", streamers: int = 30,
-             hours: float = 24, top: int = 3, min_views: int = 50, max_duration: float = 60,
-             favorites: list[str] = (), per_channel: int = 1,
-             query: list[str] | None = None) -> list[tuple[Clip, str]]:
-    """Retourne [(clip, login)] des meilleurs temps forts du moment, ou de la recherche
+def discover(twitch: TwitchClient, state, *, language: str | None = "fr", hours: float = 24,
+             top: int = 3, max_duration: float = 60, favorites: list[str] = (),
+             query: list[str] | None = None, **_) -> list[tuple[Clip, str]]:
+    """[(clip, login)] des ``top`` clips les plus vus de la période, ou de la recherche
     ``query`` (chaînes, jeux ou mots-clés tapés dans « Recherche ponctuelle »)."""
     from concurrent.futures import ThreadPoolExecutor
 
+    check = dict(is_done=state.is_done, on_tiktok=tiktok_check(state))
     if query:
         q = resolve_query(twitch, query)
         with ThreadPoolExecutor(max_workers=8) as pool:
             clips, owner = query_pool(twitch, pool, state, q, language=language, hours=hours,
-                                      streamers=streamers, favorites=favorites)
-        only_channels = bool(q["channels"]) and not q["games"] and not q["keywords"]
-        if only_channels:  # chaîne demandée : ses clips, quelle que soit la langue
-            per_channel, language = top, None
-        else:
-            per_channel = max(per_channel, 2)
-            min_views = max(min_views, views_floor(clips, top, max_duration))
-        picked = pick_clips(clips, top=top, per_channel=per_channel, min_views=min_views,
-                            max_duration=max_duration, language=language,
-                            is_done=state.is_done, on_tiktok=tiktok_check(state),
-                            boost=preselection_boost(state), audience=audience_of(state, owner))
+                                      favorites=favorites)
+        if q["channels"] and not q["games"] and not q["keywords"]:
+            language = None  # chaîne demandée : ses clips, quelle que soit la langue
+        picked = pick_clips(clips, owner, top=top, max_duration=max_duration,
+                            language=language, **check)
         log.info("Recherche « %s » : %d clips trouvés, %d retenus", ", ".join(query),
                  len(clips), len(picked))
-        return [(c, owner[c.id]) for c in picked]
-    channels = candidate_channels(twitch, state, language=language, streamers=streamers,
-                                  favorites=favorites, hours=hours)
-    log.info("Découverte : %d chaînes scannées (%s)", len(channels), language or "toutes langues")
+        return picked
+    channels = candidate_channels(twitch, state, language=language, favorites=favorites,
+                                  hours=hours)
+    log.info("Recherche : %d chaînes ont diffusé sur la période (%s)", len(channels),
+             language or "toutes langues")
 
     def fetch(item):
         login, broadcaster_id = item
@@ -411,7 +308,7 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
             return login, []
 
     clips, owner = [], {}
-    # 8 requêtes Twitch à la fois (bien sous la limite de 800/min) au lieu d'une par une
+    # 8 requêtes Twitch à la fois (bien sous la limite de 800/min)
     with ThreadPoolExecutor(max_workers=8) as pool:
         for login, found in pool.map(fetch, channels.items()):
             for c in found:
@@ -422,78 +319,22 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", stream
     for c, login in extra:
         owner[c.id] = login
         clips.append(c)
-    log.info("Découverte : %d clips des lives + %d des catégories du moment",
-             len(clips) - len(extra), len(extra))
-    min_views = max(min_views, views_floor(clips, top, max_duration))
-    picked = pick_clips(clips, top=top, per_channel=per_channel, min_views=min_views,
-                        max_duration=max_duration, language=language, is_done=state.is_done,
-                        on_tiktok=tiktok_check(state), boost=preselection_boost(state),
-                        audience=audience_of(state, owner))
-    log.info("%d clips trouvés, %d retenus", len(clips), len(picked))
-    return [(c, owner[c.id]) for c in picked]
-
-
-def note_for(state):
-    from .potential import note_for as _note_for
-
-    return _note_for(state)
+    picked = pick_clips(clips, owner, top=top, max_duration=max_duration, language=language,
+                        **check)
+    log.info("%d clips de la période trouvés, les %d plus vus retenus", len(clips), len(picked))
+    return picked
 
 
 def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tuple[str, bool]]:
-    from . import progress
-    from .pipeline import Prefetcher, process_clip
+    """Recherche complète : les clips les plus vus, complétés par Claude, puis montés."""
+    from . import progress, stats
+    from .selection import make_clips
 
-    from . import stats
-
-    results = []
-    progress.step("search", f"Lives les plus regardés ({kwargs.get('language') or 'toutes langues'})")
+    progress.step("search", f"Clips les plus vus ({kwargs.get('language') or 'toutes langues'})")
     stats.refresh_before_search(cfg, state)  # pour écarter les clips déjà sur TikTok
-    from . import selection
-
-    top = int(kwargs.pop("top", 3))
-    # présélection large (données Twitch), puis écoute pour ne garder que les meilleurs
-    radar = selection.jury_for(opts, kwargs.get("language"), state=state)
-    size = selection.shortlist_size(top, radar=radar is not None)
-    # avec le Radar : deux fois plus de candidats, la 2e moitié n'est regardée que s'il
-    # manque des clips publiables dans la 1re
-    from .moments import merge_moments
-
-    found = discover(twitch, state, max_duration=opts.max_duration,
-                     top=(size * 2 if radar is not None else size) + top, **kwargs)
-    found = merge_moments(found)  # plusieurs clips du même moment : un seul
+    found = discover(twitch, state, max_duration=opts.max_duration, **kwargs)
     if not found:
-        progress.step("search", "Aucun nouveau clip assez viral pour le moment")
-    found, reserve = found[:size], found[size:]
+        progress.step("search", "Aucun nouveau clip sur la période")
+        return []
     twitch.annotate_categories([clip for clip, _ in found])
-    # téléchargements anticipés (versions légères ; rien pour les clips déjà jugés)
-    prefetch = Prefetcher(cfg, selection.to_download([c for c, _ in found], radar),
-                          max_duration=opts.max_duration)
-    prefetches = [prefetch]
-
-    def more():
-        if not reserve:
-            return None
-        twitch.annotate_categories([clip for clip, _ in reserve])
-        extra = Prefetcher(cfg, selection.to_download([c for c, _ in reserve], radar),
-                           max_duration=opts.max_duration)
-        prefetches.append(extra)
-        return reserve, {c.id: extra.source(c) for c, _ in reserve}
-    try:
-        found = selection.pick_best(found, {c.id: prefetch.source(c) for c, _ in found}, top,
-                                    jury=radar, note=note_for(state), more=more)
-        prefetch.prepare([clip for clip, _ in found])  # 1080p des clips retenus, en parallèle
-        for i, (clip, login) in enumerate(found, 1):
-            progress.clip(i, len(found), f"{login} · {clip.title}")
-            share = getattr(clip, "audience_share", None)
-            log.info("→ %s · %s (%d vues%s) %s", login, clip.title, clip.view_count,
-                     f", vu par {share:.0%} de ses spectateurs" if share else "", clip.url)
-            try:
-                ok = process_clip(clip, login, cfg, state, opts, source=prefetch.final(clip))
-            except Exception:
-                log.exception("Erreur sur %s", clip.id)
-                ok = False
-            results.append((clip.id, ok))
-    finally:
-        for p in prefetches:
-            p.close()
-    return results
+    return make_clips(found, cfg, state, opts, language=kwargs.get("language"))

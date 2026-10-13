@@ -1,6 +1,6 @@
 """Style de l'accroche à l'écran, adapté au jeu ou à l'ambiance du clip.
 
-Le Radar choisit un thème (d'après les images et le jeu) et une couleur tirée du jeu ou de
+Claude choisit un thème (d'après les images et le jeu) et une couleur tirée du jeu ou de
 la scène ; sans lui, le thème vient de la catégorie Twitch. Chaque thème a sa police (libres,
 téléchargées avec la police des sous-titres) et sa façon d'utiliser la couleur.
 """
@@ -30,7 +30,7 @@ DEFAULT_ACCENT = {"pop": "#FF4F7B", "comic": "#FF4F7B", "cartoon": "#9B5CFF",
                   "action": "#FF4655", "horror": "#E01E1E", "retro": "#39FF14",
                   "neon": "#00E5FF"}
 
-# sans le Radar : thème d'après la catégorie Twitch (mots du nom de la catégorie)
+# sans Claude : thème d'après la catégorie Twitch (mots du nom de la catégorie)
 CATEGORY_THEMES = [
     (r"phasmo|lethal company|outlast|dead by daylight|resident evil|silent hill|horror|"
      r"horreur|fnaf|five nights|amnesia|alien|content warning", "horror"),
@@ -41,7 +41,7 @@ CATEGORY_THEMES = [
     (r"league of legends|teamfight|dota|hearthstone|world of warcraft|elden|souls", "comic"),
     (r"just chatting|discussion|irl|talk|asmr|music|musique|art", "pop"),
 ]
-GAME_ACCENTS = [  # couleurs emblématiques quand le Radar n'en donne pas
+GAME_ACCENTS = [  # couleurs emblématiques quand Claude n'en donne pas
     (r"valorant", "#FF4655"), (r"fortnite", "#9D4DFF"), (r"minecraft", "#5BB33C"),
     (r"league of legends|teamfight", "#C8AA6E"), (r"grand theft auto|gta", "#57B846"),
     (r"counter|cs2", "#F0A030"), (r"rocket league", "#1E90FF"), (r"apex", "#DA292A"),

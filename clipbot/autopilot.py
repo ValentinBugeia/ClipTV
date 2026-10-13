@@ -104,7 +104,6 @@ class Autopilot:
         self.next_run: float | None = None
         self.live_status: dict[str, str] = {}
         self._watchers: dict[str, tuple[threading.Thread, threading.Event]] = {}
-        self.chat = None          # enregistreur de l'activité du chat (live.ChatRecorder)
         self._chat_synced = 0.0
         self._watch_key = ""
 
@@ -122,8 +121,6 @@ class Autopilot:
 
     def shutdown(self) -> None:
         self.stop.set()
-        if self.chat is not None:
-            self.chat.stop.set()
         self.wake.set()
         self._sync_watchers({"enabled": False})
 
@@ -137,33 +134,24 @@ class Autopilot:
             self.wake.wait(self.tick)
             self.wake.clear()
 
-    def _sync_chat_recorder(self, settings: dict) -> None:
-        """Écoute en continu le chat des lives scannés (toutes les 30 min : nouvelle liste)."""
+    def _remember_streams(self, settings: dict) -> None:
+        """Toutes les 30 min : catégories regardées en ce moment, mémorisées pour savoir où
+        chercher (même le lendemain matin, quand ces lives sont finis)."""
         if not (self.cfg.twitch_client_id and self.cfg.twitch_client_secret):
             return
-        if self.chat is None:
-            from .live import ChatRecorder
-
-            self.chat = ChatRecorder(self.state)
-            self.chat.start()
         if time.time() - self._chat_synced < 1800:
             return
         self._chat_synced = time.time()
         try:
-            from .discover import proven_channels, remember_streams
+            from .discover import remember_streams
             from .twitch import TwitchClient, get_top_streams
 
             twitch = TwitchClient(self.cfg.twitch_client_id, self.cfg.twitch_client_secret)
             streams = get_top_streams(twitch, language=settings.get("language") or None,
                                       first=100)
-            remember_streams(self.state, streams)  # pour les recherches du lendemain matin
-            live = [s["user_login"] for s in streams[: int(settings.get("streamers", 30))]]
-            wanted = set(live) | set(settings.get("channels") or []) \
-                | set(settings.get("live_channels") or []) | set(proven_channels(self.state)[0])
-            self.chat.set_channels(wanted)
-            log.info("Écoute du chat de %d lives (repère les moments forts)", len(wanted))
+            remember_streams(self.state, streams)
         except Exception:
-            log.warning("Liste des lives pour l'écoute du chat indisponible", exc_info=True)
+            log.warning("Liste des lives indisponible", exc_info=True)
 
     def _step(self) -> None:
         from . import stats
@@ -172,7 +160,7 @@ class Autopilot:
             stats.refresh(self.cfg, self.state)  # statistiques TikTok, toutes les heures
         settings = load_settings(self.state, self.cfg)
         apply_settings(self.cfg, settings)
-        self._sync_chat_recorder(settings)
+        self._remember_streams(settings)
         self._sync_watchers(settings)
         if not settings["enabled"]:
             self.message, self.next_run = "En pause", None

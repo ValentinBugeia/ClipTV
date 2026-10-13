@@ -1,6 +1,5 @@
 """Accroche, début coupé, sous-titres déjà présents, sélection des clips."""
 
-from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -64,22 +63,6 @@ def test_burned_subtitles(tmp_path):
     hud = make_video(tmp_path / "hud.mp4", ["HEALTH 100 AMMO 30 ROUND 12"])
     assert has_burned_subtitles(subs) is True
     assert has_burned_subtitles(hud) is False
-
-
-def test_standout_score_prefers_exceptional_clip():
-    from clipbot.discover import standout_score
-    from clipbot.twitch import Clip
-
-    now = datetime.now(timezone.utc) - timedelta(hours=10)
-
-    def clip(cid, name, views):
-        return Clip(id=cid, url="u", title="t", broadcaster_name=name, creator_name="c",
-                    view_count=views, created_at=now, duration=30)
-
-    clips = [clip("big1", "gros", 5000), clip("big2", "gros", 5200), clip("big3", "gros", 5100),
-             clip("small1", "petit", 40), clip("small2", "petit", 50), clip("star", "petit", 3000)]
-    score = standout_score(clips)
-    assert score(clips[-1]) > score(clips[0])  # le clip qui explose chez le petit streamer
 
 
 def test_find_end_cuts_dead_tail():

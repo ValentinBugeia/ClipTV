@@ -12,7 +12,7 @@ log = logging.getLogger("clipbot")
 # meilleure vidéo + meilleure piste audio, fusionnées.
 FORMATS = ("best[ext=mp4]/best", "bv*+ba/b")
 # version légère pour écouter et juger les candidats (son identique, image suffisante pour
-# le Radar) : la version 1080p n'est téléchargée que pour les clips retenus
+# Claude) : la version 1080p n'est téléchargée qu'ensuite, pour le passage choisi
 PREVIEW_FORMATS = ("best[height<=480][ext=mp4]/best[height<=480]/worst[ext=mp4]/worst",
                    "bv*[height<=480]+ba/b")
 
@@ -65,7 +65,7 @@ def download_clip(url: str, dest_dir: Path, clip_id: str, formats=FORMATS) -> Pa
 
 
 def download_preview(url: str, dest_dir: Path, clip_id: str) -> Path:
-    """Version légère du clip (480p), pour l'écoute et le Radar."""
+    """Version légère du clip (480p), quand il n'y a pas de rediffusion."""
     return download_clip(url, dest_dir, f"{clip_id}-small", PREVIEW_FORMATS)
 
 

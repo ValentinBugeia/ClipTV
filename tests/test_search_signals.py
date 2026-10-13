@@ -2,9 +2,7 @@
 
 import time
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
-from clipbot import selection
 from clipbot.config import Config
 from clipbot.live import BUCKET, ChatRecorder, chat_spike
 from clipbot.state import State
@@ -29,15 +27,6 @@ def test_chat_recorder_and_spike(tmp_path):
     spike = chat_spike(state, "Nico_La", moment)
     assert spike and spike >= 10
     assert chat_spike(state, "inconnu", moment) is None  # chat pas écouté
-    clip = SimpleNamespace(broadcaster_name="nico_la",
-                           created_at=datetime.fromtimestamp(moment, timezone.utc))
-    assert selection.chat_factor(state, clip) == 2.0 and clip.chat_spike >= 10
-
-
-def test_title_factor():
-    assert selection.title_factor("il rage complètement") > 1
-    assert selection.title_factor("KEKW le fail") > 1
-    assert selection.title_factor("partie classée") == 1
 
 
 def test_timing_factor():
@@ -61,19 +50,3 @@ def test_speech_energy():
     e = speech_energy(hype)
     assert e["talk_rate"] > 2.5 and e["hype_words"] >= 3
     assert speech_energy([]) == {"talk_rate": 0.0, "hype_words": 0}
-
-
-def test_proven_channels(tmp_path):
-    from clipbot.discover import proven_channels
-
-    state = make_state(tmp_path)
-    state.save_videos([{"video_id": f"v{i}", "title": "", "description": f"twitch.tv/{ch}",
-                        "create_time": 1, "cover": None, "share_url": None, "views": v,
-                        "likes": 0, "comments": 0, "shares": 0, "duration": 20, "clip_id": None}
-                       for i, (ch, v) in enumerate([("top", 5000), ("top", 6000), ("top", 5500),
-                                                    ("flop", 50), ("flop", 40), ("flop", 60),
-                                                    ("mid", 900), ("mid", 1000)])])
-    for i in range(3):  # rejeter ses clips ne le classe pas « à éviter »
-        state.record(f"r{i}", "rejete", "rejected")
-    good, bad = proven_channels(state)
-    assert good == ["top"] and "flop" in bad and "rejete" not in bad

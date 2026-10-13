@@ -564,14 +564,11 @@ def test_retry_failed_shows_tiktok_screen_again(server, monkeypatch):
     assert state.get("abc")["status"] == "failed"
 
 
-def test_potential_badge_on_card(server):
-    import json
-
+def test_card_shows_twitch_views(server):
     base, state = server
-    state.set_signals("abc", json.dumps({"vph": 900, "standout": 3, "duration": 22,
-                                          "speech": True, "hook": True}))
+    state.record("abc", "kamet0", "rendered", view_count=12345)
     page = urllib.request.urlopen(base + "/").read().decode()
-    assert 'class="pot r-' in page and "/10" in page and "Estimation de départ" in page
+    assert 'class="pot"' in page and "12" in page and "/10" not in page
 
 
 def test_card_warns_when_already_on_tiktok(server):

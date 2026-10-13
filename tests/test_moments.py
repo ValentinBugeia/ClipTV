@@ -62,15 +62,15 @@ def test_timed_lines_for_claude():
     assert text == "[1.0 → 1.9] salut toi\n[5.0 → 5.5] quoi"
 
 
-def test_radar_cut_replaces_auto_cut():
+def test_claude_cut_replaces_auto_cut():
     from clipbot import selection
 
     c = clip("a")
     c.window = Window(Path("x"), 85.0, 50.0, (15.0, 35.0))
     c.cut = (14.0, 36.0)
-    selection._radar_cut(c, {"start": 9.5, "end": 41.0})
+    selection.claude_cut(c, {"start": 9.5, "end": 41.0})
     assert c.cut == (9.5, 41.0)
-    selection._radar_cut(c, {"start": 9.5, "end": 10.0})  # absurde : ignoré
+    selection.claude_cut(c, {"start": 9.5, "end": 10.0})  # absurde : ignoré
     assert c.cut == (9.5, 41.0)
 
 

@@ -209,11 +209,14 @@ def note_for(state):
 
     def note(clip) -> float:
         audio = getattr(clip, "audio", None) or {}
+        cut = getattr(clip, "cut", None)  # le clip tel qu'il sera découpé
+        words = getattr(clip, "window_words", None)
         sig = {"vph": round(clip.virality(), 1), "standout": getattr(clip, "standout", None),
                "audience_share": getattr(clip, "audience_share", None),
-               "chat_spike": getattr(clip, "chat_spike", None), "duration": clip.duration,
+               "chat_spike": getattr(clip, "chat_spike", None),
+               "duration": (cut[1] - cut[0]) if cut else clip.duration,
                "reaction": audio.get("reaction"), "peak_at": audio.get("peak_at"),
-               "speech": getattr(clip, "quick_text", "x") != "", "hook": True}
+               "speech": bool(words) if words is not None else True, "hook": True}
         return score({"channel": clip.broadcaster_name, "category": getattr(clip, "category", ""),
                       "signals": json.dumps({k: v for k, v in sig.items() if v is not None})},
                      hist)["note"]

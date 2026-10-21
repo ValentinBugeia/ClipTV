@@ -236,3 +236,22 @@ def test_windows_npm_launcher_gets_instructions_in_the_message(fake_claude, monk
     assert "--append-system-prompt" not in call["args"] and "" not in call["args"]
     text = json.loads(call["stdin"])["message"]["content"][-1]["text"]
     assert text.startswith("CONSIGNES :\nligne 1\nligne 2 « é »")
+
+
+def test_claude_keeps_the_strongest_candidates(tmp_path):
+    """Avec Claude : ~2× plus de candidats, les mieux notés sont montés (à note égale, les
+    plus vus) ; les extraits des autres sont supprimés. Sans Claude : les plus vus."""
+    from clipbot import selection
+    from clipbot.moments import Window
+
+    def clip(cid, views, score):
+        path = tmp_path / f"{cid}.mp4"
+        path.write_bytes(b"x")
+        return SimpleNamespace(id=cid, title=cid, broadcaster_name="x", view_count=views,
+                               jury={"score": score}, window=Window(path, 0.0, 30.0, (0, 30)))
+    found = [(clip("vu", 9000, 4), "x"), (clip("fou", 3000, 9), "x"),
+             (clip("bon", 2000, 7), "x"), (clip("bon2", 2500, 7), "x")]
+    kept = selection.choose(found, 2)
+    assert [c.id for c, _ in kept] == ["fou", "bon2"]
+    assert not (tmp_path / "vu.mp4").exists() and (tmp_path / "fou.mp4").exists()
+    assert selection.candidates(3, SimpleNamespace(jury=False)) == 3

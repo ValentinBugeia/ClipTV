@@ -346,13 +346,15 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", hours:
 def run_discovery(cfg, state, opts, twitch: TwitchClient, **kwargs) -> list[tuple[str, bool]]:
     """Recherche complète : les clips les plus vus, complétés par Claude, puis montés."""
     from . import progress, stats
-    from .selection import make_clips
+    from .selection import candidates, make_clips
 
     progress.step("search", f"Clips les plus vus ({kwargs.get('language') or 'toutes langues'})")
     stats.refresh_before_search(cfg, state)  # pour écarter les clips déjà sur TikTok
-    found = discover(twitch, state, max_duration=opts.max_duration, **kwargs)
+    top = int(kwargs.pop("top", 3))
+    found = discover(twitch, state, max_duration=opts.max_duration,
+                     top=candidates(top, opts), **kwargs)
     if not found:
         progress.step("search", "Aucun nouveau clip sur la période")
         return []
     twitch.annotate_categories([clip for clip, _ in found])
-    return make_clips(found, cfg, state, opts, language=kwargs.get("language"))
+    return make_clips(found, cfg, state, opts, language=kwargs.get("language"), top=top)

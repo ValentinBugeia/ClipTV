@@ -37,7 +37,14 @@ leur fin en secondes, le titre donné par les viewers, le streamer et la catégo
    - s'il n'y a pas de rediffusion, l'extrait EST le clip : tu ne peux que retirer un
      temps mort au début ou à la fin ;
    - reason : en une phrase courte, ce que tu as ajouté ou retiré et pourquoi.
-2) PUBLICATION, fidèle à ce que tu vois et entends (n'invente rien) :
+2) NOTE (score, de 0 à 10) le clip ainsi complété : seuls les mieux notés seront publiés.
+   - va-t-il faire réagir sur TikTok des gens qui ne connaissent pas le streamer ? Un vrai
+     moment fort : fou rire, cri, rage, clash, exploit, malaise, moment absurde ;
+   - se comprend-il en le regardant une fois, du début à la fin ?
+   - note basse : moment banal, gameplay sans réaction, blague interne, clip qu'on ne
+     comprend pas ou auquel il manque encore un morceau.
+   Sois exigeant : 5 = moyen, 7 = bon, 9 = excellent.
+3) PUBLICATION, fidèle à ce que tu vois et entends (n'invente rien) :
 - hook : accroche de la description, COURTE (max 60 caractères), qui se termine par 1 ou 2
   emojis qui collent au moment (😂 😱 😡 💀 😭 🔥 😳 🤯 👀…), sans dévoiler la chute ;
 - question : question très courte aux spectateurs sur CE moment (max 45 caractères), qui
@@ -66,6 +73,7 @@ SCHEMA = {
                 "properties": {
                     "id": {"type": "string"},
                     "reason": {"type": "string"},
+                    "score": {"type": "number"},
                     "hook": {"type": "string"},
                     "question": {"type": "string"},
                     "hashtags": {"type": "array", "items": {"type": "string"}},
@@ -81,7 +89,7 @@ SCHEMA = {
                     "start": {"type": "number", "description": "début du clip (s dans l'extrait)"},
                     "end": {"type": "number", "description": "fin du clip (s dans l'extrait)"},
                 },
-                "required": ["id", "reason", "hook", "question",
+                "required": ["id", "reason", "score", "hook", "question",
                              "hashtags", "overlay", "reaction", "moderation", "hook_theme",
                              "hook_color", "start", "end"],
                 "additionalProperties": False,
@@ -174,6 +182,7 @@ def complete(items: list[tuple], *, language: str | None = "fr") -> dict[str, di
         try:
             out[str(row["id"])] = {
                 "reason": str(row.get("reason") or "")[:200],
+                "score": _score(row.get("score")),
                 "hook": str(row.get("hook") or "").strip()[:120],
                 "question": str(row.get("question") or "").strip()[:90],
                 "hashtags": [str(t) for t in (row.get("hashtags") or [])][:6],
@@ -187,6 +196,13 @@ def complete(items: list[tuple], *, language: str | None = "fr") -> dict[str, di
         except (KeyError, TypeError, ValueError):
             continue
     return out
+
+
+def _score(value) -> float | None:
+    try:
+        return round(max(0.0, min(float(value), 10.0)), 1)
+    except (TypeError, ValueError):
+        return None
 
 
 def _seconds(value) -> float | None:

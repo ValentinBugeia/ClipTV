@@ -478,7 +478,7 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
     Retourne [(clip_id, succès)]."""
     from . import stats
     from .discover import pick_clips
-    from .selection import make_clips
+    from .selection import candidates, make_clips
 
     stats.refresh_before_search(cfg, state)
     on_tiktok = stats.on_tiktok(state)  # clips déjà sur le compte TikTok : ignorés
@@ -487,13 +487,13 @@ def run_channels(channels: list[str], cfg: Config, state: State, opts: Options, 
         log.info("== %s ==", channel)
         progress.step("search", f"Clips de {channel}")
         clips = twitch.get_clips(twitch.get_broadcaster_id(channel), since_hours=hours)
-        found = pick_clips(clips, {c.id: channel for c in clips}, top=top,
+        found = pick_clips(clips, {c.id: channel for c in clips}, top=candidates(top, opts),
                            max_duration=opts.max_duration, is_done=state.is_done,
                            on_tiktok=on_tiktok)
         log.info("%d clips trouvés, les %d plus vus retenus", len(clips), len(found))
         if found:
             twitch.annotate_categories([c for c, _ in found])
-            results += make_clips(found, cfg, state, opts)
+            results += make_clips(found, cfg, state, opts, top=top)
     return results
 
 

@@ -4,11 +4,13 @@ Une app web qui tourne **toute seule, de A à Z** :
 
 1. **trouve les clips Twitch les plus vus** des lives diffusés pendant la période choisie
    (24 h = lives des dernières 24 h, même si la chaîne est hors ligne au moment de la
-   recherche), autant que de clips demandés ; ou recherche libre (chaîne, jeu, mot-clé) ;
+   recherche) — avec Claude, environ 2 fois plus de candidats que de clips demandés ; ou
+   recherche libre (chaîne, jeu, mot-clé) ;
 2. **Claude** (via ton abonnement Claude Code) lit ce qui se dit autour de chaque clip dans
    la rediffusion et **ajoute le début ou la fin** qui manque pour qu'on comprenne
-   (situation → chute → réaction du streamer, jamais au milieu d'une phrase ; sans
-   Claude, l'app le fait elle-même avec les pauses entre les phrases) ;
+   (situation → chute → réaction du streamer, jamais au milieu d'une phrase), note chaque
+   candidat et **garde les plus forts** (sans Claude : les plus vus, complétés par l'app
+   avec les pauses entre les phrases) ;
 3. les monte au **format téléphone 9:16**, cadrés sur la facecam, avec **sous-titres
    animés** (mots forts en couleur), accroche au style du jeu, emoji sur la réaction ;
 4. écrit la **description et les hashtags** ; tu publies depuis **TikTok Studio** en un

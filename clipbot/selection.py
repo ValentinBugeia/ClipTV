@@ -7,8 +7,10 @@
    de la phrase en cours, on va jusqu'à la fin de la dernière et de la réaction
    (``moments.auto_cut``) ;
 3. **Claude** (un seul appel pour tous les clips) lit les phrases, regarde les images et
-   ajoute le début ou la fin qui manque pour que le clip se comprenne ; il écrit aussi la
-   légende (``jury.complete``). Sans Claude, la découpe automatique est gardée ;
+   ajoute le début ou la fin qui manque pour que le clip se comprenne ; il note chaque
+   candidat (va-t-il faire réagir, se comprend-il une fois complété ?) et écrit la légende
+   (``jury.complete``). Avec Claude, il y a environ 2 fois plus de candidats que de clips
+   demandés : les mieux notés sont montés. Sans Claude : les plus vus, découpe automatique ;
 4. **version 1080p** du passage choisi (``moments.final_video``), puis **montage** :
    visage, sous-titres, format vertical, légende (``pipeline.process_clip``).
 """
@@ -27,8 +29,16 @@ def claude_enabled(opts) -> bool:
     return bool(getattr(opts, "jury", False)) and llm.available()
 
 
-def make_clips(found: list, cfg, state, opts, language: str | None = None) -> list[tuple[str, bool]]:
-    """[(clip, login)] → clips complétés et montés. Retourne [(clip_id, succès)]."""
+def candidates(top: int, opts) -> int:
+    """Clips regardés pour en monter ``top`` : avec Claude, environ 2 fois plus (il garde
+    les plus forts) ; sans Claude, juste ``top`` (rien à choisir : les plus vus)."""
+    return min(2 * top + 2, top + 6) if claude_enabled(opts) else top
+
+
+def make_clips(found: list, cfg, state, opts, language: str | None = None,
+               top: int | None = None) -> list[tuple[str, bool]]:
+    """[(clip, login)] candidats, du plus vu au moins vu → les ``top`` meilleurs complétés
+    et montés. Retourne [(clip_id, succès)]."""
     from . import progress
     from .pipeline import Prefetcher, process_clip
 
@@ -38,7 +48,8 @@ def make_clips(found: list, cfg, state, opts, language: str | None = None) -> li
     try:
         complete(found, {c.id: prefetch.source(c) for c in clips}, opts, language,
                  model=(cfg.whisper_model, cfg.whisper_device))
-        prefetch.prepare(clips)  # versions 1080p, pendant le montage du clip précédent
+        found = choose(found, top or len(found))
+        prefetch.prepare([c for c, _ in found])  # 1080p, pendant le montage du précédent
         for i, (clip, login) in enumerate(found, 1):
             progress.clip(i, len(found), f"{login} · {clip.title}")
             log.info("→ %s · %s (%d vues) %s", login, clip.title, clip.view_count, clip.url)
@@ -109,6 +120,27 @@ def complete(found: list, sources: dict, opts, language: str | None = None,
         if verdict:
             clip.jury = verdict  # légende, accroche, style… pour le montage
             claude_cut(clip, verdict)
+
+
+def choose(found: list, top: int) -> list:
+    """Les ``top`` clips à monter : les mieux notés par Claude (à note égale, les plus vus),
+    sinon les plus vus. Les extraits des autres sont supprimés."""
+    def score(entry):
+        verdict = getattr(entry[0], "jury", None) or {}
+        note = verdict.get("score")
+        return (note if note is not None else -1, entry[0].view_count)
+    ranked = sorted(found, key=score, reverse=True) if any(
+        (getattr(c, "jury", None) or {}).get("score") is not None for c, _ in found) else found
+    for clip, _ in ranked:
+        note = (getattr(clip, "jury", None) or {}).get("score")
+        if note is not None:
+            log.info("  %s/10 · %s · %s (%d vues)", note, clip.broadcaster_name, clip.title,
+                     clip.view_count)
+    for clip, _ in ranked[top:]:
+        window = getattr(clip, "window", None)
+        if window is not None:
+            Path(window.path).unlink(missing_ok=True)
+    return ranked[:top]
 
 
 def claude_missing(items: list, reason: str) -> None:

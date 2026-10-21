@@ -77,11 +77,13 @@ def render(status: dict) -> str:
 <div class="steps">
   <div class="step"><b>1. Trouver</b>Les clips Twitch <strong>les plus vus</strong> des lives
   diffusés pendant la période choisie (24 h = lives des dernières 24 h, même si la chaîne est
-  hors ligne maintenant), autant que de clips demandés.</div>
+  hors ligne maintenant). Avec Claude, environ 2 fois plus de candidats que de clips
+  demandés.</div>
   <div class="step"><b>2. Compléter</b><strong>Claude</strong> lit ce qui se dit autour du clip
   dans la rediffusion et <strong>ajoute le début ou la fin</strong> qui manque pour qu'on
-  comprenne (situation → chute → réaction du streamer, jamais au milieu d'une phrase). Sans
-  Claude, l'app le fait elle-même avec les pauses entre les phrases.</div>
+  comprenne (situation → chute → réaction du streamer, jamais au milieu d'une phrase), note
+  chaque candidat et <strong>garde les plus forts</strong>. Sans Claude, l'app prend les plus
+  vus et les complète elle-même avec les pauses entre les phrases.</div>
   <div class="step"><b>3. Monter</b>Format vertical, cadrage sur le streamer, sous-titres
   animés, accroche au style du jeu, emoji sur la réaction, description et hashtags.</div>
   <div class="step"><b>4. Publier</b>Dans <em>Clips → À publier</em>, <strong>🚀 Préparer</strong>

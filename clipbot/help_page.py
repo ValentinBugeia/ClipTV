@@ -75,7 +75,8 @@ def render(status: dict) -> str:
 
 <div class="panel" id="fonctionnement"><h2>Comment ça marche</h2>
 <div class="steps">
-  <div class="step"><b>1. Trouver</b>Les clips Twitch <strong>les plus vus</strong> des lives
+  <div class="step"><b>1. Trouver</b>Les clips <strong>les plus vus</strong> des
+  <strong>streamers les plus vus</strong> (vues de leurs rediffusions), sur les lives
   diffusés pendant la période choisie (24 h = lives des dernières 24 h, même si la chaîne est
   hors ligne maintenant). Avec Claude, environ 2 fois plus de candidats que de clips
   demandés.</div>

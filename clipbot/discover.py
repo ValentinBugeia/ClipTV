@@ -1,9 +1,10 @@
 """Recherche des clips : aucune liste de chaînes à fournir.
 
-1. **Où chercher** : les streamers qui ont diffusé pendant la période choisie (d'après
-   leurs rediffusions dans les catégories les plus regardées), tes chaînes favorites, et
-   les clips les plus vus de ces catégories — même si la chaîne est hors ligne au moment
-   de la recherche ;
+1. **Où chercher** : chez les **streamers les plus vus** — classés par les vues de leurs
+   rediffusions de la période (dans les catégories les plus regardées), plus ceux que
+   l'app a vus les plus regardés en live ces 7 derniers jours (certains désactivent leurs
+   rediffusions) — et chez tes chaînes favorites, même hors ligne au moment de la
+   recherche ;
 2. **quels clips** : seulement ceux créés pendant la période (24 h = le live a eu lieu
    dans les dernières 24 h), dans ta langue, pas déjà préparés ni déjà sur ton TikTok ;
 3. **lesquels** : les plus vus sur Twitch, autant que de clips demandés (plusieurs clips
@@ -52,7 +53,8 @@ def remember_streams(state, streams: list[dict]) -> dict:
     return memory
 
 
-RECENT_CHANNELS = 100  # streamers ayant diffusé sur la période (rediffusions) scannés
+TOP_STREAMERS = 40   # streamers les plus vus de la période (vues des rediffusions)
+TOP_LIVE = 20        # + les plus regardés en live ces 7 derniers jours (relevé de l'app)
 
 
 def main_categories(twitch: TwitchClient, state) -> list[str]:
@@ -62,7 +64,7 @@ def main_categories(twitch: TwitchClient, state) -> list[str]:
     games = sorted(seen, key=lambda g: seen[g].get("viewers", 0), reverse=True)[:TOP_CATEGORIES]
     if len(games) < TOP_CATEGORIES:
         try:
-            games += [g["id"] for g in twitch._get("/games/top", {"first": 20})["data"]
+            games += [g["id"] for g in twitch._get("/games/top", {"first": 50})["data"]
                       if g["id"] not in games][: TOP_CATEGORIES - len(games)]
         except Exception:
             log.warning("Catégories Twitch indisponibles", exc_info=True)
@@ -98,18 +100,30 @@ def recent_broadcasters(twitch: TwitchClient, state, *, language: str | None,
                 if login and v.get("user_id"):
                     views[login] = views.get(login, 0) + int(v.get("view_count") or 0)
                     ids[login] = v["user_id"]
-    top = sorted(views, key=views.get, reverse=True)[:RECENT_CHANNELS]
-    log.info("Rediffusions : %d streamers ont diffusé sur la période (%d catégories)",
-             len(top), len(games))
+    top = sorted(views, key=views.get, reverse=True)[:TOP_STREAMERS]
+    log.info("Streamers les plus vus de la période (vues des rediffusions, %d catégories) : %s",
+             len(games), ", ".join(f"{login} ({views[login]:,})".replace(",", " ")
+                                   for login in top[:15]) + (" …" if len(top) > 15 else ""))
     return {login: ids[login] for login in top}
+
+
+def top_live_streamers(state) -> dict[str, str]:
+    """{login: id} des streamers les plus regardés en live ces 7 derniers jours (pic de
+    spectateurs relevé par l'app), même s'ils n'ont pas de rediffusion."""
+    memory = state.get_settings().get(MEMORY_KEY) or {}
+    best = sorted(memory, key=lambda k: memory[k].get("viewers", 0), reverse=True)[:TOP_LIVE]
+    return {login: memory[login]["id"] for login in best if memory[login].get("id")}
 
 
 def candidate_channels(twitch: TwitchClient, state, *, language: str | None,
                        favorites: list[str] = (), hours: float = 24, **_) -> dict[str, str]:
-    """{login: broadcaster_id} des chaînes à scanner : celles qui ont diffusé sur la période
-    (rediffusions) et tes favoris. Être en live ou non au moment de la recherche ne compte
-    pas : seule la période choisie compte."""
+    """{login: broadcaster_id} des chaînes à scanner : les streamers les plus vus de la
+    période (rediffusions), les plus regardés en live ces 7 derniers jours, et tes favoris.
+    Être en live ou non au moment de la recherche ne compte pas : seuls les clips de la
+    période sont pris."""
     channels = recent_broadcasters(twitch, state, language=language, hours=hours)
+    for login, bid in top_live_streamers(state).items():
+        channels.setdefault(login, bid)
     for login in favorites:
         if login not in channels:
             try:
@@ -173,7 +187,7 @@ def _log_pool(clips: list[Clip], owner: dict, language, max_duration, is_done, n
         log.info("Les plus vus du vivier :\n%s", "\n".join(lines))
 
 
-TOP_CATEGORIES = 10
+TOP_CATEGORIES = 25  # catégories où chercher les rediffusions des streamers les plus vus
 
 
 def category_clips(twitch: TwitchClient, pool, state, *, language: str | None, hours: float,
@@ -314,7 +328,7 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", hours:
         return picked
     channels = candidate_channels(twitch, state, language=language, favorites=favorites,
                                   hours=hours)
-    log.info("Recherche : %d chaînes ont diffusé sur la période (%s)", len(channels),
+    log.info("Recherche : clips de %d streamers parmi les plus vus (%s)", len(channels),
              language or "toutes langues")
 
     def fetch(item):
@@ -332,11 +346,6 @@ def discover(twitch: TwitchClient, state, *, language: str | None = "fr", hours:
             for c in found:
                 owner[c.id] = login
             clips += found
-        extra = category_clips(twitch, pool, state, language=language, hours=hours,
-                               favorites=favorites, known=owner)
-    for c, login in extra:
-        owner[c.id] = login
-        clips.append(c)
     picked = pick_clips(clips, owner, top=top, max_duration=max_duration, language=language,
                         **check)
     log.info("%d clips de la période trouvés, les %d plus vus retenus", len(clips), len(picked))

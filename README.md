@@ -2,7 +2,8 @@
 
 Une app web qui tourne **toute seule, de A à Z** :
 
-1. **trouve les clips Twitch les plus vus** des lives diffusés pendant la période choisie
+1. **trouve les clips les plus vus des streamers les plus vus** (vues de leurs
+   rediffusions), sur les lives diffusés pendant la période choisie
    (24 h = lives des dernières 24 h, même si la chaîne est hors ligne au moment de la
    recherche) — avec Claude, environ 2 fois plus de candidats que de clips demandés ; ou
    recherche libre (chaîne, jeu, mot-clé) ;

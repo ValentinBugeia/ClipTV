@@ -58,17 +58,28 @@ def test_pick_clips_one_clip_per_moment():
     assert [x.id for x, _ in picked] == ["a", "c"] and a.clippers == 2
 
 
-def test_candidates_come_from_the_period_not_current_lives(tmp_path):
-    """Chaînes = celles qui ont diffusé sur la période (rediffusions) + favoris ; les lives
-    en cours et les streamers relevés en live ne comptent pas."""
+def test_candidates_are_the_most_viewed_streamers(tmp_path):
+    """Streamers les plus vus de la période (vues des rediffusions), plus les plus
+    regardés en live ces 7 derniers jours (même sans rediffusion), plus les favoris ;
+    aucun appel aux lives en cours."""
     st = state(tmp_path)
-    st.save_settings({"discovered": {"vuenlive": {"id": "2", "seen": time.time() - 3600}}})
+    st.save_settings({"discovered": {"sansvod": {"id": "2", "seen": time.time() - 3600,
+                                                 "viewers": 40000}}})
     tw = FakeTwitch([{"user_login": "Kamet0", "user_id": "3"}], {})
     chans = candidate_channels(tw, st, language="fr", favorites=["perso"])
-    assert chans == {"kamet0": "3", "perso": "id-perso"}
+    assert chans == {"kamet0": "3", "sansvod": "2", "perso": "id-perso"}
     assert not any(path == "/streams" for path, _ in tw.calls)
     videos = [params for path, params in tw.calls if path == "/videos"]
     assert videos and videos[0]["language"] == "fr" and videos[0]["period"] == "day"
+
+
+def test_only_the_most_viewed_streamers_are_scanned(tmp_path, monkeypatch):
+    from clipbot import discover as d
+
+    monkeypatch.setattr(d, "TOP_STREAMERS", 2)
+    tw = FakeTwitch([{"user_login": f"s{i}", "user_id": f"id{i}", "viewer_count": 1000 - i}
+                     for i in range(5)], {})
+    assert list(candidate_channels(tw, state(tmp_path), language="fr")) == ["s0", "s1"]
 
 
 def test_discover_takes_the_most_viewed(tmp_path):
@@ -94,40 +105,6 @@ class FakeTwitchCategories(FakeTwitch):
 
     def logins(self, ids):
         return {i: self._logins[i] for i in ids if i in self._logins}
-
-
-def test_discover_adds_viral_category_clips(tmp_path):
-    streams = [{"user_login": "petit", "user_id": "id-petit", "viewer_count": 900}]
-    small = [clip(f"p{i}", "petit", 40 + i) for i in range(3)]  # 40 vues : pas un moment fort
-    viral = [clip(f"v{i}", f"star{i}", 8000 - i * 500) for i in range(12)]
-    for i, c in enumerate(viral):
-        c.broadcaster_id = f"id-star{i}"
-    viral.append(clip("en", "anglais", 99999, lang="en"))
-    twitch = FakeTwitchCategories(streams, {"id-petit": small}, {"jc": viral},
-                                  {f"id-star{i}": f"star{i}" for i in range(12)})
-    st = state(tmp_path)
-    st.save_settings({"categories_seen": {"jc": {"seen": time.time(), "viewers": 9000}}})
-    found = discover(twitch, st, language="fr", top=3)
-    assert [login for _, login in found] == ["star0", "star1", "star2"]  # hors ligne compris
-    assert all(c.language == "fr" for c, _ in found)
-
-
-def test_morning_search_uses_last_night_categories(tmp_path):
-    """Relevé de la veille au soir (app ouverte) : à 8 h, plus aucun live dans la catégorie,
-    mais ses meilleurs clips des dernières 24 h sont quand même cherchés."""
-    from clipbot.discover import remember_streams
-
-    st = state(tmp_path)
-    remember_streams(st, [{"user_login": "soiree", "user_id": "id-soiree", "game_id": "gta",
-                           "viewer_count": 20000}])
-    viral = [clip(f"g{i}", f"rp{i}", 9000 - i * 300) for i in range(10)]
-    for i, c in enumerate(viral):
-        c.broadcaster_id = f"id-rp{i}"
-    morning = [{"user_login": "matin", "user_id": "id-matin", "viewer_count": 50}]  # pas de GTA
-    twitch = FakeTwitchCategories(morning, {}, {"gta": viral},
-                                  {f"id-rp{i}": f"rp{i}" for i in range(10)})
-    found = discover(twitch, st, language="fr", top=2)
-    assert [login for _, login in found] == ["rp0", "rp1"]
 
 
 class FakeTwitchSearch(FakeTwitchCategories):

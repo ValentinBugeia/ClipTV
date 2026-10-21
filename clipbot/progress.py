@@ -12,7 +12,7 @@ import time
 # (clé, titre, explication affichée sous l'étape en cours)
 STEPS = [
     ("search", "Recherche des clips les plus vus",
-     "Clips des lives diffusés pendant la période choisie, classés par vues."),
+     "Streamers les plus vus de la période, puis leurs clips classés par vues."),
     ("radar", "Claude complète et choisit les clips",
      "Extrait de la rediffusion autour de chaque candidat, phrases transcrites ; Claude ajoute "
      "le début ou la fin qui manque, garde les plus forts et écrit la description."),

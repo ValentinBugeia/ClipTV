@@ -27,13 +27,21 @@ class ClaudeError(RuntimeError):
     """Claude indisponible : le message dit quoi faire."""
 
 
+WINDOWS = os.name == "nt"
+INSTALL_HINT = ("dans PowerShell : irm https://claude.ai/install.ps1 | iex" if WINDOWS else
+                "curl -fsSL https://claude.ai/install.sh | bash")
+
+
 def cli_path() -> str | None:
     found = shutil.which("claude")
     if found:
         return found
     home = Path.home()
-    for p in (home / ".local/bin/claude", home / ".claude/local/claude",
-              home / ".npm-global/bin/claude", Path("/usr/local/bin/claude")):
+    appdata = Path(os.environ.get("APPDATA") or home / "AppData/Roaming")
+    for p in (home / ".local/bin/claude", home / ".local/bin/claude.exe",
+              home / ".claude/local/claude", home / ".claude/local/claude.exe",
+              home / ".npm-global/bin/claude", appdata / "npm/claude.cmd",
+              Path("/usr/local/bin/claude")):
         if p.exists():
             return str(p)
     return None
@@ -47,9 +55,8 @@ def describe() -> tuple[bool, str]:
     """(disponible, explication) pour les pages Comptes et Aide."""
     if available():
         return True, "Claude Code trouvé sur ce PC : ton abonnement est utilisé (pas de crédit API)"
-    return False, ("Claude Code introuvable sur ce PC → installe-le "
-                   "(curl -fsSL https://claude.ai/install.sh | bash) puis lance « claude » "
-                   "une fois pour te connecter")
+    return False, (f"Claude Code introuvable sur ce PC → installe-le ({INSTALL_HINT}) puis "
+                   "lance « claude » une fois pour te connecter")
 
 
 def _extract_json(text: str) -> dict:
@@ -132,17 +139,25 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
         media = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
         content.append({"type": "image", "source": {"type": "base64", "media_type": media,
                         "data": base64.b64encode(p.read_bytes()).decode()}})
+    # lanceur .cmd (Claude Code installé avec npm sous Windows) : cmd.exe abîme les
+    # arguments sur plusieurs lignes → les consignes passent dans le message
+    via_cmd = exe.lower().endswith((".cmd", ".bat"))
+    if via_cmd:
+        prompt = f"CONSIGNES :\n{system}\n\n{prompt}"
     content.append({"type": "text", "text": prompt + (
         "\n\nRéponds UNIQUEMENT avec un objet JSON conforme à ce schéma, sans texte autour :\n"
         + json.dumps(schema, ensure_ascii=False))})
     message = json.dumps({"type": "user", "message": {"role": "user", "content": content}})
     base = [exe, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
-            "--verbose", "--model", CLI_MODEL, "--append-system-prompt", system]
-    attempts = [base + FAST_FLAGS + ["--effort", effort], base + FAST_FLAGS, base]
+            "--verbose", "--model", CLI_MODEL] + ([] if via_cmd else
+                                                  ["--append-system-prompt", system])
+    fast = FAST_FLAGS[2:] if via_cmd else FAST_FLAGS  # cmd.exe perd l'argument vide de --tools
+    attempts = [base + fast + ["--effort", effort], base + fast, base]
     with tempfile.TemporaryDirectory(prefix="cliptv-claude-") as cwd:
         for cmd in attempts:
             try:
                 proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
+                                      encoding="utf-8", errors="replace",
                                       timeout=timeout, input=message + "\n")
             except subprocess.TimeoutExpired:
                 raise ClaudeError(f"Claude Code n'a pas répondu en {timeout:.0f} s → vérifie qu'il "

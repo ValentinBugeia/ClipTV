@@ -221,3 +221,18 @@ def test_claude_unavailable_is_reported(monkeypatch, tmp_path):
     progress.begin("suivante")
     assert progress.warning() == ""  # nouvelle recherche : alerte effacée
     progress.end("ok")
+
+
+def test_windows_npm_launcher_gets_instructions_in_the_message(fake_claude, monkeypatch, tmp_path):
+    """Claude Code installé avec npm sous Windows (claude.cmd) : cmd.exe abîme les arguments
+    sur plusieurs lignes, les consignes passent donc dans le message."""
+    cmd = tmp_path / "bin" / "claude.cmd"
+    cmd.write_text(FAKE)
+    cmd.chmod(cmd.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(llm, "cli_path", lambda: str(cmd))
+    monkeypatch.setenv("FAKE_RESULT", '{"ok": true}')
+    assert llm.ask_json(system="ligne 1\nligne 2 « é »", prompt="p", schema={}) == {"ok": True}
+    call = fake_claude()
+    assert "--append-system-prompt" not in call["args"] and "" not in call["args"]
+    text = json.loads(call["stdin"])["message"]["content"][-1]["text"]
+    assert text.startswith("CONSIGNES :\nligne 1\nligne 2 « é »")

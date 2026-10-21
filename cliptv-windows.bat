@@ -3,9 +3,45 @@ rem Lanceur cliptv pour Windows : double-clic. Installe ce qui manque puis ouvre
 setlocal EnableExtensions
 title cliptv
 cd /d "%~dp0"
+set "REPO=https://github.com/ValentinBugeia/ClipTV.git"
 echo.
 echo   === cliptv ===
 echo.
+
+rem ---------- mises a jour automatiques ----------
+rem A chaque demarrage : derniere version de cliptv depuis GitHub (git est installe si
+rem besoin, et un dossier venu du ZIP est branche sur GitHub). Le dossier data\ (clips,
+rem reglages, comptes) n'est jamais touche.
+if /i "%~1"=="--updated" goto :after_update
+where git >nul 2>nul
+if errorlevel 1 (
+  echo Installation de git pour les mises a jour automatiques...
+  winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
+  call :refresh_path
+)
+where git >nul 2>nul
+if errorlevel 1 (
+  echo [!] git introuvable : pas de mise a jour automatique cette fois.
+  goto :after_update
+)
+if not exist ".git" (
+  echo Branchement du dossier sur GitHub pour les mises a jour...
+  git init -q
+  git remote add origin %REPO%
+)
+echo Recherche de mises a jour...
+rem Bloc lu en entier avant d'etre execute : si la mise a jour modifie ce fichier, on
+rem repart sur la nouvelle version au lieu de continuer a lire un fichier change.
+(
+  git fetch -q origin main
+  if errorlevel 1 (
+    echo [!] GitHub injoignable : on continue avec la version actuelle.
+  ) else (
+    git reset -q --hard origin/main
+  )
+  "%~f0" --updated
+)
+:after_update
 
 rem ---------- Python 3.10 ou plus ----------
 call :find_python

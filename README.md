@@ -26,7 +26,8 @@ Twitch (clips les plus vus) ─► Claude complète début / fin (rediffusion) �
 ## Installation sur un PC (Windows, Mac, Linux)
 
 1. Sur https://github.com/ValentinBugeia/cliptv : bouton vert **Code** → **Download ZIP**,
-   puis décompresse le dossier où tu veux.
+   puis décompresse le dossier où tu veux (une seule fois : ensuite l'app se met à jour
+   toute seule, voir plus bas).
 2. Lance le fichier qui correspond à ton système :
    - **Windows** : double-clic sur `cliptv-windows.bat` (si Windows affiche « PC protégé »,
      clique sur *Informations complémentaires* → *Exécuter quand même*) ;
@@ -41,8 +42,13 @@ Twitch (clips les plus vus) ─► Claude complète début / fin (rediffusion) �
    « Tout vérifier ». Le pilote automatique démarre tout seul.
 
 Laisse la fenêtre du lanceur ouverte : l'app tourne tant qu'elle est ouverte et que le PC
-est allumé (pense à désactiver la mise en veille). Pour mettre à jour : retélécharge le ZIP
-et remplace les fichiers, **en gardant le dossier `data/`** (tes clips, réglages et comptes).
+est allumé (pense à désactiver la mise en veille).
+
+**Mises à jour** : sous Windows, le lanceur récupère **tout seul la dernière version** à
+chaque démarrage (il installe git si besoin et branche le dossier sur GitHub, même s'il
+vient du ZIP) : pour mettre à jour, ferme la fenêtre et relance `cliptv-windows.bat`. Le
+dossier `data/` (tes clips, réglages et comptes) n'est jamais touché. Sous Linux / Mac :
+`git pull` dans le dossier, puis relance.
 
 **Plusieurs PC** : chaque installation est indépendante (ses propres clés et réglages).
 ⚠️ Avec le **même compte TikTok**, n'active le pilote automatique que sur **un seul PC**,
@@ -105,7 +111,7 @@ celles du `.env`.
 | **TikTok** | https://developers.tiktok.com → Login Kit + Content Posting API, scopes `video.upload` (+ `video.publish`) | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI=https://<domaine>/tiktok/callback` |
 | **YouTube** | console Google Cloud → API YouTube Data v3 → identifiants OAuth de type « TV et appareils à entrée limitée » | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_PRIVACY` |
 | **Instagram** | compte **professionnel** + app Meta (produit Instagram, `instagram_business_content_publish`) → token longue durée à coller dans la page Comptes | — |
-| **Claude** (juré + légendes) | ton abonnement Claude : installe Claude Code (`curl -fsSL https://claude.ai/install.sh \| bash`) puis `claude` → `/login` | — |
+| **Claude** (début / fin des clips + légendes) | ton abonnement Claude : installe Claude Code (Windows, dans PowerShell : `irm https://claude.ai/install.ps1 \| iex` ; Linux / Mac : `curl -fsSL https://claude.ai/install.sh \| bash`) puis `claude` → `/login` | — |
 
 > ⚠️ **TikTok** : tant que l'app n'a pas passé l'**audit**, la publication directe est forcée
 > en privé. Le mode par défaut (`draft`) envoie la vidéo dans ta boîte de réception TikTok :

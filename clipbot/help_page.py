@@ -141,7 +141,9 @@ publies toi-même depuis TikTok Studio (bouton <strong>🚀 Préparer</strong>).
 
 <div class="panel" id="claude"><h2>Claude (facultatif)</h2>
 <ol>
-  <li>Installe Claude Code sur ce PC : <code>curl -fsSL https://claude.ai/install.sh | bash</code></li>
+  <li>Installe Claude Code sur ce PC : sous Windows, dans PowerShell
+  <code>irm https://claude.ai/install.ps1 | iex</code> ; sous Linux / Mac
+  <code>curl -fsSL https://claude.ai/install.sh | bash</code></li>
   <li>Dans un terminal, tape <code>claude</code> puis <code>/login</code> et connecte ton compte.</li>
   <li>C'est tout : cliptv l'utilise tout seul (quota de ton abonnement, pas de crédit API).
   La page <a href="/accounts">Comptes</a> indique s'il est trouvé.</li>

@@ -21,8 +21,8 @@ STEPS = [
     ("face", "Détection du visage et cadrage",
      "Repère la facecam ou le streamer pour choisir le cadrage au format téléphone."),
     ("transcribe", "Transcription de la voix",
-     "Whisper écoute le clip pour créer les sous-titres (la 1re fois, téléchargement du "
-     "modèle : quelques minutes)."),
+     "Whisper écoute le clip pour créer les sous-titres (en général déjà fait pendant "
+     "l'écoute du clip ; la 1re fois, téléchargement du modèle : quelques minutes)."),
     ("render", "Montage vertical 9:16",
      "ffmpeg recadre la vidéo et incruste les sous-titres animés."),
     ("caption", "Écriture de la légende",

@@ -36,7 +36,8 @@ def make_clips(found: list, cfg, state, opts, language: str | None = None) -> li
     prefetch = Prefetcher(cfg, clips)  # extraits légers, en parallèle
     results = []
     try:
-        complete(found, {c.id: prefetch.source(c) for c in clips}, opts, language)
+        complete(found, {c.id: prefetch.source(c) for c in clips}, opts, language,
+                 model=(cfg.whisper_model, cfg.whisper_device))
         prefetch.prepare(clips)  # versions 1080p, pendant le montage du clip précédent
         for i, (clip, login) in enumerate(found, 1):
             progress.clip(i, len(found), f"{login} · {clip.title}")
@@ -54,8 +55,10 @@ def make_clips(found: list, cfg, state, opts, language: str | None = None) -> li
     return results
 
 
-def complete(found: list, sources: dict, opts, language: str | None = None) -> None:
-    """Extrait, phrases et découpe de chaque clip (``clip.cut``) ; Claude complète."""
+def complete(found: list, sources: dict, opts, language: str | None = None,
+             model: tuple = ("small", "auto")) -> None:
+    """Extrait, phrases et découpe de chaque clip (``clip.cut``) ; Claude complète.
+    ``model`` : (modèle Whisper, appareil) des sous-titres : les mots servent au montage."""
     from . import progress
     from .jury import quick_transcript
     from .moments import Window, auto_cut
@@ -73,7 +76,9 @@ def complete(found: list, sources: dict, opts, language: str | None = None) -> N
                 length = float(getattr(clip, "duration", 0) or 0)
                 window = Window(Path(got), None, length, (0.0, length))
             clip.window = window
-            clip.window_words = quick_transcript(Path(window.path), language)
+            clip.window_words = quick_transcript(Path(window.path), language,
+                                                 model_size=model[0], device=model[1])
+            clip.words_model = model[0]
             clip.cut = auto_cut(window, clip.window_words, load_audio(Path(window.path)),
                                 SAMPLE_RATE)
             items.append((clip, window.path))

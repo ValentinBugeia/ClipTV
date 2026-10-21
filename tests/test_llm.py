@@ -99,7 +99,7 @@ def test_claude_completes_every_clip(fake_claude, monkeypatch, tmp_path):
                     "testsrc2=size=320x180:duration=30", "-f", "lavfi", "-i", "sine=duration=30",
                     "-shortest", "-pix_fmt", "yuv420p", str(video)], check=True)
     monkeypatch.setattr("clipbot.jury.quick_transcript",
-                        lambda v, language=None: [Word("mdr", 12.0, 13.0)])
+                        lambda v, language=None, **k: [Word("mdr", 12.0, 13.0)])
     monkeypatch.setenv("FAKE_RESULT", json.dumps({"clips": [
         {"id": "a", "reason": "ajouté la question avant", "hook": "Il craque 😂",
          "question": "", "hashtags": [], "overlay": "", "reaction": "laugh",
@@ -208,7 +208,7 @@ def test_claude_unavailable_is_reported(monkeypatch, tmp_path):
     from clipbot.moments import Window
 
     monkeypatch.setattr(llm, "available", lambda: False)
-    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None: [])
+    monkeypatch.setattr("clipbot.jury.quick_transcript", lambda v, language=None, **k: [])
     monkeypatch.setattr("clipbot.subtitles.load_audio", lambda p: None)
     clip = SimpleNamespace(id="a", title="a", broadcaster_name="x", duration=20.0)
     progress.begin("test")

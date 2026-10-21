@@ -107,13 +107,16 @@ def contact_sheet(video: Path, out: Path, frames: int = FRAMES) -> Path:
     return out
 
 
-def quick_transcript(video: Path, language: str | None = None) -> list:
-    """Mots dits dans l'extrait (avec leur temps), modèle Whisper léger : pour découper."""
+def quick_transcript(video: Path, language: str | None = None, model_size: str = "small",
+                     device: str = "auto") -> list:
+    """Mots dits dans l'extrait (avec leur temps). Même modèle et même précision que les
+    sous-titres : cette transcription sert à la découpe, à Claude, puis directement aux
+    sous-titres (une seule transcription par clip)."""
     from .subtitles import transcribe
 
     try:
-        return transcribe(video, model_size="base", language=language, beam_size=1,
-                          max_seconds=120)
+        return transcribe(video, model_size=model_size, device=device, language=language,
+                          beam_size=3, max_seconds=120)
     except Exception:
         log.warning("Transcription rapide impossible pour %s", video.name, exc_info=True)
         return []

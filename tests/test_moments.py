@@ -113,3 +113,20 @@ def test_final_video_without_rebroadcast_cuts_inside_the_clip(monkeypatch, tmp_p
                         lambda url, d, cid, *a: d / f"{cid}.mp4")
     assert moments.final_video(c, tmp_path) == tmp_path / "a.mp4"
     assert c.render_cut == (2.0, 25.0)
+
+
+def test_subtitles_reuse_the_cut_transcription():
+    """Une seule transcription par clip : les mots de l'extrait sont recalés sur la vidéo
+    finale (le passage coupé commence à 4,3 s dans le fichier 1080p)."""
+    from clipbot.config import Config
+    from clipbot.pipeline import _known_words
+
+    cfg = Config()
+    c = clip("a")
+    c.window_words = words(("avant", 2.0, 2.5), ("salut", 10.2, 10.6), ("fin", 39.0, 39.5),
+                           ("après", 45.0, 45.5))
+    c.cut, c.render_cut, c.words_model = (10.0, 40.0), (4.3, 30.0), cfg.whisper_model
+    got = _known_words(c, cfg)
+    assert [(w.text, round(w.start, 1)) for w in got] == [("salut", 4.5), ("fin", 33.3)]
+    c.words_model = "autre"  # transcrit avec un autre modèle : le montage retranscrit
+    assert _known_words(c, cfg) is None

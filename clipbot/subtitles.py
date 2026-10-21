@@ -103,9 +103,40 @@ def transcribe(
     return words
 
 
+_batched: dict = {}
+BATCH = 8  # morceaux de voix transcrits ensemble (même modèle, nettement plus rapide)
+
+
 def _transcribe(model, audio, language, beam_size) -> list[Word]:
-    # beam_size : 3 pour les sous-titres (presque aussi précis que 5, nettement plus
-    # rapide), 1 pour la transcription rapide du juré
+    """Transcription par lots (plusieurs morceaux de voix à la fois) si la version de
+    faster-whisper le permet, sinon morceau après morceau."""
+    try:
+        from faster_whisper import BatchedInferencePipeline
+    except ImportError:
+        return _sequential(model, audio, language, beam_size)
+    pipe = _batched.get(id(model))
+    if pipe is None:
+        pipe = _batched[id(model)] = BatchedInferencePipeline(model=model)
+    from . import progress
+
+    try:
+        # passage difficile (musique, bruit) : un seul nouvel essai, pas 5 × 5 tirages
+        segments, _info = pipe.transcribe(audio, language=language, word_timestamps=True,
+                                          beam_size=beam_size, batch_size=BATCH,
+                                          temperature=(0.0, 0.5), best_of=1)
+        return _words(segments)
+    except progress.Cancelled:
+        raise
+    except Exception:
+        import logging
+
+        logging.getLogger("clipbot.subtitles").warning(
+            "Transcription par lots impossible : morceau après morceau", exc_info=True)
+        return _sequential(model, audio, language, beam_size)
+
+
+def _sequential(model, audio, language, beam_size) -> list[Word]:
+    # beam_size : 3 pour les sous-titres (presque aussi précis que 5, nettement plus rapide)
     segments, _info = model.transcribe(
         audio, language=language, word_timestamps=True, vad_filter=True, beam_size=beam_size,
         condition_on_previous_text=False,  # évite les répétitions en boucle
@@ -113,6 +144,10 @@ def _transcribe(model, audio, language, beam_size) -> list[Word]:
         # sur un PC lent, ces reprises pouvaient multiplier le temps par 5 à 10
         temperature=(0.0, 0.5), best_of=1,
     )
+    return _words(segments)
+
+
+def _words(segments) -> list[Word]:
     from . import progress
 
     words: list[Word] = []

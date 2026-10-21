@@ -88,11 +88,12 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
                  allow_split: bool = True, language: str | None = None, on_words=None,
                  title: str = "", info: dict | None = None, overlay: str = "",
                  reaction: str = "", hook_style: dict | None = None,
-                 cut: tuple | None = None) -> tuple[Path, list]:
+                 cut: tuple | None = None, words: list | None = None) -> tuple[Path, list]:
     """Rend la vidéo verticale. Retourne (chemin, mots transcrits).
 
     ``cut`` = (début, durée) en secondes : passage déjà choisi (moment complet découpé
     dans la rediffusion) ; sinon début et fin « mous » sont coupés automatiquement.
+    ``words`` : mots déjà transcrits (temps dans ``src``) : pas de nouvelle transcription.
 
     ``overlay`` / ``reaction`` : accroche à l'écran et type de réaction proposés par le juré.
 
@@ -121,9 +122,12 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
 
         burned_job = pool.submit(has_burned_subtitles, src)
 
-    words = []
+    known, words = words, []
     try:
-        if opts.subtitles:
+        if opts.subtitles and known is not None:  # déjà transcrit (découpe du clip)
+            words = known
+            log.info("Sous-titres : transcription de la découpe réutilisée (%d mots)", len(words))
+        elif opts.subtitles:
             log.info("Transcription de %s (whisper %s)…", src.name, cfg.whisper_model)
             progress.step("transcribe", "en parallèle de la détection du visage"
                           if face_job else "")
@@ -235,6 +239,21 @@ def render_video(src: Path, dst: Path, cfg: Config, opts: Options, *,
 
 
 SAFE_BOTTOM = 400  # px (sur 1920) couverts par la description et les boutons de TikTok
+
+
+def _known_words(clip, cfg: Config) -> list | None:
+    """Mots de l'extrait déjà transcrits (avec le modèle des sous-titres), ramenés au temps
+    de la vidéo finale : le montage n'a pas à retranscrire."""
+    from .subtitles import Word
+
+    words, cut = getattr(clip, "window_words", None), getattr(clip, "cut", None)
+    final = getattr(clip, "render_cut", None)
+    if words is None or not cut or not final or \
+            getattr(clip, "words_model", None) != cfg.whisper_model:
+        return None
+    shift = final[0] - cut[0]  # extrait → vidéo finale
+    return [Word(w.text, w.start + shift, w.end + shift) for w in words
+            if w.end > cut[0] - 0.3 and w.start < cut[1] + 0.3]
 
 
 def _hook_style(clip, category: str) -> dict:
@@ -409,7 +428,8 @@ def process_clip(clip, channel: str, cfg: Config, state: State, opts: Options,
                          overlay=(getattr(clip, "jury", None) or {}).get("overlay", ""),
                          reaction=(getattr(clip, "jury", None) or {}).get("reaction", ""),
                          hook_style=_hook_style(clip, category),
-                         cut=getattr(clip, "render_cut", None))
+                         cut=getattr(clip, "render_cut", None),
+                         words=_known_words(clip, cfg))
         import json
 
         try:

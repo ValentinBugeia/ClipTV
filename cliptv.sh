@@ -62,5 +62,11 @@ echo "Installation / mise à jour des dépendances (la première fois : quelques
 .venv/bin/python -m pip install -q -e ".[all]"
 # yt-dlp doit suivre les changements du site de Twitch : toujours la dernière version
 .venv/bin/python -m pip install -q --upgrade yt-dlp || echo "(mise à jour de yt-dlp impossible, on continue)"
+# carte graphique NVIDIA : bibliothèques pour transcrire la voix sur la carte (bien plus
+# rapide) ; sans carte NVIDIA, rien de plus : tout se fait avec le processeur
+if command -v nvidia-smi >/dev/null 2>&1; then
+  .venv/bin/python -m pip install -q nvidia-cublas-cu12 "nvidia-cudnn-cu12>=9,<10" \
+    || echo "(bibliothèques NVIDIA non installées : transcription sur le processeur)"
+fi
 
 exec .venv/bin/python -m clipbot app --host 0.0.0.0 --open "$@"

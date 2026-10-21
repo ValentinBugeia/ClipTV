@@ -52,9 +52,12 @@ def _model(model_size: str, device: str):
     from faster_whisper import WhisperModel
     import os
 
+    from . import gpu
+
+    device = gpu.whisper_device(device)  # carte NVIDIA si possible
     key = (model_size, device)
     if key not in _models:
-        compute_type = "int8" if device in ("auto", "cpu") else "float16"
+        compute_type = "float16" if device == "cuda" else "int8"
         # cœurs physiques plutôt que logiques : plus rapide quand d'autres tâches tournent
         threads = os.cpu_count() or 4
         threads = max(threads // 2, 4) if threads > 8 else threads
@@ -76,13 +79,31 @@ def transcribe(
     import logging
     import time
 
-    model = _model(model_size, device)
+    from . import gpu
+
     started = time.time()
     audio = load_audio(video)
     if max_seconds:
         audio = audio[: int(max_seconds * SAMPLE_RATE)]
     if audio.size == 0:  # clip sans piste audio
         return []
+    try:
+        words = _transcribe(_model(model_size, device), audio, language, beam_size)
+    except Exception as exc:
+        if gpu.whisper_device(device) != "cuda":
+            raise
+        gpu.disable("whisper", exc)  # carte graphique en échec : processeur
+        words = _transcribe(_model(model_size, device), audio, language, beam_size)
+    spent = max(time.time() - started, 0.01)
+    seconds = audio.size / SAMPLE_RATE
+    speed[model_size] = seconds / spent
+    logging.getLogger("clipbot.subtitles").info(
+        "Transcription (%s, %s) : %.0f s de son en %.0f s (×%.1f la vitesse réelle)",
+        model_size, gpu.whisper_device(device), seconds, spent, speed[model_size])
+    return words
+
+
+def _transcribe(model, audio, language, beam_size) -> list[Word]:
     # beam_size : 3 pour les sous-titres (presque aussi précis que 5, nettement plus
     # rapide), 1 pour la transcription rapide du juré
     segments, _info = model.transcribe(
@@ -101,12 +122,6 @@ def transcribe(
             text = w.word.strip()
             if text:
                 words.append(Word(text=text, start=float(w.start), end=float(w.end)))
-    spent = max(time.time() - started, 0.01)
-    seconds = audio.size / SAMPLE_RATE
-    speed[model_size] = seconds / spent
-    logging.getLogger("clipbot.subtitles").info(
-        "Transcription (%s) : %.0f s de son en %.0f s (×%.1f la vitesse réelle)",
-        model_size, seconds, spent, speed[model_size])
     return words
 
 

@@ -87,6 +87,13 @@ echo Installation / mise a jour des dependances (la premiere fois : quelques min
 if errorlevel 1 goto :fail
 rem yt-dlp doit suivre les changements du site de Twitch : toujours la derniere version
 ".venv\Scripts\python.exe" -m pip install -q --upgrade yt-dlp
+rem Carte graphique NVIDIA : bibliotheques pour transcrire la voix sur la carte (bien plus
+rem rapide). Sans carte NVIDIA, rien de plus : tout se fait avec le processeur.
+where nvidia-smi >nul 2>nul
+if not errorlevel 1 (
+  echo Carte NVIDIA detectee : bibliotheques pour la carte graphique, la premiere fois 1 Go environ...
+  ".venv\Scripts\python.exe" -m pip install -q nvidia-cublas-cu12 "nvidia-cudnn-cu12>=9,<10"
+)
 
 rem Windows peut demander d'autoriser l'acces reseau : accepte pour ouvrir l'app
 rem depuis tes autres appareils (sinon elle reste accessible sur ce PC seulement).

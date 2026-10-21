@@ -161,18 +161,29 @@ def render_vertical(
         cmd += ["-loop", "1", "-t", f"{emoji_at + 1.5:.2f}", "-i", str(emoji)]
     if max_duration:
         cmd += ["-t", str(max_duration)]
-    cmd += [
-        "-filter_complex", graph,
-        "-map", "[v]", "-map", "0:a?",
-        # veryfast : ~40 % plus rapide que medium, TikTok réencode de toute façon
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-r", "30",
-        *(["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"] if normalize_audio else []),
-        "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
-        "-movflags", "+faststart",
-        str(dst),
-    ]
-    _run_interruptible(cmd, dst)
+    head = cmd
+
+    def build(encoder: list[str]) -> list[str]:
+        return head + [
+            "-filter_complex", graph,
+            "-map", "[v]", "-map", "0:a?",
+            *encoder,
+            "-r", "30",
+            *(["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"] if normalize_audio else []),
+            "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
+            "-movflags", "+faststart",
+            str(dst),
+        ]
+    from . import gpu
+
+    encoder = gpu.video_encoder()  # carte NVIDIA si possible, sinon le processeur
+    try:
+        _run_interruptible(build(encoder), dst)
+    except subprocess.CalledProcessError as exc:
+        if encoder != gpu.NVENC:
+            raise
+        gpu.disable("nvenc", (exc.stderr or "")[-200:])  # carte en échec : processeur
+        _run_interruptible(build(gpu.video_encoder()), dst)
     return dst
 
 

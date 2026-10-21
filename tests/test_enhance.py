@@ -207,3 +207,35 @@ def test_clip_found_in_rebroadcast_audio():
     other = (rng.standard_normal(30 * sr) * 0.1 *
              np.repeat(rng.random(120) ** 3, sr // 4)).astype(np.float32)
     assert locate(other, long, sr) is None
+
+
+def test_without_nvidia_everything_runs_on_the_processor(monkeypatch):
+    """PC sans carte NVIDIA (ou bibliothèques absentes) : processeur, comme avant."""
+    from clipbot import gpu
+
+    gpu.cuda_libraries.cache_clear()
+    monkeypatch.setattr(gpu, "_cuda_device", lambda: True)  # carte vue…
+    monkeypatch.setattr(gpu, "_search_path", lambda: [])   # …mais pas les bibliothèques
+    assert gpu.whisper_device("auto") == "cpu"
+    gpu.cuda_libraries.cache_clear()
+    monkeypatch.setattr(gpu, "_nvenc_works", lambda: False)
+    assert "libx264" in gpu.video_encoder()
+
+
+def test_render_falls_back_to_processor_when_nvenc_fails(monkeypatch, tmp_path):
+    import subprocess
+
+    from clipbot import gpu, render
+
+    monkeypatch.setattr(gpu, "_nvenc_works", lambda: True)
+    monkeypatch.setattr(gpu, "_disabled", set())
+    used = []
+
+    def fake_run(cmd, dst):
+        used.append(cmd[cmd.index("-c:v") + 1])
+        if used[-1] == "h264_nvenc":
+            raise subprocess.CalledProcessError(1, cmd, stderr="No NVENC capable devices")
+    monkeypatch.setattr(render, "_run_interruptible", fake_run)
+    render.render_vertical(tmp_path / "in.mp4", tmp_path / "out.mp4", layout="blur")
+    assert used == ["h264_nvenc", "libx264"]
+    assert gpu.video_encoder()[1] == "libx264"  # plus d'essai sur la carte ensuite

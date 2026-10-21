@@ -133,6 +133,7 @@ def pick_clips(clips: list[Clip], owner: dict, *, top: int, max_duration: float 
     TikTok, un seul clip par moment (plusieurs viewers clippent souvent le même)."""
     from .moments import same_moment
 
+    _log_pool(clips, owner, language, max_duration, is_done)
     if language:
         clips = [c for c in clips if not c.language or c.language.startswith(language)]
     picked: list[Clip] = []
@@ -153,6 +154,23 @@ def pick_clips(clips: list[Clip], owner: dict, *, top: int, max_duration: float 
         if len(picked) >= top:
             break
     return [(c, owner.get(c.id) or c.broadcaster_name.lower()) for c in picked]
+
+
+def _log_pool(clips: list[Clip], owner: dict, language, max_duration, is_done, n: int = 15):
+    """Journal : les clips les plus vus du vivier et pourquoi certains sont écartés (pour
+    vérifier que les gros moments de la période arrivent bien jusqu'ici)."""
+    best = sorted({c.id: c for c in clips}.values(), key=lambda c: c.view_count,
+                  reverse=True)[:n]
+    lines = []
+    for c in best:
+        why = ("autre langue" if language and c.language and not c.language.startswith(language)
+               else "trop long" if c.duration > max_duration
+               else "déjà préparé" if is_done(c.id) else "")
+        lines.append(f"  {c.view_count:>7} vues · {owner.get(c.id) or c.broadcaster_name} · "
+                     f"{c.title[:50]} ({c.language or '?'}, {c.created_at:%d/%m %Hh%M})"
+                     + (f" → écarté : {why}" if why else ""))
+    if lines:
+        log.info("Les plus vus du vivier :\n%s", "\n".join(lines))
 
 
 TOP_CATEGORIES = 10

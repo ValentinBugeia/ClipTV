@@ -333,16 +333,15 @@ def write_ass(words: list[Word], path: Path, **kwargs) -> Path:
 
 
 def warm_up(model_size: str, device: str = "auto") -> None:
-    """Charge les modèles Whisper en arrière-plan au lancement de l'app : la première
-    recherche n'attend plus leur chargement (ni leur téléchargement la toute première fois)."""
+    """Charge le modèle Whisper en arrière-plan au lancement de l'app : la première
+    recherche n'attend plus son chargement (ni son téléchargement la toute première fois)."""
     import logging
     import threading
 
     def run():
-        for size in dict.fromkeys((model_size, "base")):
-            try:
-                _model(size, device)
-            except Exception:
-                logging.getLogger("clipbot").info("Préchargement Whisper %s impossible", size,
-                                                  exc_info=True)
+        try:
+            _model(model_size, device)
+        except Exception:
+            logging.getLogger("clipbot").info("Préchargement Whisper %s impossible",
+                                              model_size, exc_info=True)
     threading.Thread(target=run, daemon=True, name="whisper-warmup").start()

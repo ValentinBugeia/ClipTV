@@ -105,13 +105,21 @@ def complete(found: list, sources: dict, opts, language: str | None = None,
     if not llm.available():
         claude_missing(items, llm.describe()[1])
         return
-    try:
-        verdicts = jury.complete(items, language=language)
-    except progress.Cancelled:
-        raise
-    except Exception as exc:
-        claude_missing(items, str(exc))
-        return
+    verdicts = None
+    for attempt in (1, 2):  # réponse illisible : on redemande une fois
+        try:
+            verdicts = jury.complete(items, language=language)
+            break
+        except progress.Cancelled:
+            raise
+        except llm.ReplyError as exc:
+            log.warning("Réponse de Claude illisible (essai %d) : %s", attempt, exc)
+            if attempt == 2:
+                claude_missing(items, "sa réponse était illisible deux fois de suite")
+                return
+        except Exception as exc:
+            claude_missing(items, str(exc))
+            return
     if not verdicts:
         claude_missing(items, "réponse vide de Claude")
         return

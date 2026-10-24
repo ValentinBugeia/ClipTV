@@ -27,6 +27,10 @@ class ClaudeError(RuntimeError):
     """Claude indisponible : le message dit quoi faire."""
 
 
+class ReplyError(ValueError):
+    """Claude a répondu, mais sa réponse n'est pas lisible (pas de pause : on peut redemander)."""
+
+
 WINDOWS = os.name == "nt"
 INSTALL_HINT = ("dans PowerShell : irm https://claude.ai/install.ps1 | iex" if WINDOWS else
                 "curl -fsSL https://claude.ai/install.sh | bash")
@@ -59,15 +63,24 @@ def describe() -> tuple[bool, str]:
                    "lance « claude » une fois pour te connecter")
 
 
-def _extract_json(text: str) -> dict:
+def _extract_json(text: str, keys: tuple = ()) -> dict:
+    """Objet JSON de la réponse, même entouré de texte, dans un bloc ```json``` ou suivi
+    d'un 2e objet : le premier objet complet qui contient ``keys`` (sinon le premier)."""
     text = (text or "").strip()
-    m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.S)
-    if m:
-        text = m.group(1)
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < start:
-        raise ClaudeError(f"Réponse de Claude illisible : {text[:160]}")
-    return json.loads(text[start:end + 1])
+    decoder = json.JSONDecoder()
+    found: list[dict] = []
+    for m in re.finditer(r"\{", text):
+        try:
+            obj, _end = decoder.raw_decode(text, m.start())
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            if all(k in obj for k in keys):
+                return obj
+            found.append(obj)
+    if found:
+        return found[0]
+    raise ReplyError(f"Réponse de Claude illisible : {text[:160]}")
 
 
 # appelé après chaque réponse : (usage, tokens entrée, tokens sortie, équivalent $, durée ms)
@@ -190,4 +203,4 @@ def _ask_cli(system: str, prompt: str, schema: dict, images: list[Path], timeout
                               "ça repartira à la réinitialisation du quota.")
         raise ClaudeError(f"Claude Code a échoué : {detail}")
     _record(purpose, data, limits)
-    return _extract_json(result)
+    return _extract_json(result, tuple((schema.get("required") or [])[:1]))

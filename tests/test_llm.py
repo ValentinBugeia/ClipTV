@@ -255,3 +255,16 @@ def test_claude_keeps_the_strongest_candidates(tmp_path):
     assert [c.id for c, _ in kept] == ["fou", "bon2"]
     assert not (tmp_path / "vu.mp4").exists() and (tmp_path / "fou.mp4").exists()
     assert selection.candidates(3, SimpleNamespace(jury=False)) == 3
+
+
+def test_unreadable_reply_is_asked_again_without_pausing(fake_claude, monkeypatch):
+    """Texte ou 2e objet après le JSON : lu quand même. Réponse vraiment illisible :
+    ReplyError, sans mettre Claude en pause pour la suite de la recherche."""
+    monkeypatch.setenv("FAKE_RESULT", '{"clips": [{"id": "a"}]}\n\n{"remarque": "ok"}')
+    assert llm.ask_json(system="s", prompt="p", schema={"required": ["clips"]}) == \
+        {"clips": [{"id": "a"}]}
+    monkeypatch.setenv("FAKE_RESULT", "désolé, pas de JSON")
+    with pytest.raises(llm.ReplyError):
+        llm.ask_json(system="s", prompt="p", schema={})
+    monkeypatch.setenv("FAKE_RESULT", '{"ok": true}')
+    assert llm.ask_json(system="s", prompt="p", schema={}) == {"ok": True}  # pas de pause
